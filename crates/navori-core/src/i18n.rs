@@ -3371,6 +3371,304 @@ impl Doctor {
         )
     }
 
+    /// `doctor.flatSkillsTitle`.
+    #[must_use]
+    pub fn flat_skills_title(self) -> &'static str {
+        self.pick(
+            "Skills que no cargan (formato inválido):",
+            "Skills that never load (invalid shape):",
+        )
+    }
+
+    /// `doctor.flatSkillsRow`.
+    #[must_use]
+    pub fn flat_skills_row(self, path: &str, suggested: &str) -> String {
+        if self.es() {
+            format!("{path} — muévela a {suggested}")
+        } else {
+            format!("{path} — move it to {suggested}")
+        }
+    }
+
+    /// `doctor.flatSkillsHint`.
+    #[must_use]
+    pub fn flat_skills_hint(self) -> &'static str {
+        self.pick(
+            "Claude Code descubre skills SOLO como '<nombre>/SKILL.md'. Un .md suelto no falla: simplemente no existe, sin aviso ninguno.",
+            "Claude Code discovers skills ONLY as '<name>/SKILL.md'. A loose .md doesn't fail: it simply never exists, with no warning at all.",
+        )
+    }
+
+    /// `doctor.foreignSkillIndexTitle`.
+    #[must_use]
+    pub fn foreign_skill_index_title(self) -> &'static str {
+        self.pick(
+            "Índice de skills de otro harness, obsoleto:",
+            "Stale skill index from another harness:",
+        )
+    }
+
+    /// `doctor.foreignSkillIndexRow`.
+    #[must_use]
+    pub fn foreign_skill_index_row(self, path: &str, indexed: usize, producer: &str) -> String {
+        if self.es() {
+            format!(
+                "{path} indexa {indexed} skills y ninguna de esas rutas existe aquí — lo generó {producer}"
+            )
+        } else {
+            format!(
+                "{path} indexes {indexed} skills and not one of those paths exists here — written by {producer}"
+            )
+        }
+    }
+
+    /// `doctor.foreignSkillIndexFrozen`.
+    #[must_use]
+    pub fn foreign_skill_index_frozen(self, date: &str) -> String {
+        if self.es() {
+            format!("congelado el {date}")
+        } else {
+            format!("frozen on {date}")
+        }
+    }
+
+    /// `doctor.foreignSkillIndexHint`.
+    #[must_use]
+    pub fn foreign_skill_index_hint(self) -> &'static str {
+        self.pick(
+            "Se presenta como autoritativo, así que un agente que busque skills en el repo se lleva rutas muertas. navori no lo toca: bórralo o agrégalo al .gitignore.",
+            "It presents itself as authoritative, so an agent looking for skills in this repo walks away with dead paths. navori won't touch it: delete it or add it to .gitignore.",
+        )
+    }
+
+    /// `doctor.permissionModeTitle`.
+    #[must_use]
+    pub fn permission_mode_title(self) -> &'static str {
+        self.pick("Modo de permisos", "Permission mode")
+    }
+
+    /// `doctor.permissionModeUnsupported`.
+    #[must_use]
+    pub fn permission_mode_unsupported(self, mode: &str, path: &str, missing: &str) -> String {
+        if self.es() {
+            format!(
+                "'{path}' fija defaultMode '{mode}', y en ese modo se auto-deniega todo lo que normalmente preguntaría: sin {missing} en 'permissions.allow', el implementer no puede escribir código ni el reviewer su reporte. navori soporta default, acceptEdits, plan y auto; para este modo agrega tú las reglas que tu CI necesite."
+            )
+        } else {
+            format!(
+                "'{path}' sets defaultMode '{mode}', and that mode auto-denies everything that would otherwise prompt: without {missing} in 'permissions.allow', the implementer cannot write code and the reviewer cannot write its report. navori supports default, acceptEdits, plan and auto; for this mode add the rules your CI needs yourself."
+            )
+        }
+    }
+
+    /// `doctor.foreignHarnessTitle`.
+    #[must_use]
+    pub fn foreign_harness_title(self) -> &'static str {
+        self.pick("Harness ajeno", "Foreign harness")
+    }
+
+    /// `doctor.foreignHarnessAgentWord`.
+    #[must_use]
+    pub fn foreign_harness_agent_word(self) -> &'static str {
+        self.pick("el agente", "agent")
+    }
+
+    /// `doctor.foreignHarnessSkillWord`.
+    #[must_use]
+    pub fn foreign_harness_skill_word(self) -> &'static str {
+        self.pick("la skill", "skill")
+    }
+
+    /// `doctor.foreignHarnessConflict`.
+    #[must_use]
+    pub fn foreign_harness_conflict(
+        self,
+        what: &str,
+        name: &str,
+        winner_path: &str,
+        loser_path: &str,
+    ) -> String {
+        if self.es() {
+            format!("{what} '{name}': gana '{winner_path}' y '{loser_path}' queda inerte")
+        } else {
+            format!("{what} '{name}': '{winner_path}' wins and '{loser_path}' stays inert")
+        }
+    }
+
+    /// `doctor.foreignHarnessUndecided`.
+    #[must_use]
+    pub fn foreign_harness_undecided(
+        self,
+        what: &str,
+        name: &str,
+        a_path: &str,
+        b_path: &str,
+    ) -> String {
+        if self.es() {
+            format!(
+                "{what} '{name}' está declarado dos veces en el repo ('{a_path}' y '{b_path}') y la precedencia entre los dos layouts no está documentada — deja uno solo"
+            )
+        } else {
+            format!(
+                "{what} '{name}' is declared twice in the repo ('{a_path}' and '{b_path}') and the precedence between the two layouts is undocumented — keep one"
+            )
+        }
+    }
+
+    /// `doctor.foreignHarnessGitignored`.
+    #[must_use]
+    pub fn foreign_harness_gitignored(self) -> &'static str {
+        self.pick(
+            "y está fuera de control de versiones, así que el resto del equipo corre otro harness",
+            "and it is outside version control, so the rest of the team runs a different harness",
+        )
+    }
+
+    /// `doctor.foreignHarnessAdoptHint`.
+    #[must_use]
+    pub fn foreign_harness_adopt_hint(self, path: &str) -> String {
+        if self.es() {
+            format!(
+                "adóptalo con 'navori adopt {path}' (envuelve tu contenido en un bloque managed, con backup), o asúmelo"
+            )
+        } else {
+            format!(
+                "adopt it with 'navori adopt {path}' (wraps your content in a managed block, with a backup), or live with it"
+            )
+        }
+    }
+
+    /// `doctor.foreignHarnessAckHint`.
+    #[must_use]
+    pub fn foreign_harness_ack_hint(self, id: &str) -> String {
+        if self.es() {
+            format!(
+                "vive fuera del repo, así que navori no lo toca: resuélvelo tú, o asúmelo agregando '{id}' a project.foreignHarness.acknowledged"
+            )
+        } else {
+            format!(
+                "it lives outside the repo, so navori does not touch it: resolve it yourself, or live with it by adding '{id}' to project.foreignHarness.acknowledged"
+            )
+        }
+    }
+
+    /// `doctor.foreignHarnessPermission`.
+    #[must_use]
+    pub fn foreign_harness_permission(self, rule: &str, path: &str) -> String {
+        if self.es() {
+            format!(
+                "'{rule}' está en 'deny' del settings de navori y en 'allow' de '{path}' — el guard queda sin efecto donde ese archivo aplica; quítala de uno de los dos"
+            )
+        } else {
+            format!(
+                "'{rule}' is in navori's settings 'deny' and in '{path}' 'allow' — the guard has no effect where that file applies; drop it from one of the two"
+            )
+        }
+    }
+
+    /// `doctor.foreignHarnessStaleAck`.
+    #[must_use]
+    pub fn foreign_harness_stale_ack(self, id: &str) -> String {
+        if self.es() {
+            format!(
+                "'{id}' está en project.foreignHarness.acknowledged pero ya no corresponde a ningún conflicto — quítalo"
+            )
+        } else {
+            format!(
+                "'{id}' is in project.foreignHarness.acknowledged but matches no conflict any more — remove it"
+            )
+        }
+    }
+
+    /// `doctor.globalLayerLeftovers`.
+    #[must_use]
+    pub fn global_layer_leftovers(self, lines: &[String]) -> String {
+        let lines = lines.join("\n");
+        if self.es() {
+            format!(
+                "quedan restos de la capa global retirada de navori. Pasos para limpiarlos, en este orden:\n{lines}"
+            )
+        } else {
+            format!(
+                "leftovers of navori's retired global layer remain. Steps to clean them up, in this order:\n{lines}"
+            )
+        }
+    }
+
+    /// `doctor.globalLayerLeftoverRow`.
+    #[must_use]
+    pub fn global_layer_leftover_row(self, kind: &str, path: &str) -> String {
+        format!("  - {kind}: {path}")
+    }
+
+    /// `doctor.globalLayerStepLaunchAgent`.
+    #[must_use]
+    pub fn global_layer_step_launch_agent(self, plist: &str) -> String {
+        if self.es() {
+            format!("  1. launchctl bootout gui/$(id -u)/com.navori.audit-collect y borra {plist}")
+        } else {
+            format!(
+                "  1. launchctl bootout gui/$(id -u)/com.navori.audit-collect, then delete {plist}"
+            )
+        }
+    }
+
+    /// `doctor.globalLayerStepAuditAlways`.
+    #[must_use]
+    pub fn global_layer_step_audit_always(self) -> &'static str {
+        self.pick(
+            "     (si usas audit.mode: always, el bootout detiene su receptor: corre 'navori audit --collect' con tu propio supervisor)",
+            "     (if you use audit.mode: always, the bootout stops its receiver: run 'navori audit --collect' under your own supervisor)",
+        )
+    }
+
+    /// `doctor.globalLayerStepSettings`.
+    #[must_use]
+    pub fn global_layer_step_settings(
+        self,
+        settings: &str,
+        hook: &str,
+        manifest: Option<&str>,
+    ) -> String {
+        // A `''` manifest is falsy in the TS too; the scan never yields one.
+        let manifest = manifest.filter(|m| !m.is_empty());
+        if self.es() {
+            let rules = manifest.map_or_else(String::new, |m| {
+                format!(" y las reglas listadas en ownedPermissions de {m}")
+            });
+            format!(
+                "  2. en {settings}, quita las entradas SessionStart que apuntan a {hook}{rules} (antes de borrar el manifiesto)"
+            )
+        } else {
+            let rules = manifest.map_or_else(String::new, |m| {
+                format!(" and the rules listed in ownedPermissions of {m}")
+            });
+            format!(
+                "  2. in {settings}, remove the SessionStart entries pointing to {hook}{rules} (before deleting the manifest)"
+            )
+        }
+    }
+
+    /// `doctor.globalLayerStepFiles`.
+    #[must_use]
+    pub fn global_layer_step_files(self, paths: &[&str]) -> String {
+        if self.es() {
+            format!("  3. borra {}", paths.join(" y "))
+        } else {
+            format!("  3. delete {}", paths.join(" and "))
+        }
+    }
+
+    /// `doctor.globalLayerStepManifest`.
+    #[must_use]
+    pub fn global_layer_step_manifest(self, manifest: &str) -> String {
+        if self.es() {
+            format!("  4. borra {manifest}")
+        } else {
+            format!("  4. delete {manifest}")
+        }
+    }
+
     /// `doctor.docBudgetLever`.
     #[must_use]
     pub fn doc_budget_lever_project_context(self) -> &'static str {
