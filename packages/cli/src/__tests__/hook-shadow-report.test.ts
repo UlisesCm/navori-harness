@@ -12,6 +12,9 @@ interface Row {
   invocations: number;
   firstMs: number | null;
   lastMs: number | null;
+  nativeFailed: number;
+  shellFailed: number;
+  divergences: number;
   legacyPayloadRows: number;
   problems: string[];
 }
@@ -40,9 +43,9 @@ const shadow = (await import(
 const DAY = 86_400_000;
 const NOW = Date.parse("2026-11-10T12:00:00Z");
 const IMPL = `sha256:${"a".repeat(64)}`;
-const comparison = (differs: boolean): Record<string, boolean> => ({
-  nativeFailed: false,
-  shellFailed: false,
+const comparison = (differs: boolean, failed?: "native" | "shell"): Record<string, boolean> => ({
+  nativeFailed: failed === "native",
+  shellFailed: failed === "shell",
   codeDiffers: differs,
   stdoutDiffers: false,
   stderrDiffers: false,
@@ -52,7 +55,13 @@ const comparison = (differs: boolean): Record<string, boolean> => ({
 function journal(
   hook: string,
   engine: string,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[],
+  calls: {
+    ageDays: number;
+    differs?: boolean;
+    complete?: boolean;
+    legacy?: boolean;
+    failed?: "native" | "shell";
+  }[],
 ): Uint8Array {
   const lines: string[] = [];
   for (const call of calls) {
@@ -65,7 +74,7 @@ function journal(
         ...common,
         timeMs: NOW - call.ageDays * DAY + 5,
         kind: "complete",
-        comparison: comparison(call.differs === true),
+        comparison: comparison(call.differs === true, call.failed),
         ...(call.legacy ? { payloadBase64: "e30=" } : {}),
       }),
     );
@@ -75,7 +84,7 @@ function journal(
 
 const run = (
   gating: boolean,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[] | undefined,
+  calls: Parameters<typeof journal>[2] | undefined,
   approved: string[] = [],
 ): Report =>
   shadow.buildReport({
@@ -195,7 +204,7 @@ it("las filas legacy con payloadBase64 se leen, se cuentan y nunca se devuelven"
 });
 
 // Covers: R81
-it("un now fijo cierra la ventana y la tabla da la primera y la última fila por lote", (): void => {
+it("un now fijo cierra la ventana y la tabla da fallas, primera y última fila y veredicto por lote", (): void => {
   const report = run(true, [{ ageDays: 7 }, { ageDays: 1 }, { ageDays: -1 }]);
   expect(report.rows[0]?.invocations).toBe(2);
   expect(report.rows[0]?.firstMs).toBe(NOW - 7 * DAY);
@@ -203,9 +212,34 @@ it("un now fijo cierra la ventana y la tabla da la primera y la última fila por
   expect(report.ok).toBe(true);
 
   const table = shadow.formatMarkdown(report, { B: ["example"], X: ["missing"] });
-  expect(table).toContain(new Date(NOW - 7 * DAY).toISOString());
+  expect(table).toContain(
+    `| ${new Date(NOW - 7 * DAY).toISOString()} | ${new Date(NOW - DAY).toISOString()} | green |`,
+  );
   expect(table).toContain("| B | example | green |");
-  expect(table).toContain("| X | missing | red: unknown hook missing |");
-  const red = shadow.formatMarkdown(run(true, [{ ageDays: 1, differs: true }]), { B: ["example"] });
-  expect(red).toContain("| B | example | red: example [claude] |");
+  expect(table).toContain("| X | missing | red: no rows for missing");
+
+  const failed = run(true, [
+    { ageDays: 8 },
+    { ageDays: 2, failed: "native" },
+    { ageDays: 1, failed: "shell" },
+  ]);
+  expect(failed.rows[0]).toMatchObject({ nativeFailed: 1, shellFailed: 1, divergences: 2 });
+
+  // One red engine turns the whole batch red, even when the other engine is green.
+  const twoEngines = shadow.buildReport({
+    hooks: { example: { gating: true, impl: IMPL } },
+    journals: {
+      example: [
+        journal("example", "claude", [{ ageDays: 8 }, { ageDays: 1 }]),
+        journal("example", "pi", [{ ageDays: 8 }, { ageDays: 1, differs: true }]),
+      ],
+    },
+    engines: { example: ["claude", "pi"] },
+    approved: {},
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(shadow.formatMarkdown(twoEngines, { B: ["example"] })).toContain(
+    "| B | example | red: example [pi] |",
+  );
 });

@@ -125,7 +125,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
           if (!(approved[hook] ?? []).includes(engine))
             row.problems.push("no shadow traffic and no no-shadow-traffic approval (R82)");
         } else if (row.spanDays < windowDays) {
-          row.problems.push(`window ${row.spanDays.toFixed(1)} d is shorter than ${windowDays} d`);
+          row.problems.push(`window ${row.spanDays.toFixed(3)} d is shorter than ${windowDays} d`);
         }
       }
       row.ok = row.problems.length === 0;
@@ -221,7 +221,7 @@ export function formatMarkdown(report, batches = {}) {
       ];
       const verdict =
         missing.length > 0
-          ? `red: unknown hook ${missing.join(", ")}`
+          ? `red: no rows for ${missing.join(", ")} (unknown hook or no engine registered)`
           : red.length > 0
             ? `red: ${red.join(", ")}`
             : "green";
@@ -249,7 +249,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       throw new Error("--journals needs an existing directory");
     const journalRoots = [...new Set([root, ...extra.map((dir) => resolve(dir))])];
     // `--now <ISO date>` evaluates the window as of that instant (the R81 close), not the clock.
-    const nowArg = value("--now", undefined);
+    const nowArg = args.includes("--now") ? (value("--now", undefined) ?? "") : undefined;
     const now = nowArg === undefined ? Date.now() : Date.parse(nowArg);
     if (!Number.isFinite(now)) throw new Error("--now needs an ISO date");
     const batchesPath = value("--batches", undefined);
