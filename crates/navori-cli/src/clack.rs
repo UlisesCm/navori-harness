@@ -32,6 +32,7 @@ pub(crate) fn width(text: &str) -> Option<usize> {
                 | '\u{2010}'..='\u{2027}'
                 | '\u{2190}'..='\u{21ff}'
                 | '\u{2713}'
+                | '\u{2717}'
                 | '\u{25cb}'
             );
             narrow.then_some(1)

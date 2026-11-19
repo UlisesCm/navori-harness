@@ -1462,6 +1462,11 @@ impl Status {
     }
 }
 
+/// A JS-truthy string: `Some` and not empty.
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.filter(|v| !v.is_empty())
+}
+
 /// `tc(lang).doctor` (and the one `tc(lang).engine` string `doctor` prints): only the keys the
 /// native `doctor` sections use, copied from `lib/i18n.ts` by a generator so both languages stay
 /// byte-identical to the TS.
@@ -2237,6 +2242,432 @@ impl Doctor {
         } else {
             format!(
                 "'{a}' wasn't written by navori; kept intact. Delete it to receive the generated pointer to .claude/skills/<id>/SKILL.md."
+            )
+        }
+    }
+
+    /// `doctor.nativeHooksTitle`.
+    #[must_use]
+    pub fn native_hooks_title(self) -> &'static str {
+        self.pick("Hooks nativos de git", "Native git hooks")
+    }
+
+    /// `doctor.nativeHooksPluginOnlyGuarantee`.
+    #[must_use]
+    pub fn native_hooks_plugin_only_guarantee(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "plugins.{a}.nativeHook: el hook nativo es la única garantía de ese chequeo si no está en qualityGate.full"
+            )
+        } else {
+            format!(
+                "plugins.{a}.nativeHook: the native hook is the only guarantee of that check unless it is in qualityGate.full"
+            )
+        }
+    }
+
+    /// `doctor.nativeHooksWorktreeMissing`.
+    #[must_use]
+    pub fn native_hooks_worktree_missing(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "el worktree {a} no tiene un pre-commit nativo activo; ahí el commit no corre el gate"
+            )
+        } else {
+            format!(
+                "worktree {a} has no active native pre-commit; commits there do not run the gate"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetTitle`.
+    #[must_use]
+    pub fn doc_budget_title(self) -> &'static str {
+        self.pick(
+            "Presupuesto de arranque (lo que cada sesión paga antes del primer prompt)",
+            "Startup budget (what every session pays before its first prompt)",
+        )
+    }
+
+    /// `doctor.docBudgetSummary`.
+    #[must_use]
+    pub fn doc_budget_summary(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!(
+                "CLAUDE.md: {a} palabras — {b} managed contra un techo derivado de {c}, {d} de prosa tuya (se reporta, no se capea)"
+            )
+        } else {
+            format!(
+                "CLAUDE.md: {a} words — {b} managed against a derived ceiling of {c}, {d} of your own prose (reported, not capped)"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetSubagents`.
+    #[must_use]
+    pub fn doc_budget_subagents(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "en Claude, cada subagente recarga CLAUDE.md entero ({a} palabras): un ciclo implementer→reviewer→publisher lo paga una vez por agente, además de la sesión principal (no hay multiplicador fijo: los agentes los pone el ticket). No aplica a Codex, cuyos subagentes llevan sus propias 'developer_instructions'"
+            )
+        } else {
+            format!(
+                "on Claude, every subagent reloads the whole CLAUDE.md ({a} words): an implementer→reviewer→publisher cycle pays it once per agent, on top of the main session (no fixed multiplier: the ticket decides how many agents run). Not true of Codex, whose subagents carry their own 'developer_instructions'"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetUnbudgeted`.
+    #[must_use]
+    pub fn doc_budget_unbudgeted(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "{a} palabras en bloques sin techo ({b}): se cuentan en el total pero quedan FUERA de la comparación — navori no envía techo para ellos, y casi siempre son bloques retirados que un 'navori render --apply' quita solo"
+            )
+        } else {
+            format!(
+                "{a} words in blocks with no ceiling ({b}): counted in the total but kept OUT of the comparison — navori ships no ceiling for them, and they are almost always retired blocks a 'navori render --apply' removes on its own"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetMcpServers`.
+    #[must_use]
+    pub fn doc_budget_mcp_servers(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "{a} servidor(es) MCP activos ({b}): cada uno puede inyectar sus propias instrucciones desde el arranque — costo real, APARTE de las cifras de arriba, y no medible desde aquí sin levantar el servidor (navori no lo hace)"
+            )
+        } else {
+            format!(
+                "{a} active MCP server(s) ({b}): each can inject its own instructions from startup — a real cost, ON TOP of the figures above, and not measurable from here without starting the server (navori never does)"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetMcpAlwaysLoad`.
+    #[must_use]
+    pub fn doc_budget_mcp_always_load(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "'alwaysLoad' en {a}: fuerza carga eager de los ESQUEMAS de sus tools en vez de diferirlos vía Tool Search — no determina el costo de instrucciones de la línea anterior"
+            )
+        } else {
+            format!(
+                "'alwaysLoad' on {a}: forces eager load of their tool SCHEMAS instead of deferring via Tool Search — it does not determine the instructions cost the line above just named"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetAgentsMd`.
+    #[must_use]
+    pub fn doc_budget_agents_md(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!(
+                "AGENTS.md: {a} palabras ({b} bytes, {c}% del cap de {d} que Codex concatena) — se reporta, no se capea: navori ve su parte, no la cadena completa"
+            )
+        } else {
+            format!(
+                "AGENTS.md: {a} words ({b} bytes, {c}% of the {d} cap Codex concatenates against) — reported, not capped: navori sees its share, not the whole chain"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetAgentsMdNear`.
+    #[must_use]
+    pub fn doc_budget_agents_md_near(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!(
+                "AGENTS.md: {a} palabras ({b} bytes, {c}% del cap de {d} de Codex). Al llegar al tope Codex DEJA DE AGREGAR archivos sin avisar, y la cadena suma además tu ~/.codex/AGENTS.md y los AGENTS.md anidados — sube 'project_doc_max_bytes' o parte las instrucciones en directorios anidados"
+            )
+        } else {
+            format!(
+                "AGENTS.md: {a} words ({b} bytes, {c}% of Codex's {d} cap). At the limit Codex STOPS ADDING files with no warning, and the chain also carries your ~/.codex/AGENTS.md and any nested AGENTS.md — raise 'project_doc_max_bytes' or split the instructions across nested directories"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetAgentsMdOverCeiling`.
+    #[must_use]
+    pub fn doc_budget_agents_md_over_ceiling(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "AGENTS.md ('navori-agents'): {a} palabras contra un techo de {b} ({c} de más) — se reporta, no se capea: navori no tiene standing sobre el AGENTS.md de otro repo"
+            )
+        } else {
+            format!(
+                "AGENTS.md ('navori-agents'): {a} words against a {b} ceiling ({c} over) — reported, not capped: navori has no standing over another repo's AGENTS.md"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetCursorRules`.
+    #[must_use]
+    pub fn doc_budget_cursor_rules(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                ".cursor/rules/navori.mdc: {a} palabras ({b} bytes) — Cursor no publica un cap equivalente al 'project_doc_max_bytes' de Codex, así que solo se reporta el peso"
+            )
+        } else {
+            format!(
+                ".cursor/rules/navori.mdc: {a} words ({b} bytes) — Cursor publishes no equivalent of Codex's 'project_doc_max_bytes', so only the weight is reported"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetCopilotInstructions`.
+    #[must_use]
+    pub fn doc_budget_copilot_instructions(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                ".github/copilot-instructions.md: {a} palabras ({b} bytes) — Copilot no publica un cap equivalente al 'project_doc_max_bytes' de Codex, así que solo se reporta el peso"
+            )
+        } else {
+            format!(
+                ".github/copilot-instructions.md: {a} words ({b} bytes) — Copilot publishes no equivalent of Codex's 'project_doc_max_bytes', so only the weight is reported"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetContext`.
+    #[must_use]
+    pub fn doc_budget_context(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!(
+                ".claude/context/: {a} archivo(s), {b} palabras ({c} caracteres) que entrega el hook SessionStart — se reporta, no se capea; su límite real es de ENTREGA ({d} caracteres), pasado el cual el hook manda un puntero en vez del cuerpo"
+            )
+        } else {
+            format!(
+                ".claude/context/: {a} file(s), {b} words ({c} chars) delivered by the SessionStart hook — reported, not capped; its real limit is DELIVERY ({d} chars), past which the hook sends a pointer instead of the body"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetContextPointer`.
+    #[must_use]
+    pub fn doc_budget_context_pointer(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "{a}: llega como PUNTERO, no inline — los archivos anteriores en el orden de entrega ya sumaban {b}/{c} caracteres. El culpable casi nunca es este archivo: es el que creció ANTES en el orden de '.claude/context/'"
+            )
+        } else {
+            format!(
+                "{a}: arrives as a POINTER, not inline — files ahead of it in delivery order already used {b}/{c} chars. The culprit is almost never this file: it's whichever one grew EARLIER in '.claude/context/'s order"
+            )
+        }
+    }
+
+    /// `doctor.docBudgetOverBlock`.
+    #[must_use]
+    pub fn doc_budget_over_block(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!("'{a}': {b} palabras contra un techo de {c} — {d}")
+        } else {
+            format!("'{a}': {b} words against a {c} ceiling — {d}")
+        }
+    }
+
+    /// `doctor.distributionTitle`.
+    #[must_use]
+    pub fn distribution_title(self) -> &'static str {
+        self.pick(
+            "Distribución (lo que git comparte vs lo que hay en disco)",
+            "Distribution (what git shares vs what is on disk)",
+        )
+    }
+
+    /// `doctor.distributionUncommitted`.
+    #[must_use]
+    pub fn distribution_uncommitted(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "{a} archivo(s) del harness con cambios sin commitear ({b}) — el render existe solo en esta máquina: quien clone, y el CI, reciben el harness anterior"
+            )
+        } else {
+            format!(
+                "{a} harness file(s) with uncommitted changes ({b}) — the render exists only on this machine: whoever clones, and CI, get the previous harness"
+            )
+        }
+    }
+
+    /// `doctor.distributionUnpushed`.
+    #[must_use]
+    pub fn distribution_unpushed(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "{a} commit(s) del harness sin pushear a '{b}' — están commiteados pero nadie más los tiene"
+            )
+        } else {
+            format!(
+                "{a} harness commit(s) not pushed to '{b}' — they are committed, but nobody else has them"
+            )
+        }
+    }
+
+    /// `doctor.distributionVsBase`.
+    #[must_use]
+    pub fn distribution_vs_base(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!(
+                "la rama base '{a}' comparte un harness distinto del que tienes en disco: {b} archivo(s) difieren, versión {c} aquí contra {d} allá — revísalo con 'git diff --stat {a} -- .claude CLAUDE.md navori.config.json'"
+            )
+        } else {
+            format!(
+                "the base branch '{a}' shares a different harness than the one on disk: {b} file(s) differ, version {c} here against {d} there — inspect it with 'git diff --stat {a} -- .claude CLAUDE.md navori.config.json'"
+            )
+        }
+    }
+
+    /// `doctor.distributionBehindBase`.
+    #[must_use]
+    pub fn distribution_behind_base(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "'{a}' tiene {b} commit(s) sobre archivos del harness que este checkout no tiene — la sesión está corriendo con un harness más viejo que el de la base; actualiza con 'git merge --ff-only {a}' (o el pull que uses)"
+            )
+        } else {
+            format!(
+                "'{a}' has {b} commit(s) on harness files this checkout does not have — the session is running an older harness than the base ships; catch up with 'git merge --ff-only {a}' (or your usual pull)"
+            )
+        }
+    }
+
+    /// `doctor.distributionHint`.
+    #[must_use]
+    pub fn distribution_hint(self) -> &'static str {
+        self.pick(
+            "Informativo: navori no commitea, pushea ni mergea por ti, y una rama de trabajo con cambios de harness que la base aún no tiene es un estado normal. Se reporta porque ninguna otra verificación mira git, y medir una sesión sobre un harness que solo existe en esta máquina es el error que esta sección existe para evitar.",
+            "Informational: navori does not commit, push or merge for you, and a working branch carrying harness changes the base has not merged yet is a normal state. It is reported because no other check looks at git, and measuring a session against a harness that exists only on this machine is the mistake this section exists to prevent.",
+        )
+    }
+
+    /// `doctor.docBudgetLever`.
+    #[must_use]
+    pub fn doc_budget_lever_project_context(self) -> &'static str {
+        self.pick(
+            "recorta 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' en navori.config.json",
+            "trim 'project.criticalAreas' / 'legacyPaths' / 'libraryMigrations' in navori.config.json",
+        )
+    }
+
+    /// `doctor.docBudgetLever`.
+    #[must_use]
+    pub fn doc_budget_lever_preset(self) -> &'static str {
+        self.pick(
+            "cambia o quita el preset ('preset' en navori.config.json)",
+            "change or drop the preset ('preset' in navori.config.json)",
+        )
+    }
+
+    /// `doctor.docBudgetLever`.
+    #[must_use]
+    pub fn doc_budget_lever_plugins(self) -> &'static str {
+        self.pick(
+            "deshabilita los plugins que no uses ('plugins' en navori.config.json)",
+            "disable the plugins you don't use ('plugins' in navori.config.json)",
+        )
+    }
+
+    /// `doctor.docBudgetLever`.
+    #[must_use]
+    pub fn doc_budget_lever_core(self) -> &'static str {
+        self.pick(
+            "es un bloque core de navori: repórtalo como issue, no es tuyo de recortar",
+            "this is a navori core block: report it as an issue, it isn't yours to trim",
+        )
+    }
+
+    /// `doctor.nativeHooksFound(event, manager, path, absence)`.
+    #[must_use]
+    pub fn native_hooks_found(
+        self,
+        event: &str,
+        manager: Option<&str>,
+        path: Option<&str>,
+        absence: Option<&str>,
+    ) -> String {
+        if let Some(manager) = non_empty(manager) {
+            return if self.es() {
+                format!("{event}: activo ({manager}) en {}", path.unwrap_or("null"))
+            } else {
+                format!("{event}: active ({manager}) at {}", path.unwrap_or("null"))
+            };
+        }
+        let word = self.pick("ausente", "absent");
+        let absence = non_empty(absence).map_or_else(String::new, |a| format!(" ({a})"));
+        let path = non_empty(path).map_or_else(String::new, |p| format!(" \u{2014} {p}"));
+        format!("{event}: {word}{absence}{path}")
+    }
+
+    /// `doctor.nativeHooksGateMissing(manager, absence, gitVersion)`.
+    #[must_use]
+    pub fn native_hooks_gate_missing(
+        self,
+        manager: Option<&str>,
+        absence: Option<&str>,
+        git_version: Option<&str>,
+    ) -> String {
+        let manager = non_empty(manager).map_or_else(String::new, |m| {
+            if self.es() {
+                format!(" (gestor: {m})")
+            } else {
+                format!(" (manager: {m})")
+            }
+        });
+        let absence = non_empty(absence).map_or_else(String::new, |a| {
+            if self.es() {
+                format!(" \u{2014} cuenta como ausente: {a}")
+            } else {
+                format!(" \u{2014} counts as absent: {a}")
+            }
+        });
+        let version = non_empty(git_version).map_or_else(String::new, |v| format!(" [{v}]"));
+        if self.es() {
+            format!(
+                "qualityGate.nativeHooks est\u{e1} declarado pero no hay un pre-commit nativo activo en este clone o worktree{manager}{absence}{version}; navori ya no corre el gate en el commit, instala el hook (p. ej. 'bun run hooks:install') o quita la declaraci\u{f3}n"
+            )
+        } else {
+            format!(
+                "qualityGate.nativeHooks is declared but no native pre-commit is active in this clone or worktree{manager}{absence}{version}; navori no longer runs the gate on commit, install the hook (e.g. 'bun run hooks:install') or drop the declaration"
+            )
+        }
+    }
+
+    /// `doctor.nativeHooksPluginMissing(plugin, gitVersion)`.
+    #[must_use]
+    pub fn native_hooks_plugin_missing(self, plugin: &str, git_version: Option<&str>) -> String {
+        let version = git_version
+            .filter(|v| !v.is_empty())
+            .map_or_else(String::new, |v| format!(" [{v}]"));
+        if self.es() {
+            format!(
+                "plugins.{plugin}.nativeHook est\u{e1} declarado pero no hay pre-commit ni pre-push nativo activo en este clone o worktree{version}; el chequeo de '{plugin}' ya no corre en ning\u{fa}n lado"
+            )
+        } else {
+            format!(
+                "plugins.{plugin}.nativeHook is declared but no native pre-commit or pre-push is active in this clone or worktree{version}; the '{plugin}' check now runs nowhere"
+            )
+        }
+    }
+
+    /// `doctor.nativeHooksDuplicate(manager, path)`.
+    #[must_use]
+    pub fn native_hooks_duplicate(self, manager: Option<&str>, path: Option<&str>) -> String {
+        let manager = non_empty(manager).map_or_else(String::new, |m| format!(" ({m})"));
+        let path = non_empty(path).map_or_else(String::new, |p| {
+            if self.es() {
+                format!(" en {p}")
+            } else {
+                format!(" at {p}")
+            }
+        });
+        if self.es() {
+            format!(
+                "hay un pre-commit nativo activo{manager}{path} y qualityGate.nativeHooks no est\u{e1} declarado: los checks mec\u{e1}nicos corren duplicados; declara \"qualityGate\": {{ \"nativeHooks\": true }} si el hook corre qualityGate.fast"
+            )
+        } else {
+            format!(
+                "a native pre-commit is active{manager}{path} and qualityGate.nativeHooks is not declared: mechanical checks run twice; declare \"qualityGate\": {{ \"nativeHooks\": true }} if the hook runs qualityGate.fast"
             )
         }
     }
