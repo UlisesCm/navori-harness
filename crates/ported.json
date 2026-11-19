@@ -182,7 +182,7 @@
       "impl": "sha256:343a47d62614bd8be6f2ac1b55b79a46f60d6b36f3a62b76982315bf7522da72"
     },
     "comment-draft-confirm": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "comment-draft-confirm-base": "sha256:1802adfc799603cf0d22ce9197f38ca4e7c0409239bad1f674712bddd1d83173"
@@ -190,7 +190,7 @@
       "impl": "sha256:fb145071686c174f1006478661b730dac93dfc80ad331c3123a7a7f4c01bd082"
     },
     "pr-publisher-confirm": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "pr-publisher-confirm-base": "sha256:9dab29bb39731d62b2f67011b6afd2b0fb4ec4b26e089ef817ed7fbc1b9a13d3"

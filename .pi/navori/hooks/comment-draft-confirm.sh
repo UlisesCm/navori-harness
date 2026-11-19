@@ -1,10 +1,10 @@
-# navori:native-hook v=1 file=sha256:ea2d974a405f8eca92c9c2261f95f7b0972ecb5276ebaf002f84eaff9e91166f impl=sha256:fb145071686c174f1006478661b730dac93dfc80ad331c3123a7a7f4c01bd082
-# navori:managed start id="comment-draft-confirm-base" hash="70b79c00" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:3fc7425548ca89982395614f21ed5d07e9af6b5dab795229755212ce8321d771 impl=sha256:fb145071686c174f1006478661b730dac93dfc80ad331c3123a7a7f4c01bd082
+# navori:managed start id="comment-draft-confirm-base" hash="38fba89b" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
   if nv_native=$(command -v navori-rust 2>/dev/null); then
-    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
     nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
     case "$nv_rc" in
       0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
