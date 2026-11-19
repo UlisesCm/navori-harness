@@ -5,6 +5,7 @@ use std::any::Any;
 use std::ffi::OsString;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,7 +18,7 @@ use crate::shell::payload::{self, Profile};
 use crate::shell::pii_egress::HostProbe;
 pub use crate::shell::pii_egress::Pii;
 use crate::shell::pii_egress::Secret;
-use crate::shell::repo::Repo;
+use crate::shell::repo::{Children, Repo};
 
 /// Hosts that register guard-destructive.
 pub const ENGINES: &[Engine] = &[Engine::Claude, Engine::Codex, Engine::Pi];
@@ -119,6 +120,11 @@ impl Deadline {
 /// overflow aborts the process and the host approves.
 const WORKER_STACK: usize = 8 << 20;
 
+/// How long an abandoned evaluation thread may take to notice its children were killed and
+/// end, so the process does not exit while it is still starting one. A rule hung in Rust
+/// itself never ends: the block waits this much longer, well under the host's 10s kill.
+const REAP_GRACE: Duration = Duration::from_millis(100);
+
 /// [`Context`] with every borrow owned, so a thread that may outlive the call can hold it.
 struct Owned {
     engine: Engine,
@@ -195,8 +201,10 @@ fn panic_text(payload: &(dyn Any + Send)) -> String {
 /// abandoned. Either way the call is blocked, even if a rule never returns (a hung `git`, a
 /// pathological pattern).
 ///
-/// The thread is detached: nothing joins it, so a hung rule dies with the process. A panic in
-/// it, like a failure to start it, is an error and never a permit.
+/// The thread is detached: nothing joins it, so a hung rule dies with the process. The `git`
+/// and `tgrep` it started through [`crate::shell::repo::System`] are killed at the deadline
+/// ([`Children::stop`]) instead of being left behind as orphans. A panic in it, like a failure
+/// to start it, is an error and never a permit.
 ///
 /// # Errors
 /// The errors of [`evaluate`], only while the deadline has not passed; a panic of a rule
@@ -214,10 +222,13 @@ pub fn evaluate_until<R: Repo + Send + 'static>(
     let payload = payload.to_vec();
     let until = deadline.at();
     let (sender, receiver) = mpsc::channel();
+    let children = Arc::new(Children::default());
+    let tracked = Arc::clone(&children);
     let spawned = thread::Builder::new()
         .name("guard-destructive".to_owned())
         .stack_size(WORKER_STACK)
         .spawn(move || {
+            tracked.track_this_thread();
             let result =
                 panic::catch_unwind(AssertUnwindSafe(|| owned.evaluate(&payload, &repo, until)))
                     .unwrap_or_else(|payload| {
@@ -231,7 +242,11 @@ pub fn evaluate_until<R: Repo + Send + 'static>(
     match receiver.recv_timeout(until.saturating_duration_since(Instant::now())) {
         Ok(_) if deadline.expired() => Ok(deadline.evaluation()),
         Ok(result) => result,
-        Err(RecvTimeoutError::Timeout) => Ok(deadline.evaluation()),
+        Err(RecvTimeoutError::Timeout) => {
+            children.stop();
+            let _ = receiver.recv_timeout(REAP_GRACE);
+            Ok(deadline.evaluation())
+        }
         Err(RecvTimeoutError::Disconnected) => Err(Failure(
             "panic: the evaluation thread ended without an answer".to_owned(),
         )),
