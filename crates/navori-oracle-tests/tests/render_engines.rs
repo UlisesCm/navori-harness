@@ -35,9 +35,12 @@ fn prelude() -> String {
     )
 }
 
+// A trigger cut inside a surrogate pair holds a lone surrogate. The bridge's JSON carries it as
+// a bare `\ud83d` escape that serde rejects, so it travels as Node writes it to a UTF-8 file:
+// U+FFFD (`toWellFormed`), the value `summarize_trigger` returns (#1746).
 static NODE: Shared = Shared::new(
     prelude,
-    "if (request.trigger !== undefined) return s.summarizeTrigger(request.trigger);\n\
+    "if (request.trigger !== undefined) return s.summarizeTrigger(request.trigger)?.toWellFormed() ?? null;\n\
      m.setMarkerFloorVersion(request.floor ?? undefined);\n\
      try {\n\
        const root = request.root;\n\
