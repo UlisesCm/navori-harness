@@ -16,8 +16,11 @@
 //! - a scan the port does not model applies to this config ([`doctor_ts_only_scans`]: the OTel
 //!   receiver, operational tools, the codegraph wiring, Pi health) or to this repo (a master plan
 //!   registry; a git checkout, where `scanNativeHooks` always prints its note);
-//! - any of the closing notes (5e5c) would print: those are not rendered here, so a non-empty scan
-//!   sends the whole report to the TS (the machine and tools sections of 5e5b are native);
+//! - any of the closing notes of part 2 of 5e5c would print (flat skills, foreign skill indexes,
+//!   permission mode, foreign harness, global layer leftovers, a full-harness workspace): those are
+//!   not rendered here, so a non-empty scan sends the whole report to the TS. The notes of part 1
+//!   (stale global CLI, harness `.gitignore` and `.prettierignore`, git hygiene, workspace drift,
+//!   frozen harness) and the machine and tools sections of 5e5b are native;
 //! - user-derived text in a note that is not plain ASCII, or a note line Rust cannot wrap.
 
 use std::ffi::OsString;
@@ -31,13 +34,13 @@ use navori_core::diagnose::distribution::{DistributionReport, scan_distribution}
 use navori_core::diagnose::doctor_assets::{
     ArtifactReason, BlockKind, ContextDelivery, ControlGap, ControlState,
     DEFAULT_PROGRESS_THRESHOLD_BYTES, DocBudgetLever, DocBudgetReport, EmptyUserSection,
-    GateBlocker, GateReadinessIssue, InterpolationArtifact, MissingModelProfile, MissingTier,
-    NestedWorktreeConflict, ProgressSizeIssue, TriggerlessSkill, doctor_skill_dirs,
-    scan_control_gaps, scan_doc_budget, scan_empty_user_sections, scan_flat_skills,
-    scan_foreign_skill_indexes, scan_git_hygiene, scan_gitignore_harness,
-    scan_interpolation_artifacts, scan_missing_model_profile, scan_nested_worktrees,
-    scan_prettier_ignore, scan_progress_size, scan_quality_gate_readiness, scan_stale_harness,
-    scan_triggerless_local_skills, scan_workspace_full_harness,
+    GateBlocker, GateReadinessIssue, GitHygieneReport, IgnoreHealth, InterpolationArtifact,
+    MissingModelProfile, MissingTier, NestedWorktreeConflict, ProgressSizeIssue, StaleHarness,
+    TriggerlessSkill, doctor_skill_dirs, scan_control_gaps, scan_doc_budget,
+    scan_empty_user_sections, scan_flat_skills, scan_foreign_skill_indexes, scan_git_hygiene,
+    scan_gitignore_harness, scan_interpolation_artifacts, scan_missing_model_profile,
+    scan_nested_worktrees, scan_prettier_ignore, scan_progress_size, scan_quality_gate_readiness,
+    scan_stale_harness, scan_triggerless_local_skills, scan_workspace_full_harness,
 };
 use navori_core::diagnose::doctor_local::LocalSkills;
 use navori_core::diagnose::doctor_local::{
@@ -52,12 +55,12 @@ use navori_core::diagnose::doctor_local::{
 use navori_core::diagnose::doctor_machine::{
     AuditRootOpen, DiskUsageIssue, DiskUsageTarget, ExternalToolCapabilityGap,
     GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS, GlobalClaudeMdIssue, Host, MissingExternalTool,
-    MissingOptionalTool, PinnedVersionDrift, ToolUpdates, VersionAdvisoryHit,
-    WorkspaceDeadReposIssue, WorkspaceLinkIssue, scan_audit_root_permissions, scan_disk_usage,
-    scan_external_tool_capabilities, scan_global_claude_md, scan_missing_external_tools,
-    scan_missing_optional_tools, scan_pinned_version_drift, scan_stale_global_cli,
-    scan_tool_updates, scan_version_advisories, scan_workspace_dead_repos, scan_workspace_drift,
-    scan_workspace_link,
+    MissingOptionalTool, PinnedVersionDrift, StaleGlobalCli, ToolUpdates, VersionAdvisoryHit,
+    WorkspaceDeadReposIssue, WorkspaceDriftReport, WorkspaceLinkIssue, scan_audit_root_permissions,
+    scan_disk_usage, scan_external_tool_capabilities, scan_global_claude_md,
+    scan_missing_external_tools, scan_missing_optional_tools, scan_pinned_version_drift,
+    scan_stale_global_cli, scan_tool_updates, scan_version_advisories, scan_workspace_dead_repos,
+    scan_workspace_drift, scan_workspace_link,
 };
 use navori_core::diagnose::doctor_user_scope::{
     doctor_ts_only_scans, scan_foreign_harness, scan_global_layer_leftovers,
@@ -258,6 +261,12 @@ struct Report {
     order: Option<OrderReport>,
     doc_budget: Option<DocBudgetReport>,
     distribution: Option<DistributionReport>,
+    stale_global_cli: Option<StaleGlobalCli>,
+    gitignore: Option<IgnoreHealth>,
+    prettier_ignore: Option<IgnoreHealth>,
+    git_hygiene: Option<GitHygieneReport>,
+    workspace_drift: Option<WorkspaceDriftReport>,
+    stale_harness: Vec<StaleHarness>,
 }
 
 /// The scans `doctor` runs for this repo; `None` delegates.
@@ -380,31 +389,16 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         dead_repos,
     };
 
-    // Closing notes (5e5c): not rendered here, so a finding delegates.
-    for health in [
-        scan_gitignore_harness(root, config).ok()?,
-        scan_prettier_ignore(root, config).ok()?,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if health.missing || health.drift {
-            return None;
-        }
-    }
-    if let Some(hygiene) = scan_git_hygiene(root, config, &RealRunner, &env).ok()?
-        && (hygiene.specs_ignored.is_some()
-            || !hygiene.ephemeral_not_ignored.is_empty()
-            || !hygiene.ephemeral_tracked.is_empty()
-            || hygiene.presets_ignored
-            || hygiene.nested_state_unprotected)
-    {
-        return None;
-    }
+    // Closing notes (5e5c, part 1): rendered here.
+    let stale_global_cli =
+        scan_stale_global_cli(&host, root, config, navori_core::STAMP_VERSION).ok()?;
+    let gitignore = scan_gitignore_harness(root, config).ok()?;
+    let prettier_ignore = scan_prettier_ignore(root, config).ok()?;
+    let git_hygiene = scan_git_hygiene(root, config, &RealRunner, &env).ok()?;
     let doc_budget = scan_doc_budget(root, config, navori_core::STAMP_VERSION).ok()?;
     let distribution = scan_distribution(root, &config.data, &RealRunner, &env).ok()?;
-    absent(scan_workspace_drift(&host, root, config))?;
-    none_found(scan_stale_harness(root, config, &env))?;
+    let workspace_drift = scan_workspace_drift(&host, root, config).ok()?;
+    let stale_harness = scan_stale_harness(root, config, &env).ok()?;
     absent(scan_workspace_full_harness(config))?;
     none_found(scan_flat_skills(root, &home()?, &env))?;
     none_found(scan_foreign_skill_indexes(root))?;
@@ -417,12 +411,6 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         return None;
     }
     none_found(scan_global_layer_leftovers(&host))?;
-    absent(scan_stale_global_cli(
-        &host,
-        root,
-        config,
-        navori_core::STAMP_VERSION,
-    ))?;
 
     let progress = if member(member(Some(&config.data), "harness"), "sessionState")
         == Some(&JsValue::Bool(false))
@@ -467,6 +455,12 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         order,
         doc_budget,
         distribution,
+        stale_global_cli,
+        gitignore,
+        prettier_ignore,
+        git_hygiene,
+        workspace_drift,
+        stale_harness,
     })
 }
 
@@ -1038,6 +1032,66 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     .collect();
     note(&mut clack, &steps.join("\n"), td.next_steps_title())?;
 
+    if let Some(stale) = &report.stale_global_cli {
+        clack.log(
+            Symbol::Warn,
+            &td.global_cli_stale(ascii(&stale.global)?, ascii(&stale.current)?),
+        );
+    }
+    for (health, missing, drift, title) in [
+        (
+            &report.gitignore,
+            td.gitignore_missing(),
+            td.gitignore_drift(),
+            td.gitignore_title(),
+        ),
+        (
+            &report.prettier_ignore,
+            td.prettier_ignore_missing(),
+            td.prettier_ignore_drift(),
+            td.prettier_ignore_title(),
+        ),
+    ] {
+        if let Some(health) = health
+            && (health.missing || health.drift)
+        {
+            let body = if health.missing { missing } else { drift };
+            note(&mut clack, &format!("  {update} {body}"), title)?;
+        }
+    }
+    if let Some(hygiene) = &report.git_hygiene {
+        let mut rows = Vec::new();
+        if let Some(dir) = &hygiene.specs_ignored {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_specs_ignored(ascii(dir)?)
+            ));
+        }
+        for path in &hygiene.ephemeral_not_ignored {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_ephemeral_not_ignored(path)
+            ));
+        }
+        for path in &hygiene.ephemeral_tracked {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_ephemeral_tracked(path)
+            ));
+        }
+        if hygiene.presets_ignored {
+            rows.push(format!("  {update} {}", td.git_hygiene_presets_ignored()));
+        }
+        if hygiene.nested_state_unprotected {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_nested_state_unprotected()
+            ));
+        }
+        if !rows.is_empty() {
+            note(&mut clack, &lines(rows), td.git_hygiene_title())?;
+        }
+    }
     // Spec 0045 D3: errors flip the verdict (counted in `compute_health_verdict`).
     if let Some(hooks) = &verdict.native_hooks {
         let rows = hooks
@@ -1067,6 +1121,48 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
             &lines(distribution_lines(distribution, td)?),
             td.distribution_title(),
         )?;
+    }
+    if let Some(drift) = &report.workspace_drift {
+        let mut rows = Vec::new();
+        for d in &drift.vs_defaults {
+            rows.push(format!(
+                "  {update} {}",
+                td.workspace_drift_default_row(
+                    ascii(&d.key)?,
+                    ascii(&d.local)?,
+                    ascii(&d.expected)?
+                )
+            ));
+        }
+        for d in &drift.vs_siblings {
+            rows.push(format!(
+                "  {update} {}",
+                td.workspace_drift_sibling_row(
+                    ascii(&d.key)?,
+                    ascii(&d.local)?,
+                    ascii(&d.expected)?,
+                    d.agree,
+                    d.total
+                )
+            ));
+        }
+        rows.push(format!("  {bullet} {}", td.workspace_drift_hint()));
+        note(
+            &mut clack,
+            &lines(rows),
+            &td.workspace_drift_title(ascii(&drift.workspace)?, drift.siblings_read),
+        )?;
+    }
+    if !report.stale_harness.is_empty() {
+        let mut rows = Vec::new();
+        for h in &report.stale_harness {
+            rows.push(format!(
+                "  {update} {}\n      {}",
+                td.stale_harness_row(ascii(&h.path)?, h.files, ascii_opt(h.frozen_at.as_deref())?),
+                td.stale_harness_undeclared()
+            ));
+        }
+        note(&mut clack, &lines(rows), td.stale_harness_title())?;
     }
 
     let has_issues = !verdict.ok;
@@ -2077,5 +2173,40 @@ mod tests {
         );
         assert!(rows[2].starts_with("  \u{21e1} CLAUDE.md:1  "));
         assert_eq!(rows[11], "  \u{2026} and 2 more");
+    }
+
+    // Covers: R73
+    #[test]
+    fn closing_note_texts_interpolate_like_the_ts_catalog() {
+        let en = Doctor(Lang::En);
+        let es = Doctor(Lang::Es);
+        assert_eq!(
+            en.global_cli_stale("0.1.0", "0.2.0"),
+            "the global 'navori' on PATH is 0.1.0, older than this CLI (0.2.0) and the rendered hooks run it: they would silently run old logic \u{2014} update with 'npm i -g navori@0.2.0'"
+        );
+        assert_eq!(
+            es.workspace_drift_sibling_row("branchBase", "main", "dev", 2, 3),
+            "branchBase: main (2/3 repos usan dev)"
+        );
+        assert_eq!(
+            en.workspace_drift_title("acme", 0),
+            "Drift from workspace 'acme':"
+        );
+        assert_eq!(
+            es.workspace_drift_title("acme", 2),
+            "Drift respecto al workspace 'acme' (2 repos hermanos):"
+        );
+        assert_eq!(
+            en.stale_harness_row("pkg/.claude", 3, Some("0.9.0")),
+            "pkg/.claude \u{2014} 3 file(s), frozen at 0.9.0"
+        );
+        assert_eq!(
+            es.stale_harness_row("pkg/.claude", 1, None),
+            "pkg/.claude \u{2014} 1 archivo(s)"
+        );
+        assert!(
+            en.git_hygiene_specs_ignored("specs")
+                .ends_with("(\"sdd\": { \"enabled\": false })")
+        );
     }
 }
