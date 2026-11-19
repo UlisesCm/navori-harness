@@ -8,7 +8,7 @@
 //! Delegation triggers, each decided before any output or effect:
 //! - an argv shape citty could read differently, a positional, or colored human output;
 //! - a config `readConfig` rejects or Rust does not model;
-//! - every branch [`compute_health_verdict`] delegates (workspaces, Codex health, native hooks,
+//! - every branch [`compute_health_verdict`] delegates (workspaces, Codex health,
 //!   unreadable settings, presets the loader declines) and plugins the loader declines;
 //! - a dry-run render the native render would delegate (`CLAUDE.md` present);
 //! - git answers or JSON the distribution port cannot classify;
@@ -186,10 +186,10 @@ fn status(cwd: &str, json: bool) -> Option<Output> {
     let root = Path::new(cwd);
     let claude_md_exists = root.join("CLAUDE.md").exists();
     let plugins = load_enabled_plugins(member(Some(&config.data), "plugins")).ok()?;
-    let verdict = compute_health_verdict(root, &config, &plugins).ok()?;
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    let verdict = compute_health_verdict(root, &config, &plugins, &RealRunner, &env).ok()?;
     let known = known_drift_sources(&plugins.loaded);
     let drifts = scan_managed_drift(root, &config, &known, navori_core::STAMP_VERSION).ok()?;
-    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
     let distribution = scan_distribution(root, &config.data, &RealRunner, &env).ok()?;
     // `computeRenderPending`: the dry run only happens with `CLAUDE.md`, and a native render that
     // would delegate makes the whole command delegate.
