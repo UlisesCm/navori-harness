@@ -579,6 +579,21 @@ fn deadline_expired_blocks_even_a_harmless_command() -> TestResult {
     Ok(())
 }
 
+/// #1731: jq extracts `rm -rf /` from a payload whose sibling is `NaN`, and the shell blocks it.
+/// serde_json rejects the document; the answer must be a failure, never the empty permit.
+#[test]
+fn a_non_finite_literal_in_the_payload_is_never_a_permit_in_jq_modes() -> TestResult {
+    let payload = br#"{"tool_input":{"command":"rm -rf /"},"x":NaN}"#;
+    for extractor in [Extractor::JqAndNode, Extractor::JqOnly] {
+        let mut context = plain_context()?;
+        context.profile.extractor = extractor;
+        let live = Deadline::from_env(None, Instant::now());
+        let result = entry::evaluate_until(payload, &context, NoState, live);
+        assert!(result.is_err(), "{extractor:?} must fail closed");
+    }
+    Ok(())
+}
+
 /// NAVORI_GUARD_DEADLINE only lowers the deadline: one digit 1..8, anything else keeps 8s.
 #[test]
 fn deadline_variable_can_only_lower_it() -> TestResult {

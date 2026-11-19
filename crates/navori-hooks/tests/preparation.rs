@@ -1,7 +1,7 @@
 //! Deterministic eligibility rejection before collection/input (0057 R11-R13).
 
 use navori_hooks::hooks::subagent_no_background::prepare::{
-    Facts, Limits, Output, Request, Tool, plan,
+    Facts, Limits, Output, Request, Tool, expected_jq, plan,
 };
 use navori_hooks::runner::Engine;
 use std::ffi::OsString;
@@ -257,9 +257,16 @@ fn capture_contracts_are_exact_unique_and_not_an_assumed_line_184() {
     }
 }
 
+/// What the jq probe prints for a jq whose `--version` line is `version`.
+fn jq_probe(version: &[u8], body: &[u8]) -> Vec<u8> {
+    let mut bytes = version.to_vec();
+    bytes.extend_from_slice(body);
+    bytes
+}
+
 // Covers: R11, R13
 #[test]
-fn only_the_exact_measured_jq_version_strings_are_accredited()
+fn jq_is_accredited_by_behavior_and_family_never_by_version_alone()
 -> Result<(), Box<dyn std::error::Error>> {
     let env = environment();
     let p = plan(request(&env), Limits::default())?;
@@ -268,51 +275,73 @@ fn only_the_exact_measured_jq_version_strings_are_accredited()
         bootstrap
             .extend_from_slice(format!("{}\00\0/bin/{}\0", tool.name(), tool.name()).as_bytes());
     }
-    let facts = |jq: &[u8]| Facts {
+    let facts = |jq: Output| Facts {
         bootstrap: output(&bootstrap),
         system: output(b"Darwin\n"),
         charmap: output(b"US-ASCII\n"),
         // A wrong text fact makes an accredited jq fail at the next check, after the jq one.
         text: output(b"not needed"),
         messages: failed(Some(1), BASH3_MESSAGES, b""),
-        jq: Some(output(jq)),
+        jq: Some(jq),
         node: Some(output(b"v24.22.0\n")),
     };
-    let unaccredited = |jq: &[u8]| {
+    let unaccredited = |jq: Output| {
         p.prepare(&facts(jq))
             .err()
             .is_some_and(|error| error.0.contains("jq is present but unaccredited"))
     };
-    for accepted in [
+    let expected = expected_jq();
+    for version in [
         b"jq-1.7\n".as_slice(),
         b"jq-1.7.1\n".as_slice(),
         b"jq-1.7.1-apple\n".as_slice(),
+        b"jq-1.8.0\n".as_slice(),
         b"jq-1.8.1\n".as_slice(),
+        b"jq-1.8.1-4ubuntu2\n".as_slice(),
     ] {
-        assert!(!unaccredited(accepted), "{accepted:?} must be accredited");
+        let jq = output(&jq_probe(version, &expected));
+        assert!(!unaccredited(jq), "{version:?} must be accredited");
         assert!(
-            p.prepare(&facts(accepted))
+            p.prepare(&facts(output(&jq_probe(version, &expected))))
                 .err()
                 .is_some_and(|error| error.0.contains("legacy text behavior differs"))
         );
     }
-    for rejected in [
+    // Outside the family, even with the exact behavior answer.
+    for version in [
         b"jq-1.6\n".as_slice(),
-        b"jq-1.7.0\n".as_slice(),
-        b"jq-1.8.0\n".as_slice(),
-        b"jq-1.8.2\n".as_slice(),
         b"jq-1.9.0\n".as_slice(),
-        b"jq-1.7.1-dirty\n".as_slice(),
-        b"jq-1.8.1-4ubuntu2\n".as_slice(),
-        b"jq-1.8.1".as_slice(),
-        b"jq-1.8.1\n\n".as_slice(),
-        b" jq-1.8.1\n".as_slice(),
+        b"jq-1.70\n".as_slice(),
+        b"jq-1.8x\n".as_slice(),
+        b"jq-1.7.1".as_slice(),
+        b" jq-1.7.1\n".as_slice(),
+        b"gojq 0.12\n".as_slice(),
+        b"\n".as_slice(),
     ] {
         assert!(
-            unaccredited(rejected),
-            "{rejected:?} must stay unaccredited"
+            unaccredited(output(&jq_probe(version, &expected))),
+            "{version:?} must stay unaccredited"
         );
     }
+    // In the family, but one byte of behavior differs, or rc/stderr is not clean.
+    let mut flipped = expected.clone();
+    flipped[0] ^= 1;
+    let mut truncated = expected.clone();
+    truncated.pop();
+    let mut extended = expected.clone();
+    extended.push(b'\n');
+    for body in [flipped, truncated, extended, Vec::new()] {
+        assert!(unaccredited(output(&jq_probe(b"jq-1.7.1\n", &body))));
+    }
+    assert!(
+        p.prepare(&facts(failed(
+            Some(0),
+            &jq_probe(b"jq-1.7.1\n", &expected),
+            b"x"
+        )))
+        .err()
+        .is_some_and(|error| error.0.contains("probe failed"))
+    );
     Ok(())
 }
 
@@ -351,7 +380,7 @@ fn unknown_present_jq_and_lookup_errors_never_become_node_fallback()
             .err()
             .is_some_and(|error| error.0.contains("probe failed"))
     );
-    facts.jq = Some(output(b"jq-1.7\n"));
+    facts.jq = Some(output(&jq_probe(b"jq-1.7\n", &expected_jq())));
     for version in [
         b"v24.garbage\n".as_slice(),
         b"v26.0.0-nightly\n".as_slice(),

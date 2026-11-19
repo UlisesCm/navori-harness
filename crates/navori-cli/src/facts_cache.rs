@@ -32,7 +32,8 @@ use sha2::{Digest, Sha256};
 pub const MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
 /// A cache entry is a few KiB; anything larger is not ours.
 const MAX_ENTRY_BYTES: u64 = 256 * 1024;
-const SCHEMA: u64 = 2;
+/// 3: `Facts.jq` is the output of the jq behavior probe, not of `jq --version`.
+const SCHEMA: u64 = 3;
 
 /// Project-local cache directory.
 pub struct FactsCache {
@@ -216,9 +217,30 @@ pub fn stamp(path: &Path) -> Option<String> {
     ))
 }
 
+/// jq's per-user init file for this environment (`$HOME/.jq`), loaded by every jq the shell runs.
+fn jq_init_path(env: &[(OsString, OsString)]) -> Option<PathBuf> {
+    let home = env_last(env, "HOME")?;
+    Some(Path::new(home).join(".jq"))
+}
+
+/// Whether `$HOME/.jq` exists as anything (file, directory, symlink), relative to `cwd` when
+/// `HOME` is. Any doubt other than a plain "not found" counts as present: the init file can
+/// redefine the builtins the behavior probe and the shell's filters use.
+#[must_use]
+pub fn jq_init_present(env: &[(OsString, OsString)], cwd: &Path) -> bool {
+    jq_init_path(env).is_some_and(|path| {
+        !matches!(
+            fs::symlink_metadata(cwd.join(path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound
+        )
+    })
+}
+
 /// Cache key over everything the probes see that the tool stamps do not: the resolved Bash and
-/// its stamp, `PATH`, the locale variables and `POSIXLY_CORRECT`. `None` disables the cache
-/// (relative `PATH` entries depend on the working directory).
+/// its stamp, `PATH`, the locale variables, `POSIXLY_CORRECT` and the jq init file (`$HOME/.jq`:
+/// its path, and its stamp or an explicit `absent`; [`stamp`] is `None` for a missing file, which
+/// must not disable the cache). `None` disables the cache (relative `PATH` entries depend on the
+/// working directory).
 #[must_use]
 pub fn key(bash: &Path, env: &[(OsString, OsString)]) -> Option<String> {
     let path = env_last(env, "PATH")?;
@@ -230,6 +252,16 @@ pub fn key(bash: &Path, env: &[(OsString, OsString)]) -> Option<String> {
     hash.update(bash.as_os_str().as_bytes());
     hash.update(b"\0");
     hash.update(stamp(bash)?.as_bytes());
+    hash.update(b"\0");
+    match jq_init_path(env) {
+        Some(init) => {
+            hash.update(b"jq-init=");
+            hash.update(init.as_os_str().as_bytes());
+            hash.update(b"=");
+            hash.update(stamp(&init).as_deref().unwrap_or("absent").as_bytes());
+        }
+        None => hash.update(b"jq-init=unset"),
+    }
     hash.update(b"\0");
     let mut relevant: BTreeMap<&[u8], &[u8]> = BTreeMap::new();
     for (name, value) in env {

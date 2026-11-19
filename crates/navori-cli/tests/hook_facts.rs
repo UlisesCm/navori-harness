@@ -3,7 +3,7 @@ use navori_cli::hook::{Invocation, Recorder, Snapshot};
 use navori_cli::hook_facts::{collect, command_v, prepare_guard_destructive, shadow_failure};
 use navori_hooks::hooks::guard_destructive::pii_bash;
 use navori_hooks::hooks::subagent_no_background;
-use navori_hooks::hooks::subagent_no_background::prepare::{Limits, Request};
+use navori_hooks::hooks::subagent_no_background::prepare::{self, Limits, Request};
 use navori_hooks::runner::{AuditLabel, Failure};
 use navori_hooks::runner::{Engine, Verdict};
 use std::error::Error;
@@ -125,6 +125,35 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
             assert_eq!(oracle.status.code(),Some(code));assert_eq!(oracle.stdout,actual.stdout);assert_eq!(oracle.stderr,actual.stderr);
         }
     }
+    Ok(())
+}
+
+/// Run the jq behavior probe under `home`, as the collector does (bash, snapshot environment).
+fn run_jq_probe(jq: &Path, home: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut env = env();
+    env.push(("HOME".into(), home.as_os_str().to_owned()));
+    let output = Command::new("bash")
+        .args(["-c", prepare::JQ, "jq-probe"])
+        .arg(jq)
+        .env_clear()
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .output()?;
+    assert!(output.stderr.is_empty() && output.status.success());
+    Ok(output.stdout)
+}
+
+// Covers: R11, R13
+#[test]
+fn the_jq_probe_sees_home_and_a_hostile_init_file_changes_its_answer() -> TestResult {
+    let Some(jq) = command_v("jq", &env(), Path::new("/")) else {
+        return Ok(());
+    };
+    let temp = Temp::new()?;
+    let clean = run_jq_probe(&jq, &temp.0)?;
+    assert!(clean.ends_with(&prepare::expected_jq()), "{clean:?}");
+    fs::write(temp.0.join(".jq"), "def tostring: \"X\";\n")?;
+    let hostile = run_jq_probe(&jq, &temp.0)?;
+    assert!(!hostile.ends_with(&prepare::expected_jq()));
     Ok(())
 }
 

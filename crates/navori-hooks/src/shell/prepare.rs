@@ -126,6 +126,7 @@ pub struct Facts {
     pub text: Output,
     /// Bash's own diagnostic text under the caller's environment ([`MESSAGES`]).
     pub messages: Output,
+    /// Output of [`JQ`] (`--version` line, then the behavior probe), not of `jq --version`.
     pub jq: Option<Output>,
     pub node: Option<Output>,
 }
@@ -156,6 +157,80 @@ printf '\0'
 printf 'x\000y\n' | "$5"
 printf '\0%s' "${#1}"
 "#;
+/// jq behavior probe, run as `bash -c JQ jq-probe <jq>`. It prints the `--version` line (the
+/// family guard) and then runs the two exact shapes `extract-cmd.sh` runs (the bulk `-j` filter
+/// and `-r '.p // empty'`) over a constant batch of RFC 8259 documents plus invalid UTF-8,
+/// printing `output\0rc\0` per invocation; [`expected_jq`] is the accredited answer.
+///
+/// Scope: this accredits the behavior the native extraction models. It does NOT cover input
+/// jq extracts but RFC 8259 rejects, nor numbers/ordering the model renders differently:
+/// U+001F (1.7), `nan123` (1.7.1), depth 256-9999 (1.8), `0.0000001`, key order. NaN/Infinity
+/// fail closed in `payload::selected`. The rest is tracked in #1731 and must be closed in the
+/// model before any hook is promoted to `active`. A `~/.jq` init file changes the shell's jq
+/// in ways this probe cannot enumerate, so the collector defers whenever one exists.
+pub const JQ: &str = r#""$1" --version 2>/dev/null
+F='[(.a? // "" | tostring),(.b.c? // "" | tostring)] as $v | if all($v[]; any(explode[]; . == 0) | not) then ($v[] | ., "\u0000"), "END\u0000" else empty end'
+D='{"a":1.000,"b":{"c":100000000000000000001}}
+{"a":1E1000,"b":{"c":-0}}
+{"a":1e2,"b":{"c":1.5e-7}}
+{"a":12345678901234567890123e-3,"b":{"c":"\ud83d\ude80"}}
+{"a":"x\udc00y","b":{"c":"\u001b\u007f\t"}}
+'$'{"a":"\377\300\257","b":{"c":"a\342\202"}}\n''{"a":false,"b":{"c":null}}
+{"a":1,"a":{"e":{},"k":[1,2.50,"\u0000"],"l":[]},"b":{"c":true}}
+{"a":"a\u0000b","b":"str"}'
+printf '%s' "$D" | "$1" -j "$F" 2>/dev/null; printf '\0%s\0' "$?"
+printf '%s' "$D" | "$1" -r '.a // empty' 2>/dev/null; printf '\0%s\0' "$?"
+printf '%s' "$D" | "$1" -r '.b.c // empty' 2>/dev/null; printf '\0%s\0' "$?"
+printf '%s' '{"a":"x\ud800y"}' | "$1" -j "$F" 2>/dev/null; printf '\0%s\0' "$?"
+"#;
+
+/// What [`JQ`] prints after the version line for an accredited jq (identical across the measured
+/// 1.7, 1.7.1, 1.8.1, Ubuntu 24.04 `jq-1.7` and distro builds; sha256 `79c0f347…dc78b`).
+#[must_use]
+pub fn expected_jq() -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"1.000\x00100000000000000000001\0END\0");
+    out.extend_from_slice(b"1E+1000\0-0\0END\0");
+    out.extend_from_slice(b"1E+2\x001.5E-7\0END\0");
+    out.extend_from_slice("12345678901234567890.123\0\u{1f680}\0END\0".as_bytes());
+    out.extend_from_slice("x\u{fffd}y\0\u{1b}\u{7f}\t\0END\0".as_bytes());
+    out.extend_from_slice("\u{fffd}\u{fffd}\u{fffd}\0a\u{fffd}\0END\0".as_bytes());
+    out.extend_from_slice(b"\0\0END\0");
+    out.extend_from_slice(b"{\"e\":{},\"k\":[1,2.50,\"\\u0000\"],\"l\":[]}\0true\0END\0");
+    out.extend_from_slice(b"\x000\0");
+    out.extend_from_slice(
+        "1.000\n1E+1000\n1E+2\n12345678901234567890.123\nx\u{fffd}y\n\u{fffd}\u{fffd}\u{fffd}\n"
+            .as_bytes(),
+    );
+    out.extend_from_slice(
+        b"{\n  \"e\": {},\n  \"k\": [\n    1,\n    2.50,\n    \"\\u0000\"\n  ],\n  \"l\": []\n}\na\0b\n",
+    );
+    out.extend_from_slice(b"\x000\0");
+    out.extend_from_slice(
+        "100000000000000000001\n-0\n1.5E-7\n\u{1f680}\n\u{1b}\u{7f}\t\na\u{fffd}\ntrue\n"
+            .as_bytes(),
+    );
+    out.extend_from_slice(b"\x005\0\x005\0");
+    out
+}
+
+/// Whether the [`JQ`] output is from an accredited jq: a `jq-1.7*`/`jq-1.8*` version line
+/// (a coarse family guard: 1.6 and a future 1.9 defer) AND the exact behavior answer.
+fn jq_accredited(output: &[u8]) -> bool {
+    let Some(newline) = output.iter().position(|b| *b == b'\n') else {
+        return false;
+    };
+    let (version, rest) = (&output[..newline], &output[newline + 1..]);
+    let family = [b"jq-1.7".as_slice(), b"jq-1.8".as_slice()]
+        .into_iter()
+        .any(|prefix| {
+            version.strip_prefix(prefix).is_some_and(|tail| {
+                tail.is_empty() || tail.starts_with(b".") || tail.starts_with(b"-")
+            })
+        });
+    family && rest == expected_jq()
+}
+
 /// Fixed diagnostic probe: Bash reports a failed redirection on stderr, folded into stdout so the
 /// text can be compared byte for byte. Run as `bash -c MESSAGES messages-probe` under the
 /// caller's environment; a translated catalog changes the text (e.g. "línea 1").
@@ -398,16 +473,10 @@ impl<'a> Plan<'a> {
         {
             return Err(Ineligible("locale charmap was not accredited".into()));
         }
-        // Exact strings only: each was measured against the shell extraction (official 1.7,
-        // 1.7.1 and 1.8.1, plus the Ubuntu 24.04 build that reports `jq-1.7` and the distro
-        // 1.8.1). The string does not identify the build, so a behavior probe must replace
-        // this list before any hook is promoted to `active`.
-        let jq = check_version(&discovery, Tool::Jq, facts.jq.as_ref(), |v| {
-            matches!(
-                v,
-                b"jq-1.7\n" | b"jq-1.7.1\n" | b"jq-1.7.1-apple\n" | b"jq-1.8.1\n"
-            )
-        })?;
+        // Behavior, not the version string (which does not identify the build: Ubuntu's
+        // `jq-1.7` behaves as 1.7.1), AND a `jq-1.7*`/`jq-1.8*` family guard. See [`JQ`] for
+        // what the probe leaves out (#1731).
+        let jq = check_version(&discovery, Tool::Jq, facts.jq.as_ref(), jq_accredited)?;
         let node = check_version(&discovery, Tool::Node, facts.node.as_ref(), stable_node)?;
         if facts.text.bytes()? != expected_text(locale) {
             return Err(Ineligible(
@@ -470,24 +539,22 @@ fn check_version(
 /// Synthetic membership data excludes LF (the line separator) and includes NEL/nonspace controls.
 pub fn text_input() -> String {
     let mut text = String::new();
-    for c in candidates() {
+    for c in CANDIDATES {
         text.push(c);
         text.push('\n');
     }
     text
 }
-fn candidates() -> impl Iterator<Item = char> {
-    [
-        '\t', '\u{b}', '\u{c}', '\r', ' ', '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}', '\u{2001}',
-        '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
-        '\u{2009}', '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}', 'X',
-    ]
-    .into_iter()
-}
+/// The synthetic text probe's characters, in probe order (shared with the BSD-locale tests).
+pub const CANDIDATES: [char; 25] = [
+    '\t', '\u{b}', '\u{c}', '\r', ' ', '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}', '\u{2001}',
+    '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}',
+    '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}', 'X',
+];
 fn expected_text(locale: Locale) -> Vec<u8> {
     let mut output = Vec::new();
     let mut count = 0;
-    for (index, c) in candidates().enumerate() {
+    for (index, c) in CANDIDATES.into_iter().enumerate() {
         if locale.whitespace(c) {
             output.extend_from_slice(format!("{}:{c}\n", index + 1).as_bytes());
             count += 1;

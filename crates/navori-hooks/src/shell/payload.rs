@@ -111,9 +111,50 @@ enum Lookup {
     Unindexable,
 }
 
-/// Decode only the requested paths. Other fields remain raw, including non-finite numeric
-/// literals; serde_json validates all syntax before the bounded string-escape adaptation.
+/// Whether `text` has, outside any string, a bare `nan`, `inf` or `infinity` word (any case,
+/// optional sign): the non-finite literals jq accepts and RFC 8259 (so serde_json) rejects.
+fn has_non_finite_literal(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut in_string = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            match byte {
+                b'\\' => index += 1,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            index += 1;
+        } else if byte == b'"' {
+            in_string = true;
+            index += 1;
+        } else if byte.is_ascii_alphanumeric() {
+            let end = bytes[index..]
+                .iter()
+                .position(|b| !b.is_ascii_alphanumeric())
+                .map_or(bytes.len(), |length| index + length);
+            let word = bytes[index..end].to_ascii_lowercase();
+            if matches!(word.as_slice(), b"nan" | b"inf" | b"infinity") {
+                return true;
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    false
+}
+
+/// Decode only the requested paths. Other fields remain raw; serde_json validates all syntax
+/// before the bounded string-escape adaptation.
 /// A requested-value decoding failure is distinct from a missing/null field and must not permit.
+///
+/// A document serde_json rejects is empty only where the shell's extractor rejects it too. jq
+/// accepts `NaN`/`Infinity`/`-Infinity` and extracts the other fields, so in jq modes that
+/// document fails closed instead of reading as empty (#1731). The rest of the class jq
+/// accepts but RFC 8259 rejects (U+001F, `nan123`, depth 256-9999) is not modeled yet: #1731.
+/// Node's `JSON.parse` rejects non-finite literals, so `Node` keeps the empty answer.
 fn selected(
     text: &str,
     paths: &[&str],
@@ -121,6 +162,15 @@ fn selected(
 ) -> Result<Option<(Vec<Lookup>, bool)>, Failure> {
     let valid: &RawValue = match serde_json::from_str(text) {
         Ok(valid) => valid,
+        Err(_)
+            if matches!(mode, Extractor::JqOnly | Extractor::JqAndNode)
+                && has_non_finite_literal(text) =>
+        {
+            return Err(Failure(
+                "payload has a non-finite number literal jq accepts and the native extraction cannot model"
+                    .to_owned(),
+            ));
+        }
         Err(_) => return Ok(None),
     };
     let (node_text, high_surrogate, changed) = node_strings(valid.get());
@@ -456,5 +506,190 @@ mod locale_tests {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, reason = "test assertions")]
+mod jq_probe_tests {
+    use super::*;
+    use crate::shell::prepare::{JQ, expected_jq};
+
+    /// The probe's nine documents, decoded: JSON escapes stay as written, raw bytes are raw.
+    const DOCUMENTS: [&[u8]; 9] = [
+        br#"{"a":1.000,"b":{"c":100000000000000000001}}"#,
+        br#"{"a":1E1000,"b":{"c":-0}}"#,
+        br#"{"a":1e2,"b":{"c":1.5e-7}}"#,
+        br#"{"a":12345678901234567890123e-3,"b":{"c":"\ud83d\ude80"}}"#,
+        br#"{"a":"x\udc00y","b":{"c":"\u001b\u007f\t"}}"#,
+        b"{\"a\":\"\xff\xc0\xaf\",\"b\":{\"c\":\"a\xe2\x82\"}}",
+        br#"{"a":false,"b":{"c":null}}"#,
+        br#"{"a":1,"a":{"e":{},"k":[1,2.50,"\u0000"],"l":[]},"b":{"c":true}}"#,
+        br#"{"a":"a\u0000b","b":"str"}"#,
+    ];
+
+    /// Split the expected output into the four `output\0rc\0` invocations.
+    fn sections() -> Vec<(Vec<u8>, u8)> {
+        let expected = expected_jq();
+        let mut result = Vec::new();
+        let mut start = 0;
+        for &rc in b"0055" {
+            let end = start
+                + expected[start..]
+                    .windows(3)
+                    .position(|w| w == [0, rc, 0])
+                    .expect("terminator");
+            result.push((expected[start..end].to_vec(), rc));
+            start = end + 3;
+        }
+        assert_eq!(start, expected.len());
+        result
+    }
+
+    fn lookups(document: &[u8], mode: Extractor) -> Vec<Lookup> {
+        let text = String::from_utf8_lossy(document);
+        selected(&text, &["a", "b.c"], mode)
+            .expect("no failure")
+            .expect("accepted")
+            .0
+    }
+
+    /// `jq -r '.p // empty'` over one document, one path.
+    fn individual(lookup: &Lookup) -> String {
+        match lookup {
+            Lookup::Found(Value::Null | Value::Bool(false)) | Lookup::Unindexable => String::new(),
+            Lookup::Found(value) => format!("{}\n", structured(value, true, false)),
+        }
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn jq_probe_matches_model() {
+        let sections = sections();
+        for mode in [Extractor::JqOnly, Extractor::JqAndNode] {
+            let mut bulk = Vec::new();
+            let (mut first, mut second) = (String::new(), String::new());
+            for document in DOCUMENTS {
+                let found = lookups(document, mode);
+                let values: Vec<String> = found
+                    .iter()
+                    .map(|l| match l {
+                        Lookup::Found(v) => structured(v, false, false),
+                        Lookup::Unindexable => String::new(),
+                    })
+                    .collect();
+                // A NUL anywhere empties the document's bulk output.
+                if !values.iter().any(|v| v.contains('\0')) {
+                    bulk.extend_from_slice(
+                        format!("{}\0{}\0END\0", values[0], values[1]).as_bytes(),
+                    );
+                }
+                first.push_str(&individual(&found[0]));
+                second.push_str(&individual(&found[1]));
+            }
+            assert_eq!(sections[0].0, bulk, "{mode:?} bulk");
+            assert_eq!(sections[1].0, first.as_bytes(), "{mode:?} -r .a");
+            assert_eq!(sections[2].0, second.as_bytes(), "{mode:?} -r .b.c");
+        }
+        // The lone high surrogate aborts jq (rc 5, no output): only the sed lane remains.
+        assert!(sections[3].0.is_empty());
+        assert!(matches!(
+            selected(r#"{"a":"x\ud800y"}"#, &["a"], Extractor::JqOnly),
+            Ok(None)
+        ));
+    }
+
+    /// Resolve the shell escapes of a double-quoted word (`\"`, `\$`, `\\`).
+    fn unquote(word: &str) -> String {
+        let mut out = String::new();
+        let mut chars = word.chars();
+        while let Some(c) = chars.next() {
+            match (c, chars.clone().next()) {
+                ('\\', Some(next @ ('"' | '$' | '\\' | '`'))) => {
+                    out.push(next);
+                    chars.next();
+                }
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn jq_probe_filter_is_extract_cmd() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/core/core-assets/hooks/_partials/extract-cmd.sh");
+        let script = std::fs::read_to_string(path).expect("extract-cmd.sh");
+        let line = |prefix: &str| {
+            script
+                .lines()
+                .map(str::trim)
+                .find(|l| l.starts_with(prefix))
+                .unwrap_or_else(|| panic!("{prefix} not in extract-cmd.sh"))
+                .to_owned()
+        };
+        let piece = line("_pf_filter=\"$_pf_filter");
+        let piece = unquote(
+            piece
+                .strip_prefix("_pf_filter=\"")
+                .and_then(|p| p.strip_suffix('"'))
+                .expect("piece"),
+        );
+        let wrap = line("_pf_filter=\"[");
+        let wrap = unquote(
+            wrap.strip_prefix("_pf_filter=\"")
+                .and_then(|p| p.strip_suffix('"'))
+                .expect("wrap"),
+        );
+        let pieces: String = ["a", "b.c"]
+            .iter()
+            .map(|p| {
+                piece
+                    .replace("$_pf_filter", "")
+                    .replace("${_pf_spec#*=}", p)
+            })
+            .collect();
+        let filter = wrap.replace("${_pf_filter%,}", pieces.trim_end_matches(','));
+        let probe = JQ
+            .lines()
+            .find_map(|l| l.strip_prefix("F='").and_then(|l| l.strip_suffix('\'')))
+            .expect("filter line");
+        assert_eq!(probe, filter);
+        assert!(script.contains("jq -j \"$_pf_filter\""));
+        assert!(script.contains("jq -r \".$1 // empty\""));
+        assert!(JQ.contains("-j \"$F\"") && JQ.contains("-r '.a // empty'"));
+    }
+
+    // Covers: R11, R13
+    #[test]
+    fn a_non_finite_literal_in_jq_mode_fails_closed_not_empty() {
+        let payload: &[u8] = br#"{"tool_input":{"command":"rm -rf /"},"x":NaN}"#;
+        for text in [
+            r#"{"c":"ls","x":NaN}"#,
+            r#"{"c":"ls","x":-Infinity}"#,
+            r#"{"c":"ls","x":[Infinity,nan]}"#,
+        ] {
+            for mode in [Extractor::JqOnly, Extractor::JqAndNode] {
+                assert!(selected(text, &["c"], mode).is_err(), "{text} {mode:?}");
+            }
+            // Node's JSON.parse rejects it too: the shell lane is empty there.
+            assert!(matches!(selected(text, &["c"], Extractor::Node), Ok(None)));
+        }
+        for mode in [Extractor::JqOnly, Extractor::JqAndNode] {
+            let profile = Profile {
+                extractor: mode,
+                locale: Locale::C,
+            };
+            assert!(extract(payload, &["tool_input.command"], profile).is_err());
+        }
+        // Words inside strings and ordinary malformed JSON keep their old answers.
+        assert!(!has_non_finite_literal(r#"{"c":"NaN Infinity","x":1"#));
+        assert!(!has_non_finite_literal(r#"{"c":"a\"NaN"}"#));
+        assert!(!has_non_finite_literal("{broken"));
+        assert!(matches!(
+            selected("{broken", &["c"], Extractor::JqAndNode),
+            Ok(None)
+        ));
     }
 }

@@ -1,5 +1,7 @@
 //! Host-fact cache (spec 0057 R17): replay only for an unchanged, private, fresh entry.
-use navori_cli::facts_cache::{FactsCache, MAX_AGE_MS, key, lookup, now_ms, stamp};
+use navori_cli::facts_cache::{
+    FactsCache, MAX_AGE_MS, jq_init_present, key, lookup, now_ms, stamp,
+};
 use navori_cli::hook_facts::collect_cached;
 use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{Facts, Limits, Output, Request};
@@ -127,7 +129,7 @@ fn a_schema_1_entry_without_messages_is_a_miss() -> TestResult {
     cache.store("k", &facts(), &tools(), now);
     let path = entry(&temp, "k");
     let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
-    assert_eq!(value["schema"], 2);
+    assert_eq!(value["schema"], 3);
     assert!(cache.load("k", now).is_some());
     // Same entry shaped as the previous version: schema 1, no messages fact.
     value["schema"] = 1.into();
@@ -137,10 +139,72 @@ fn a_schema_1_entry_without_messages_is_a_miss() -> TestResult {
         .remove("messages");
     fs::write(&path, value.to_string())?;
     assert!(cache.load("k", now).is_none(), "schema 1 entry");
-    // Schema 1 label alone is also refused, and schema 2 without messages is refused.
+    // Schema 1 label alone is also refused, and a schema 2 entry (jq fact was `--version`) too.
+    cache.store("k", &facts(), &tools(), now);
+    let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path)?)?;
+    assert!(cache.load("k", now).is_some());
     value["schema"] = 2.into();
     fs::write(&path, value.to_string())?;
-    assert!(cache.load("k", now).is_none(), "schema 2 missing messages");
+    assert!(cache.load("k", now).is_none(), "schema 2 entry");
+    Ok(())
+}
+
+// Covers: R17
+#[test]
+fn the_key_tracks_the_jq_init_file_and_its_absence_keeps_the_cache() -> TestResult {
+    let bash = lookup(&std::env::var_os("PATH").ok_or("PATH")?, "bash").ok_or("bash")?;
+    let bash = bash.canonicalize()?;
+    let temp = Temp::new()?;
+    let env = |home: Option<&Path>| -> Vec<(OsString, OsString)> {
+        let mut env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+        if let Some(home) = home {
+            env.push(("HOME".into(), home.as_os_str().to_owned()));
+        }
+        env
+    };
+    // No `~/.jq` is an explicit value, not a disabled cache.
+    let absent = key(&bash, &env(Some(&temp.0))).ok_or("key without ~/.jq")?;
+    let unset = key(&bash, &env(None)).ok_or("key without HOME")?;
+    assert_ne!(absent, unset);
+    assert!(!jq_init_present(&env(Some(&temp.0)), &temp.0));
+    assert!(!jq_init_present(&env(None), &temp.0));
+    // Creating it, editing it and pointing HOME elsewhere each change the key.
+    let init = temp.0.join(".jq");
+    fs::write(&init, "def tostring: \"X\";\n")?;
+    assert!(jq_init_present(&env(Some(&temp.0)), &temp.0));
+    let created = key(&bash, &env(Some(&temp.0))).ok_or("key")?;
+    assert_ne!(created, absent);
+    fs::write(&init, "def explode: [];\n")?;
+    assert_ne!(key(&bash, &env(Some(&temp.0))), Some(created.clone()));
+    let other = Temp::new()?;
+    assert_ne!(key(&bash, &env(Some(&other.0))), Some(created));
+    // A directory (jq does not load it) is still present: the shell answers.
+    fs::remove_file(&init)?;
+    fs::create_dir(&init)?;
+    assert!(jq_init_present(&env(Some(&temp.0)), &temp.0));
+    assert!(key(&bash, &env(Some(&temp.0))).is_some());
+    Ok(())
+}
+
+// Covers: R11, R17
+#[test]
+fn a_jq_init_file_defers_the_host_before_any_probe() -> TestResult {
+    let temp = Temp::new()?;
+    let source = expanded_asset()?;
+    let script = temp.0.join("hook.sh");
+    let mut env = host_env()?;
+    env.push(("HOME".into(), temp.0.as_os_str().to_owned()));
+    fs::write(temp.0.join(".jq"), "def tostring: \"X\";\n")?;
+    let error = collect_cached(request(&script, &source, &env), &temp.0, PROBE_LIMITS, None)
+        .err()
+        .ok_or("a host with ~/.jq must defer")?;
+    assert!(error.0.contains("$HOME/.jq"), "{error}");
+    // The same host without the file is eligible (when the machine's own tools are).
+    fs::remove_file(temp.0.join(".jq"))?;
+    let deferred = collect_cached(request(&script, &source, &env), &temp.0, PROBE_LIMITS, None)
+        .err()
+        .is_some_and(|error| error.0.contains("$HOME/.jq"));
+    assert!(!deferred);
     Ok(())
 }
 
