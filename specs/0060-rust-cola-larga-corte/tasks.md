@@ -1,6 +1,8 @@
 # Migración a Rust, fase 4: cola larga — Tasks
 
-**Estado:** aceptada para desarrollo; reestructurada el 2026-10-31 (Q26–Q29 en `design.md`) ·
+**Estado:** cerrada para 0.13 el 2026-11-19 (ver "Cierre para 0.13" al final): E1 y M8 de E3
+completos; el resto de E2 y M9 se difiere a después de 0.13 con su motivo. Aceptada para desarrollo;
+reestructurada el 2026-10-31 (Q26–Q29 en `design.md`) ·
 **Base:** `migration/rust`. Fase 4 del programa (ver `specs/0057-migracion-rust/requirements.md`
 § "Fases del programa"), partida en dos: esta spec porta la cola larga de comandos y hooks, y
 `specs/0062-rust-activacion-corte/` hace la activación, la distribución y el corte (antes E4–E6
@@ -184,10 +186,14 @@ Entregable: `doctor`, `status`, `scan`, `migrations` y `backup` son nativos, y `
 y `worktree-reclaim` deciden en Rust en `shadow`. Empieza ya: no escribe por el render
 multi-engine.
 - **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
-- [ ] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
+  - Enmienda (2026-11-19): el replay de `managed-drift-watch.sh` y `worktree-reclaim.sh` sale de A8 porque T25 quedó fuera de alcance (ver T25). A8 es el oráculo `--only doctor,status,scan,migrations,backup`.
+- [x] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
+  - Cerrado (2026-11-19): `doctor` en texto es nativo en cinco PRs: 5e5a (#1740, esqueleto y secciones comunes), 5e5b-1 (#1741, hooks nativos, docBudget y distribution), 5e5b-2 (#1749, máquina y herramientas) y 5e5c (notas finales: CLI global desfasado, `.gitignore` y `.prettierignore` del harness, higiene de git, deriva contra el workspace, harness congelado, skills planos, índices de skills ajenos, modos de permiso, harness ajeno y restos de la capa global). Cada nota que el oráculo puede provocar tiene caso nativo en es y en. Delegan al TS antes del primer byte: `doctor --json` (`PERMANENT_DELEGATION`: su JSON lleva la procedencia del entrypoint de Node); los scans sin puerto de `doctor_ts_only_scans` (receptor OTel, herramientas operativas, cableado de codegraph y salud de Pi); un registro de plan maestro (congelado, #1484); un checkout de git con hooks nativos declarados; la nota de workspace con harness `full` y las variantes recortadas del harness congelado, cuyos scans responden `Unmodeled` con workspaces habilitados; texto derivado del usuario que no es ASCII, y una línea que clack partiría. La nota de CLI global desfasado no tiene caso de oráculo porque depende del `navori` del `PATH` de la máquina; la cubre una prueba unitaria. `status` y `scan` ya eran nativos antes de 5e5 y entran en el mismo oráculo de A8.
+  - Evidencia: oráculo `--only doctor,status,scan,migrations,backup` con 0 diferencias (A8; la corrida completa está en el PR de 5e5c).
 - [x] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"
   - Cerrado (2026-11-18, decisión de Ulises en #262, opción A): `backup restore` y `migrations restore` son nativos con `--yes`. Sin `--yes` delegan para siempre al TS, que confirma con el prompt interactivo de clack (`p.confirm`). Los dos quedan en `PERMANENT_DELEGATION` como entradas `unless: ["yes"]` con ese motivo; los casos `backup:restore-confirm-delegates` y `migrations:restore-confirm-delegates` comprueban la delegación.
 - [ ] **T25** (R70, R71, R74) — `managed-drift-watch` y `worktree-reclaim` en `shadow`; las eliminaciones de `worktree-reclaim` pasan por la capa `Fs` en modo registro durante la sombra · effect: behavior · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"los hooks de E3 cubren cada clase de veredicto y modo por engine"
+  - Fuera de alcance (2026-11-17, #1702, punto 9 del corte 0.13): los dos hooks se quedan en shell para siempre (`PERMANENT_SHELL_HOOKS` en `scripts/js/rust-areas.mjs`). `managed-drift-watch` es un aviso barato (~15 ms) y un puerto duplicaría el hash de bloques del render en un área crítica; `worktree-reclaim` corre en SessionEnd, depende de `gh` y `git` y borra worktrees del repo del usuario, así que portarlo es riesgo sin ganancia.
 
 ### M9 — Instalación, actualización, workspaces y Codex
 Entregable: `init`, `add`, `configure`, `preset`, `update`, `refresh`, `workspace`, `registry`,
@@ -201,3 +207,33 @@ comandos escriben por el render multi-engine.
 - [ ] **T28** (R73, R74, R75, R76) — `workspace` (con su guion de prompts), `registry`, `ticket` y `codex` (perfil, aprobación, integración y evaluación, sin escribir `~/.codex/config.toml` más allá de lo que escribe el TS) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"workspace, registry, ticket y codex"
   - Fuera de alcance (2026-11-02, enmienda de `requirements.md`): toda la tarea. `codex` (subcomandos congelados, #1484 decisión 5; Codex no bloquea el corte) y `workspace`, `registry` y `ticket` (congelados por el usuario en #1503) pasan a la lista de delegación permanente; el `registry` nativo de #1473 no entra al manifiesto.
 - [ ] **T29** (R77) — inventario del área E3 en verde; con E1–E3 integradas, todo subcomando y flag de `cli.ts` está en el manifiesto o en la lista de delegación permanente (D48) · effect: tests · test: `packages/cli/src/__tests__/rust-areas.test.ts`::"E3 completa y ningún subcomando sin dueño"
+
+## Cierre para 0.13 (2026-11-19)
+
+Inventario medido sobre `migration/rust` con `areaInventoryCheck` de `scripts/js/rust-areas.mjs`,
+contra el `main` de `cli.ts` y `crates/ported.json`, descontando `PERMANENT_DELEGATION` y
+`PERMANENT_SHELL_HOOKS`:
+
+| Área | Comandos fuera del manifiesto | Flags fuera | Hooks fuera |
+|---|---|---|---|
+| E1 | ninguno | ninguno | ninguno |
+| E2 | `audit`, `gate`, `receipt` (y sus 8 subcomandos), `tools` y `tools rust-shadow` (y sus 3 subcomandos) | ninguno | ninguno |
+| E3 | `init`, `add`, `configure` (y sus 9 subcomandos), `refresh`, `update` | ninguno | ninguno |
+| previa (0057-0059) | ninguno | `render --all`, `--prune`, `--verbose`, `--workspace`; `sync --interactive`, `--workspace` | ninguno |
+
+Checklist:
+- [x] E1 completa (M1-M5). T16 no tiene la prueba con nombre propio; el inventario medido de E1
+  está vacío.
+- [x] M8: T23 y T24 cerrados, A8 verde. T25 fuera de alcance (shell permanente).
+- [ ] E2: T20 (`gate`, `receipt` y `tools`), T21 (`bash-outcome-watch` y `routing-watch`, hoy en
+  `PERMANENT_SHELL_HOOKS` con motivo propio) y T22. T19 fuera de alcance; `audit` todavía no figura
+  en `PERMANENT_DELEGATION`.
+- [ ] M9: T26 (`init`, `add`, `configure`) y T27 (`update`, `refresh`). `preset` ya es nativo. T28
+  fuera de alcance.
+- [ ] T29: depende de E2 y M9.
+
+Qué se difiere y por qué: lo que no está en el manifiesto lo ejecuta el TS congelado por la
+delegación del binario (D3 de 0057), con la misma salida, así que no bloquea 0.13, que sale en
+convivencia. Sí bloquea el corte de 0062 (E3), que elimina el TS: hasta entonces, cada comando
+de la tabla tiene que quedar nativo o entrar en `PERMANENT_DELEGATION` con su motivo (`audit`
+entre ellos). Los flags previos de `render` y `sync` son de las specs 0058 y 0059, no de esta.
