@@ -430,6 +430,11 @@ const EffortSchema = z.object({
   architect: z.enum(EFFORTS).optional(),
 });
 
+/** Claude Code plugin id: `<plugin>@<marketplace>` — one `@`, both sides non-empty, no whitespace. */
+const ClaudePluginIdSchema = z
+  .string()
+  .regex(/^[^@\s]+@[^@\s]+$/, "expected '<plugin>@<marketplace>' (one '@', no whitespace)");
+
 const PluginEntrySchema = z.object({
   enabled: z.boolean(),
   /** The native git hook runs this plugin's check, so its hook is not registered
@@ -667,6 +672,23 @@ export const NavoriConfigSchema = z
     models: ModelsSchema.optional(),
     effort: EffortSchema.optional(),
     plugins: z.record(z.string(), PluginEntrySchema).optional(),
+    /** Claude Code plugins to enable (`true`) or explicitly disable (`false`),
+     * keyed by plugin id `<plugin>@<marketplace>`. Maps to Claude Code's
+     * `enabledPlugins` in `.claude/settings.json`, which navori regenerates on
+     * every render — so a plugin installed with `claude plugin install --scope
+     * project` is dropped unless it is declared here.
+     *
+     * Claude-only: other engines ignore it. Not to be confused with `plugins`,
+     * which configures NAVORI's own plugins.
+     *
+     * It can only enable/disable plugins. It is deliberately NOT a generic
+     * settings passthrough: a free-form block could override navori's
+     * permissions and guard hooks. Marketplaces beyond the built-in official one
+     * (`extraKnownMarketplaces`) are intentionally out of scope for now.
+     *
+     * Applies only to a navori-owned settings.json: a hand-written one (coexist
+     * mode) keeps its own `enabledPlugins` and this field is not injected. */
+    claudePlugins: z.record(ClaudePluginIdSchema, z.boolean()).optional(),
     blocks: BlocksSchema.optional(),
     progress: ProgressSchema.optional(),
     project: ProjectSchema.optional(),
