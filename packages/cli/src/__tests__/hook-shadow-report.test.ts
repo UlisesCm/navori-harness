@@ -13,6 +13,8 @@ interface Row {
   firstMs: number | null;
   lastMs: number | null;
   closesMs: number | null;
+  status: "green" | "amber" | "red";
+  warnings: string[];
   nativeFailed: number;
   shellFailed: number;
   divergences: number;
@@ -21,6 +23,7 @@ interface Row {
 }
 interface Report {
   ok: boolean;
+  status: "green" | "amber" | "red";
   rows: Row[];
 }
 interface ReportInput {
@@ -31,6 +34,7 @@ interface ReportInput {
   now: number;
   windowDays: number;
   perRowClose?: boolean;
+  causes?: Record<string, string>;
 }
 interface Module {
   buildReport: (input: ReportInput) => Report;
@@ -262,10 +266,73 @@ it("con cierre por fila cada hook y engine se juzga a los 7 días de su primera 
   const closed = perRow([{ ageDays: 9 }, { ageDays: 5 }, { ageDays: 1, differs: true }]);
   expect(closed.rows[0]).toMatchObject({ invocations: 2, divergences: 0, closesMs: NOW - 2 * DAY });
   expect(closed.ok).toBe(true);
-  // First row 3 d ago: the window is still open, red for a gating hook only.
+  // First row 3 d ago: the window is still open, amber (not red) for a gating hook only.
   const open = perRow([{ ageDays: 3 }, { ageDays: 1 }]);
-  expect(open.rows[0]?.problems).toEqual([
+  expect(open.rows[0]?.status).toBe("amber");
+  expect(open.rows[0]?.problems).toEqual([]);
+  expect(open.rows[0]?.warnings).toEqual([
     `window open until ${new Date(NOW + 4 * DAY).toISOString()}`,
   ]);
   expect(perRow([{ ageDays: 3 }], false).ok).toBe(true);
+});
+
+// Covers: R81
+it("una observación sin completar queda en ámbar y al cierre pasa a verde solo con causa, < 0,5 % y aislada", (): void => {
+  const LOST = 8.5;
+  const lostAt = (ageDays: number): string => new Date(NOW - ageDays * DAY).toISOString();
+  // 200 completed calls inside the row's window (9 to 3 days ago; it closes 2 days ago), so one
+  // lost observation is 1/201 < 0.5 %.
+  const traffic = Array.from({ length: 200 }, (_, at) => ({ ageDays: 9 - at * 0.03 }));
+  const report = (
+    lost: number[],
+    causes: Record<string, string>,
+    perRowClose = true,
+    calls = traffic,
+  ): Report =>
+    shadow.buildReport({
+      hooks: { example: { gating: true, impl: IMPL } },
+      journals: {
+        example: journal("example", "claude", [
+          ...calls,
+          ...lost.map((ageDays) => ({ ageDays, complete: false })),
+        ]),
+      },
+      engines: { example: ["claude"] },
+      approved: {},
+      now: NOW,
+      windowDays: 7,
+      perRowClose,
+      causes,
+    });
+  const cause = { [`example|claude|${lostAt(LOST)}`]: "interrupción probable" };
+
+  // Open window (clock mode): amber with its time, never red, never green.
+  const open = report([1], {}, false);
+  expect(open.rows[0]?.status).toBe("amber");
+  expect(open.status).toBe("amber");
+  expect(open.rows[0]?.warnings.join()).toContain(lostAt(1));
+  expect(shadow.formatMarkdown(open, { B: ["example"] })).toContain(
+    "| B | example | amber: example [claude] |",
+  );
+
+  // At the close: green with a recorded cause, red without one.
+  expect(report([LOST], cause).rows[0]?.status).toBe("green");
+  const unexplained = report([LOST], {});
+  expect(unexplained.rows[0]?.status).toBe("red");
+  expect(unexplained.rows[0]?.problems.join()).toContain("without a recorded cause");
+
+  // At the close: red when they reach 0.5 % of the calls, or when two fall within 10 minutes.
+  const few = report([LOST], cause, true, traffic.slice(0, 100));
+  expect(few.rows[0]?.problems.join()).toContain("% of calls");
+  const twin = LOST - 5 / 1440;
+  // 400 calls keep two lost observations under 0.5 %, so only the grouping turns the row red.
+  const grouped = report(
+    [LOST, twin],
+    { ...cause, [`example|claude|${lostAt(twin)}`]: "interrupción probable" },
+    true,
+    [...traffic, ...traffic],
+  );
+  expect(grouped.rows[0]?.status).toBe("red");
+  expect(grouped.rows[0]?.problems.join()).toContain("grouped");
+  expect(grouped.rows[0]?.problems.join()).not.toContain("% of calls");
 });
