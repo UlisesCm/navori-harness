@@ -416,3 +416,32 @@ it("keeps the native host integration opt-in and strictly boolean", () => {
     NavoriConfigSchema.safeParse({ ...MINIMAL, harness: { codexIntegration: "true" } }).success,
   ).toBe(false);
 });
+
+describe("NavoriConfigSchema — claudePlugins", () => {
+  it("accepts <plugin>@<marketplace> ids with boolean values", () => {
+    const c = NavoriConfigSchema.parse({
+      ...MINIMAL,
+      claudePlugins: { "sentry@claude-plugins-official": true, "x@y": false },
+    });
+    expect(c.claudePlugins).toEqual({ "sentry@claude-plugins-official": true, "x@y": false });
+  });
+
+  it("is optional", () => {
+    expect(NavoriConfigSchema.parse({ ...MINIMAL }).claudePlugins).toBeUndefined();
+  });
+
+  it.each(["sentry", "a@b@c", "@market", "plugin@", "plug in@market", "plugin@mar ket", ""])(
+    "rejects invalid id %j",
+    (id) => {
+      expect(
+        NavoriConfigSchema.safeParse({ ...MINIMAL, claudePlugins: { [id]: true } }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(["true", 1, null])("rejects non-boolean value %j", (v) => {
+    expect(NavoriConfigSchema.safeParse({ ...MINIMAL, claudePlugins: { "a@b": v } }).success).toBe(
+      false,
+    );
+  });
+});
