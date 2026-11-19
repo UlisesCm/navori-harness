@@ -2060,6 +2060,622 @@ impl Doctor {
         )
     }
 
+    /// `doctor.externalTools`.
+    #[must_use]
+    pub fn external_tools(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Plugins habilitados con herramienta externa no instalada ({a}) — su protocolo/scan referencia algo que no está disponible en esta máquina:\n{b}"
+            )
+        } else {
+            format!(
+                "Enabled plugins with an uninstalled external tool ({a}) — their protocol/scan references something not available on this machine:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.externalToolRow`.
+    #[must_use]
+    pub fn external_tool_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("— falta '{a}' en PATH; {b}")
+        } else {
+            format!("— missing '{a}' in PATH; {b}")
+        }
+    }
+
+    /// `doctor.externalToolFallbackHow`.
+    #[must_use]
+    pub fn external_tool_fallback_how(self) -> &'static str {
+        self.pick(
+            "instala la herramienta y reinicia Claude Code",
+            "install the tool and restart Claude Code",
+        )
+    }
+
+    /// `doctor.externalToolDocsHow`.
+    #[must_use]
+    pub fn external_tool_docs_how(self, a: &str) -> String {
+        if self.es() {
+            format!("instálala siguiendo {a}")
+        } else {
+            format!("install it following {a}")
+        }
+    }
+
+    /// `doctor.pinnedVersionDrift`.
+    #[must_use]
+    pub fn pinned_version_drift(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Binarios con versión distinta a la fijada en el manifest ({a}) — la config (env/MCP) está calibrada contra esa versión exacta:\n{b}"
+            )
+        } else {
+            format!(
+                "Binaries whose version differs from the manifest's pin ({a}) — its config (env/MCP) is calibrated against that exact version:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.pinnedVersionDriftRow`.
+    #[must_use]
+    pub fn pinned_version_drift_row(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!("— instalado {a}, el manifest fija {b}; {c}")
+        } else {
+            format!("— installed {a}, manifest pins {b}; {c}")
+        }
+    }
+
+    /// `doctor.versionAdvisories`.
+    #[must_use]
+    pub fn version_advisories(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Herramientas en una versión con un problema conocido ({a}) — curado en el manifest del plugin; informativo:\n{b}"
+            )
+        } else {
+            format!(
+                "Tools on a version with a known problem ({a}) — curated in the plugin manifest; informational:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.versionAdvisoryRow`.
+    #[must_use]
+    pub fn version_advisory_row(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!("— instalado {a} < {b}: {c}")
+        } else {
+            format!("— installed {a} < {b}: {c}")
+        }
+    }
+
+    /// `doctor.toolUpdates`.
+    #[must_use]
+    pub fn tool_updates(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Herramientas con una versión estable más nueva ({a}) — según la última consulta en caché; informativo:\n{b}"
+            )
+        } else {
+            format!(
+                "Tools with a newer stable release ({a}) — from the last cached lookup; informational:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.toolUpdateRow`.
+    #[must_use]
+    pub fn tool_update_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("— instalado {a}, disponible {b}")
+        } else {
+            format!("— installed {a}, available {b}")
+        }
+    }
+
+    /// `doctor.toolReleaseUnparseable`.
+    #[must_use]
+    pub fn tool_release_unparseable(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "No se pudo interpretar la última versión publicada ({a}) — por eso no habrá aviso de actualización para estas herramientas:\n{b}"
+            )
+        } else {
+            format!(
+                "Could not read the latest published version ({a}) — so no update notice can fire for these tools:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.toolReleaseUnparseableRow`.
+    #[must_use]
+    pub fn tool_release_unparseable_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("— fuente {a}:{b}")
+        } else {
+            format!("— source {a}:{b}")
+        }
+    }
+
+    /// `doctor.externalToolCapabilityGaps`.
+    #[must_use]
+    pub fn external_tool_capability_gaps(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Binarios sin una capacidad que el manifest requiere ({a}) — la versión instalada no soporta lo que su hook/script necesita; '--version' no es confiable, así que el manifest declara la capacidad, no una versión a comparar:\n{b}"
+            )
+        } else {
+            format!(
+                "Binaries missing a capability the manifest requires ({a}) — the installed version doesn't support what its hook/script needs; '--version' isn't reliable, so the manifest declares the capability instead of a version to compare:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.externalToolCapabilityGapRow`.
+    #[must_use]
+    pub fn external_tool_capability_gap_row(self, a: &str, b: &str, c: &str, d: &str) -> String {
+        if self.es() {
+            format!("— '{a}' no soporta {b} (necesita >= {c}); {d}")
+        } else {
+            format!("— '{a}' doesn't support {b} (needs >= {c}); {d}")
+        }
+    }
+
+    /// `doctor.mcpCoherence`.
+    #[must_use]
+    pub fn mcp_coherence(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                ".mcp.json incoherente con el manifest del plugin ({a}) — este checkout quedó desalineado; corre 'navori render --apply' para regenerarlo:\n{b}"
+            )
+        } else {
+            format!(
+                ".mcp.json incoherent with the plugin's manifest ({a}) — this checkout drifted; run 'navori render --apply' to regenerate it:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.mcpCoherenceMissingEntry`.
+    #[must_use]
+    pub fn mcp_coherence_missing_entry(self) -> &'static str {
+        self.pick(
+            "— falta la entrada del plugin en .mcp.json",
+            "— plugin entry missing from .mcp.json",
+        )
+    }
+
+    /// `doctor.mcpCoherenceCommandMismatch`.
+    #[must_use]
+    pub fn mcp_coherence_command_mismatch(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("— command no coincide (esperado '{a}', encontrado '{b}')")
+        } else {
+            format!("— command mismatch (expected '{a}', found '{b}')")
+        }
+    }
+
+    /// `doctor.optionalTools`.
+    #[must_use]
+    pub fn optional_tools(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Herramientas opcionales no instaladas ({a}) — el harness funciona con fallback, pero pierde precisión en estos flujos:\n{b}"
+            )
+        } else {
+            format!(
+                "Optional tools not installed ({a}) — the harness keeps working with a fallback, but loses precision in these flows:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.optionalToolRow`.
+    #[must_use]
+    pub fn optional_tool_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("— falta {a} en PATH; {b}. Mientras tanto, locate-code cae a Grep")
+        } else {
+            format!("— missing {a} in PATH; {b}. Until then, locate-code falls back to Grep")
+        }
+    }
+
+    /// `doctor.auditRootOpen`.
+    #[must_use]
+    pub fn audit_root_open(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "El audit root tiene directorios abiertos a otros usuarios; 'navori audit' los rechaza ('unsafe-audit-target'):\n{a}\nVerifica la ruta y repáralo con: {b}"
+            )
+        } else {
+            format!(
+                "The audit root has directories open to other users; 'navori audit' refuses them ('unsafe-audit-target'):\n{a}\nVerify the path, then repair with: {b}"
+            )
+        }
+    }
+
+    /// `doctor.gateNotRunnable`.
+    #[must_use]
+    pub fn gate_not_runnable(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Quality gate declarado pero no ejecutable ({a}) — el gate es lo que sostiene el cierre de cada tarea; si no corre, las fases que dependen de él quedan sin red:\n{b}"
+            )
+        } else {
+            format!(
+                "Quality gate declared but not runnable ({a}) — the gate is what closes every task; if it can't run, the phases that lean on it have no net:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.gateMissingBinaryRow`.
+    #[must_use]
+    pub fn gate_missing_binary_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— falta '{a}' en PATH")
+        } else {
+            format!("— missing '{a}' in PATH")
+        }
+    }
+
+    /// `doctor.gateMissingScriptRow`.
+    #[must_use]
+    pub fn gate_missing_script_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— el script '{a}' no existe en el package.json de ese directorio")
+        } else {
+            format!("— script '{a}' is not in that directory's package.json")
+        }
+    }
+
+    /// `doctor.gateMissingDepsRow`.
+    #[must_use]
+    pub fn gate_missing_deps_row(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "— sin node_modules en '{a}'; instala dependencias antes de apoyarte en el gate"
+            )
+        } else {
+            format!("— no node_modules in '{a}'; install dependencies before relying on the gate")
+        }
+    }
+
+    /// `doctor.emptyUserSections`.
+    #[must_use]
+    pub fn empty_user_sections(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Skills instaladas con su user-section sin llenar ({a}) — cuestan una lectura y solo cubren la capa universal; lo específico de tu stack va en esa sección:\n{b}"
+            )
+        } else {
+            format!(
+                "Installed skills with an unfilled user-section ({a}) — they cost a read and only cover the universal layer; your stack's rules belong in that section:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.emptyUserSectionRow`.
+    #[must_use]
+    pub fn empty_user_section_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— plantilla sin tocar en {a}")
+        } else {
+            format!("— untouched template in {a}")
+        }
+    }
+
+    /// `doctor.triggerlessSkills`.
+    #[must_use]
+    pub fn triggerless_skills(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Skills project-local sin condición de disparo en su 'description' ({a}) — el host decide si carga una skill leyendo esa línea, y una que solo dice qué hace no le da con qué comparar: queda instalada pero casi nunca se activa. Agrégale un \"Usar cuando…\" (o \"Use when…\") al inicio. navori no toca el contenido de tus skills, solo te lo señala:\n{b}"
+            )
+        } else {
+            format!(
+                "Project-local skills with no activation trigger in their 'description' ({a}) — the host decides whether to load a skill by reading that line, and one that only says what the skill does gives it nothing to match on: the skill is installed but hardly ever fires. Lead the description with \"Use when…\" (or \"Usar cuando…\"). navori never edits your skills' content, it only points this out:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.triggerlessSkillRow`.
+    #[must_use]
+    pub fn triggerless_skill_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— sin \"Usar cuando…\" en {a}")
+        } else {
+            format!("— no \"Use when…\" in {a}")
+        }
+    }
+
+    /// `doctor.interpolationArtifacts`.
+    #[must_use]
+    pub fn interpolation_artifacts(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Restos de interpolación en el árbol renderizado ({a}) — 'render' reescribe solo la zona managed, así que lo que cayó en la zona de usuario se queda ahí aunque arregles el interpolador. Edita esas líneas a mano; borrar el archivo también lo regenera limpio, pero pierdes todo lo que hayas escrito en su zona de usuario:\n{b}"
+            )
+        } else {
+            format!(
+                "Interpolation leftovers in the rendered tree ({a}) — 'render' only rewrites the managed zone, so whatever landed in the user zone stays there even after the interpolator is fixed. Edit those lines by hand; deleting the file also regenerates it clean, but you lose everything you wrote in its user zone:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.interpolationArtifactUnresolvedRow` (`DERIVED_INTERPOLATION_TOKENS` is empty).
+    #[must_use]
+    pub fn interpolation_artifact_unresolved_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— '{a}' publicado en la prosa; declara ese campo en navori.config.json")
+        } else {
+            format!("— '{a}' published in the prose; declare that field in navori.config.json")
+        }
+    }
+
+    /// `doctor.interpolationArtifactGateRow`.
+    #[must_use]
+    pub fn interpolation_artifact_gate_row(self) -> &'static str {
+        self.pick(
+            "— prosa de 'quality gate sin configurar'; corre 'navori configure quality-gate' y vuelve a renderizar",
+            "— 'quality gate not configured' prose; run 'navori configure quality-gate' and render again",
+        )
+    }
+
+    /// `doctor.interpolationArtifactsMore`.
+    #[must_use]
+    pub fn interpolation_artifacts_more(self, a: &str) -> String {
+        if self.es() {
+            format!("  … y {a} más")
+        } else {
+            format!("  … and {a} more")
+        }
+    }
+
+    /// `doctor.diskUsage`.
+    #[must_use]
+    pub fn disk_usage(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Uso de disco por encima del umbral ({a}) — nada acota estos directorios en automático; límpialos tú:\n{b}"
+            )
+        } else {
+            format!(
+                "Disk usage over threshold ({a}) — nothing bounds these directories automatically; clean them yourself:\n{b}"
+            )
+        }
+    }
+
+    /// `doctor.diskBackupsRow`.
+    #[must_use]
+    pub fn disk_backups_row(self, a: &str) -> String {
+        if self.es() {
+            format!("— {a} en backups; corre 'navori backup prune' para podarlos")
+        } else {
+            format!("— {a} in backups; run 'navori backup prune' to trim them")
+        }
+    }
+
+    /// `doctor.diskWorktreesRow`.
+    #[must_use]
+    pub fn disk_worktrees_row(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "— {a} en worktrees de agente; revisa 'git worktree list' y quita los que sobren con 'git worktree remove <ruta>' (pueden tener trabajo sin commitear; navori nunca los borra solo)"
+            )
+        } else {
+            format!(
+                "— {a} in agent worktrees; review 'git worktree list' and drop stale ones with 'git worktree remove <path>' (they may hold uncommitted work; navori never deletes them itself)"
+            )
+        }
+    }
+
+    /// `doctor.progressSize`.
+    #[must_use]
+    pub fn progress_size(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "El estado de sesión es demasiado grande — se cae del contexto de arranque:\n{a}"
+            )
+        } else {
+            format!("Session state is too large — it falls out of startup context:\n{a}")
+        }
+    }
+
+    /// `doctor.progressSizeRow`.
+    #[must_use]
+    pub fn progress_size_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "— {a} bytes (tope {b}); mueve los checkpoints a progress/history.md y deja solo el estado actual y el siguiente paso"
+            )
+        } else {
+            format!(
+                "— {a} bytes (cap {b}); move checkpoints to progress/history.md and keep only the current state and next step"
+            )
+        }
+    }
+
+    /// `doctor.globalClaudeMd`.
+    #[must_use]
+    pub fn global_claude_md(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Tu CLAUDE.md global es demasiado grande — se carga en cada sesión y le quita espacio al contexto del repo:\n{a}"
+            )
+        } else {
+            format!(
+                "Your global CLAUDE.md is too large — it loads in every session and crowds out the repo's context:\n{a}"
+            )
+        }
+    }
+
+    /// `doctor.globalClaudeMdRow`.
+    #[must_use]
+    pub fn global_claude_md_row(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "— {a} caracteres (tope {b}); mueve lo específico de un workspace a su Dominio y quita lo que el repo ya declara (navori nunca edita este archivo)"
+            )
+        } else {
+            format!(
+                "— {a} characters (cap {b}); move workspace-specific content to its Dominio and drop what the repo already declares (navori never edits this file)"
+            )
+        }
+    }
+
+    /// `doctor.renderPending`.
+    #[must_use]
+    pub fn render_pending(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Render pendiente: {a} archivo(s) o bloque(s) cambiarían (hooks o doctrina de una versión anterior de navori) — corre 'navori render --apply'"
+            )
+        } else {
+            format!(
+                "Render pending: {a} file(s) or block(s) would change (hooks or doctrine from an older navori version) — run 'navori render --apply'"
+            )
+        }
+    }
+
+    /// `doctor.nestedWorktrees`.
+    #[must_use]
+    pub fn nested_worktrees(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "Worktrees anidados con node_modules propio y eslint en el repo ({a}) — eslint resuelve su configuración subiendo por el árbol, así que una corrida dentro del worktree carga también '{b}' del repo padre y falla con \"couldn't determine the plugin uniquely\". Si eslint corre en un hook de pre-commit, ningún agente puede commitear desde ahí: su rama nunca se publica y lo único que se ve es un worktree abandonado. Cierra el ciclo desde el árbol principal y quita el worktree con 'git worktree remove <ruta>' al terminar:\n{c}"
+            )
+        } else {
+            format!(
+                "Nested worktrees with their own node_modules while the repo runs eslint ({a}) — eslint resolves its config by walking up the tree, so a run started inside the worktree also loads the parent repo's '{b}' and fails with \"couldn't determine the plugin uniquely\". With eslint in a pre-commit hook no agent can commit from there: its branch is never pushed and all you see is an abandoned worktree. Close the cycle from the main tree and drop the worktree with 'git worktree remove <path>' when it's done:\n{c}"
+            )
+        }
+    }
+
+    /// `doctor.nestedWorktreeRow`.
+    #[must_use]
+    pub fn nested_worktree_row(self) -> &'static str {
+        self.pick(
+            "— checkout anidado con node_modules propio",
+            "— nested checkout with its own node_modules",
+        )
+    }
+
+    /// `doctor.monorepoDisabled`.
+    #[must_use]
+    pub fn monorepo_disabled(self) -> &'static str {
+        self.pick(
+            "monorepo.enabled está en false: navori no renderiza ni inspecciona workspaces.",
+            "monorepo.enabled is false: navori does not render or inspect workspaces.",
+        )
+    }
+
+    /// `doctor.monorepoEmptyDeclared`.
+    #[must_use]
+    pub fn monorepo_empty_declared(self) -> &'static str {
+        self.pick(
+            "monorepo declarado pero workspaces[] vacío — corre 'navori scan' para poblarlo",
+            "monorepo declared but workspaces[] empty — run 'navori scan' to populate it",
+        )
+    }
+
+    /// `doctor.monorepoAddedRow`.
+    #[must_use]
+    pub fn monorepo_added_row(self) -> &'static str {
+        self.pick(
+            "— en disco, falta en config (corre 'navori scan')",
+            "— on disk, missing in config (run 'navori scan')",
+        )
+    }
+
+    /// `doctor.monorepoOrphanRow`.
+    #[must_use]
+    pub fn monorepo_orphan_row(self) -> &'static str {
+        self.pick(
+            "— en config, ausente en disco (quítalo del config)",
+            "— in config, missing on disk (remove it from config)",
+        )
+    }
+
+    /// `doctor.monorepoDrift`.
+    #[must_use]
+    pub fn monorepo_drift(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!("Monorepo desincronizado con el disco ({a}):\n{b}")
+        } else {
+            format!("Monorepo out of sync with disk ({a}):\n{b}")
+        }
+    }
+
+    /// `doctor.wsLinkMissing`.
+    #[must_use]
+    pub fn ws_link_missing(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Workspace '{a}' referenciado en config pero no existe en ~/.navori/workspaces/ — el registro de workspaces es local por máquina y no viaja con el repo. Corre 'navori workspace link' para crearlo y registrar este repo."
+            )
+        } else {
+            format!(
+                "Workspace '{a}' referenced in config but does not exist in ~/.navori/workspaces/ — the workspace registry is machine-local and does not travel with the repo. Run 'navori workspace link' to create it and register this repo."
+            )
+        }
+    }
+
+    /// `doctor.wsLinkNotRegistered`.
+    #[must_use]
+    pub fn ws_link_not_registered(self, a: &str) -> String {
+        if self.es() {
+            format!(
+                "Este repo no está registrado en el workspace '{a}' — corre 'navori workspace link' para registrarlo."
+            )
+        } else {
+            format!(
+                "This repo is not registered in workspace '{a}' — run 'navori workspace link' to register it."
+            )
+        }
+    }
+
+    /// `doctor.wsLinkPathMismatch`.
+    #[must_use]
+    pub fn ws_link_path_mismatch(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "El repo '{a}' está registrado en el workspace '{b}' con otra ruta ({c}) — probablemente de otra máquina o una ruta vieja. Corre 'navori workspace link' para actualizarla."
+            )
+        } else {
+            format!(
+                "Repo '{a}' is registered in workspace '{b}' with a different path ({c}) — probably from another machine or a stale path. Run 'navori workspace link' to update it."
+            )
+        }
+    }
+
+    /// `doctor.wsLinkUndeclaredMismatch`.
+    #[must_use]
+    pub fn ws_link_undeclared_mismatch(self, a: &str, b: &str, c: &str) -> String {
+        if self.es() {
+            format!(
+                "El repo '{a}' está registrado en el workspace '{b}' con una ruta que ya no es esta ({c}), y navori.config.json no declara 'workspace' — 'dominio inject' no lo encontrará. Corre 'navori workspace link --name {b}' desde esta ruta para actualizarla."
+            )
+        } else {
+            format!(
+                "Repo '{a}' is registered in workspace '{b}' with a path that is no longer this one ({c}), and navori.config.json declares no 'workspace' — 'dominio inject' will not find it. Run 'navori workspace link --name {b}' from this path to update it."
+            )
+        }
+    }
+
+    /// `doctor.wsDeadRepos`.
+    #[must_use]
+    pub fn ws_dead_repos(self, a: &str, b: &str) -> String {
+        if self.es() {
+            format!(
+                "Workspace '{a}': repos registrados con una ruta que no existe en disco:\n{b}\nCorre 'navori workspace link' desde la ubicación nueva de cada repo para actualizarla."
+            )
+        } else {
+            format!(
+                "Workspace '{a}': repos registered with a path that does not exist on disk:\n{b}\nRun 'navori workspace link' from each repo's new location to update it."
+            )
+        }
+    }
+
     /// `doctor.legacyAgents`.
     #[must_use]
     pub fn legacy_agents(self, a: &str, b: &str) -> String {

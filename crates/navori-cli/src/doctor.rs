@@ -16,8 +16,8 @@
 //! - a scan the port does not model applies to this config ([`doctor_ts_only_scans`]: the OTel
 //!   receiver, operational tools, the codegraph wiring, Pi health) or to this repo (a master plan
 //!   registry; a git checkout, where `scanNativeHooks` always prints its note);
-//! - any section of the machine and tools slice (5e5b) or the closing notes (5e5c) would print: those
-//!   sections are not rendered here, so a non-empty scan sends the whole report to the TS;
+//! - any of the closing notes (5e5c) would print: those are not rendered here, so a non-empty scan
+//!   sends the whole report to the TS (the machine and tools sections of 5e5b are native);
 //! - user-derived text in a note that is not plain ASCII, or a note line Rust cannot wrap.
 
 use std::ffi::OsString;
@@ -29,8 +29,10 @@ use std::time::Duration;
 use navori_core::config::Config;
 use navori_core::diagnose::distribution::{DistributionReport, scan_distribution};
 use navori_core::diagnose::doctor_assets::{
-    BlockKind, ContextDelivery, ControlGap, ControlState, DEFAULT_PROGRESS_THRESHOLD_BYTES,
-    DocBudgetLever, DocBudgetReport, MissingModelProfile, MissingTier, doctor_skill_dirs,
+    ArtifactReason, BlockKind, ContextDelivery, ControlGap, ControlState,
+    DEFAULT_PROGRESS_THRESHOLD_BYTES, DocBudgetLever, DocBudgetReport, EmptyUserSection,
+    GateBlocker, GateReadinessIssue, InterpolationArtifact, MissingModelProfile, MissingTier,
+    NestedWorktreeConflict, ProgressSizeIssue, TriggerlessSkill, doctor_skill_dirs,
     scan_control_gaps, scan_doc_budget, scan_empty_user_sections, scan_flat_skills,
     scan_foreign_skill_indexes, scan_git_hygiene, scan_gitignore_harness,
     scan_interpolation_artifacts, scan_missing_model_profile, scan_nested_worktrees,
@@ -39,15 +41,19 @@ use navori_core::diagnose::doctor_assets::{
 };
 use navori_core::diagnose::doctor_local::LocalSkills;
 use navori_core::diagnose::doctor_local::{
-    ClaudeHookScripts, ExcludedBlocks, LegacyAgent, MalformedMarker, MalformedReason, NameMismatch,
-    OrderReport, RetiredAssetOnDisk, RetiredBlock, classify_local_skills, is_placeholder_name,
-    list_available_external_providers, list_context_markers, needs_external_provider_setup_hint,
-    preset_override, scan_claude_hook_scripts, scan_excluded_blocks, scan_legacy_agents,
-    scan_malformed_markers, scan_managed_order, scan_mcp_coherence, scan_monorepo_drift,
-    scan_name_mismatch, scan_permission_mode, scan_retired_assets, scan_retired_plugin_leftovers,
+    ClaudeHookScripts, ExcludedBlocks, LegacyAgent, MalformedMarker, MalformedReason,
+    McpCoherenceIssue, MonorepoDrift, NameMismatch, OrderReport, RetiredAssetOnDisk, RetiredBlock,
+    classify_local_skills, is_placeholder_name, list_available_external_providers,
+    list_context_markers, needs_external_provider_setup_hint, preset_override,
+    scan_claude_hook_scripts, scan_excluded_blocks, scan_legacy_agents, scan_malformed_markers,
+    scan_managed_order, scan_mcp_coherence, scan_monorepo_drift, scan_name_mismatch,
+    scan_permission_mode, scan_retired_assets, scan_retired_plugin_leftovers,
 };
 use navori_core::diagnose::doctor_machine::{
-    GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS, Host, scan_audit_root_permissions, scan_disk_usage,
+    AuditRootOpen, DiskUsageIssue, DiskUsageTarget, ExternalToolCapabilityGap,
+    GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS, GlobalClaudeMdIssue, Host, MissingExternalTool,
+    MissingOptionalTool, PinnedVersionDrift, ToolUpdates, VersionAdvisoryHit,
+    WorkspaceDeadReposIssue, WorkspaceLinkIssue, scan_audit_root_permissions, scan_disk_usage,
     scan_external_tool_capabilities, scan_global_claude_md, scan_missing_external_tools,
     scan_missing_optional_tools, scan_pinned_version_drift, scan_stale_global_cli,
     scan_tool_updates, scan_version_advisories, scan_workspace_dead_repos, scan_workspace_drift,
@@ -111,6 +117,10 @@ fn run_args(args: &[OsString]) -> Option<ExitCode> {
     Some(doctor(&cwd, options.flag("strict"), &process_cwd)?.emit())
 }
 
+/// `sym.fail`, `sym.update` and `sym.bullet` of a non-TTY run.
+const FAIL: &str = "\u{2717}";
+const UPDATE: &str = "\u{21e1}";
+
 /// `config[key]` as a string, whatever its characters.
 fn text(config: &JsValue, key: &str) -> Option<String> {
     match member(Some(config), key) {
@@ -123,6 +133,15 @@ fn text(config: &JsValue, key: &str) -> Option<String> {
 /// way [`crate::clack::width`] does.
 fn ascii(text: &str) -> Option<&str> {
     text.is_ascii().then_some(text)
+}
+
+/// An optional user-derived text: `None` (delegate) when it is present and not plain ASCII, so a
+/// value is never silently dropped from a note.
+fn ascii_opt(text: Option<&str>) -> Option<Option<&str>> {
+    match text {
+        Some(text) => ascii(text).map(Some),
+        None => Some(None),
+    }
 }
 
 /// `config.project?.<key> ?? []` as strings; `None` when it is not an array of strings.
@@ -171,8 +190,8 @@ fn git_succeeds(env: &Env, process_cwd: &Path, cwd: &str, args: &[&str]) -> Opti
     }
 }
 
-/// `Some(())` when a scan answered and found nothing: the sections that would print for a finding
-/// are not ported here, so anything else (a finding, or no answer) delegates.
+/// `Some(())` when a scan answered and found nothing: the closing notes (5e5c) that would print
+/// for a finding are not ported here, so anything else (a finding, or no answer) delegates.
 fn none_found<T>(scan: Result<Vec<T>, Unmodeled>) -> Option<()> {
     scan.ok()?.is_empty().then_some(())
 }
@@ -182,9 +201,34 @@ fn absent<T>(scan: Result<Option<T>, Unmodeled>) -> Option<()> {
     scan.ok()?.is_none().then_some(())
 }
 
+/// The machine and tools scans (`doctor.ts` 843-1172), gathered before any output exists.
+struct Machine {
+    missing_tools: Vec<MissingExternalTool>,
+    pinned_drift: Vec<PinnedVersionDrift>,
+    advisories: Vec<VersionAdvisoryHit>,
+    updates: ToolUpdates,
+    capability_gaps: Vec<ExternalToolCapabilityGap>,
+    mcp: Vec<McpCoherenceIssue>,
+    optional_tools: Vec<MissingOptionalTool>,
+    audit_root: Option<AuditRootOpen>,
+    gate: Vec<GateReadinessIssue>,
+    empty_sections: Vec<EmptyUserSection>,
+    triggerless: Vec<TriggerlessSkill>,
+    interpolation: Vec<InterpolationArtifact>,
+    disk: Vec<DiskUsageIssue>,
+    progress_size: Option<ProgressSizeIssue>,
+    global_claude_md: Option<GlobalClaudeMdIssue>,
+    render_pending: Option<usize>,
+    nested_worktrees: Option<NestedWorktreeConflict>,
+    monorepo: Option<MonorepoDrift>,
+    workspace_link: Option<WorkspaceLinkIssue>,
+    dead_repos: Vec<WorkspaceDeadReposIssue>,
+}
+
 /// Every finding the native sections print, gathered (and every deferred scan confirmed empty)
 /// before any output exists.
 struct Report {
+    machine: Machine,
     lang: Lang,
     configured_engines: Vec<String>,
     claude_md: bool,
@@ -278,54 +322,65 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
     let mut library_ids = project_strings(&config.data, "libraries")?;
     library_ids.extend(project_strings(&config.data, "extraLibraries")?);
 
-    // Sections of 5e5b and 5e5c: not rendered here, so a finding delegates.
+    // Sections of 5e5b: every finding is kept and rendered.
     let mut tool_plugins = Plugins::default();
-    none_found(scan_missing_external_tools(
-        &host,
-        config,
-        &mut tool_plugins,
-    ))?;
-    none_found(scan_pinned_version_drift(&host, config, &mut tool_plugins))?;
-    none_found(scan_version_advisories(&host, config, &mut tool_plugins))?;
+    let missing_tools = scan_missing_external_tools(&host, config, &mut tool_plugins).ok()?;
+    let pinned_drift = scan_pinned_version_drift(&host, config, &mut tool_plugins).ok()?;
+    let advisories = scan_version_advisories(&host, config, &mut tool_plugins).ok()?;
     let updates = scan_tool_updates(&host, config, &mut tool_plugins).ok()?;
-    if !updates.updates.is_empty() || !updates.unparseable.is_empty() {
-        return None;
-    }
-    none_found(scan_external_tool_capabilities(
-        &host,
-        config,
-        &mut tool_plugins,
-    ))?;
-    none_found(scan_mcp_coherence(root, config))?;
-    scan_missing_optional_tools(&host)
-        .is_empty()
-        .then_some(())?;
-    absent(scan_audit_root_permissions(&host, current_uid()?))?;
-    absent(scan_monorepo_drift(config))?;
-    absent(scan_workspace_link(&host, root, config))?;
-    none_found(scan_workspace_dead_repos(&host, root, config))?;
-    none_found(scan_quality_gate_readiness(root, config, &|binary| {
+    let capability_gaps = scan_external_tool_capabilities(&host, config, &mut tool_plugins).ok()?;
+    let mcp = scan_mcp_coherence(root, config).ok()?;
+    let optional_tools = scan_missing_optional_tools(&host);
+    let audit_root = scan_audit_root_permissions(&host, current_uid()?).ok()?;
+    let monorepo = scan_monorepo_drift(config).ok()?;
+    let workspace_link = scan_workspace_link(&host, root, config).ok()?;
+    let dead_repos = scan_workspace_dead_repos(&host, root, config).ok()?;
+    let gate = scan_quality_gate_readiness(root, config, &|binary| {
         has_binary(&env, process_cwd, binary)
-    }))?;
+    })
+    .ok()?;
     let skill_dirs = doctor_skill_dirs(config).ok()?;
-    none_found(scan_empty_user_sections(root, &skill_dirs, &env))?;
-    none_found(scan_triggerless_local_skills(root, config, &env))?;
-    none_found(scan_interpolation_artifacts(root, config))?;
+    let empty_sections = scan_empty_user_sections(root, &skill_dirs, &env).ok()?;
+    let triggerless = scan_triggerless_local_skills(root, config, &env).ok()?;
+    let interpolation = scan_interpolation_artifacts(root, config).ok()?;
     let backups = navori_core::backup::backup_root().ok()?;
-    none_found(scan_disk_usage(&host, root, &backups))?;
-    scan_progress_size(root, DEFAULT_PROGRESS_THRESHOLD_BYTES)
-        .is_none()
-        .then_some(())?;
-    if engines.iter().any(|e| e == "claude") {
-        absent(scan_global_claude_md(
-            &host,
-            GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS,
-        ))?;
-    }
-    if claude_md_exists && pending_changes(root, config)? > 0 {
-        return None;
-    }
-    absent(scan_nested_worktrees(root))?;
+    let disk = scan_disk_usage(&host, root, &backups).ok()?;
+    let progress_size = scan_progress_size(root, DEFAULT_PROGRESS_THRESHOLD_BYTES);
+    let global_claude_md = if engines.iter().any(|e| e == "claude") {
+        scan_global_claude_md(&host, GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS).ok()?
+    } else {
+        None
+    };
+    let render_pending = if claude_md_exists {
+        Some(pending_changes(root, config)?)
+    } else {
+        None
+    };
+    let nested_worktrees = scan_nested_worktrees(root).ok()?;
+    let machine = Machine {
+        missing_tools,
+        pinned_drift,
+        advisories,
+        updates,
+        capability_gaps,
+        mcp,
+        optional_tools,
+        audit_root,
+        gate,
+        empty_sections,
+        triggerless,
+        interpolation,
+        disk,
+        progress_size,
+        global_claude_md,
+        render_pending,
+        nested_worktrees,
+        monorepo,
+        workspace_link,
+        dead_repos,
+    };
+
+    // Closing notes (5e5c): not rendered here, so a finding delegates.
     for health in [
         scan_gitignore_harness(root, config).ok()?,
         scan_prettier_ignore(root, config).ok()?,
@@ -383,6 +438,7 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         Some((dir, exists))
     };
     Some(Report {
+        machine,
         lang: config.lang(),
         agents_md: root.join("AGENTS.md").exists(),
         claude_dir: root.join(".claude").exists(),
@@ -838,6 +894,10 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
         );
     }
 
+    for (symbol, message) in tool_logs(&report.machine, td, lang)? {
+        clack.log(symbol, &message);
+    }
+
     if !report.available_providers.is_empty() {
         let rows = report
             .available_providers
@@ -852,13 +912,26 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
             ),
         );
     }
-    // The tgrep and codegraph reports and the missing tools are empty here (their scans are
-    // confirmed empty or delegated above), so only the available providers can raise the hint.
-    if needs_external_provider_setup_hint(&[], &report.available_providers, false, false) {
+    for (symbol, message) in coherence_logs(&report.machine, td)? {
+        clack.log(symbol, &message);
+    }
+    // The tgrep and codegraph reports are empty here (their scans delegate above), so the
+    // missing tools and the available providers are what can raise the hint.
+    let missing_ids: Vec<&str> = report
+        .machine
+        .missing_tools
+        .iter()
+        .map(|t| t.plugin_id.as_str())
+        .collect();
+    if needs_external_provider_setup_hint(&missing_ids, &report.available_providers, false, false) {
         clack.log(
             Symbol::Info,
             &td.external_provider_setup_hint(SETUP_RECIPE_URL),
         );
+    }
+
+    for (symbol, message) in readiness_logs(&report.machine, td) {
+        clack.log(symbol, &message);
     }
 
     if !report.model_profile.is_empty() {
@@ -920,6 +993,10 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
             Symbol::Warn,
             &td.control_gaps_warn(&warn.len().to_string(), &lines(warn)),
         );
+    }
+
+    for (symbol, message) in host_logs(&report.machine, td)? {
+        clack.log(symbol, &message);
     }
 
     if let Some(order) = &report.order {
@@ -993,8 +1070,8 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     }
 
     let has_issues = !verdict.ok;
-    // Without a `mcpCoherenceIssues` finding (delegated above), only drift can fail `--strict`.
-    let strict_fail = strict && !report.drifts.is_empty();
+    // `isStrictModeFailure`: drift or an incoherent `.mcp.json` fail `--strict`.
+    let strict_fail = strict && (!report.drifts.is_empty() || !report.machine.mcp.is_empty());
     clack.outro(if has_issues {
         td.outro_issues()
     } else if strict_fail {
@@ -1004,6 +1081,434 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     });
     clack.out.code = if has_issues { 2 } else { u8::from(strict_fail) };
     Some(clack.out)
+}
+
+/// The log messages of one block of sections, in print order.
+type Logs = Vec<(Symbol, String)>;
+
+/// A bullet row of a machine section: `  <mark> <subject>  <detail>`.
+fn row(mark: &str, subject: &str, detail: &str) -> String {
+    format!("  {mark} {subject}  {detail}")
+}
+
+/// `how` of a missing tool: the install command (plus its post-install), the docs page, or the
+/// generic advice.
+fn install_how(td: Doctor, tool: &MissingExternalTool) -> String {
+    if let Some(install) = tool.install.as_deref().filter(|i| !i.is_empty()) {
+        return match tool.post_install.as_deref().filter(|p| !p.is_empty()) {
+            Some(post) => format!("{install} && {post}"),
+            None => install.to_owned(),
+        };
+    }
+    match tool.install_docs.as_deref().filter(|d| !d.is_empty()) {
+        Some(docs) => td.external_tool_docs_how(docs),
+        None => td.external_tool_fallback_how().to_owned(),
+    }
+}
+
+/// External tools: missing binaries, pinned versions, advisories, updates and capability gaps
+/// (`doctor.ts` 843-907). `None` for a path or text Rust cannot print.
+fn tool_logs(m: &Machine, td: Doctor, lang: Lang) -> Option<Logs> {
+    let mut out: Logs = Vec::new();
+    let n = |len: usize| len.to_string();
+    if !m.missing_tools.is_empty() {
+        let rows: Vec<String> = m
+            .missing_tools
+            .iter()
+            .map(|t| {
+                row(
+                    UPDATE,
+                    &t.plugin_id,
+                    &td.external_tool_row(&t.binary, &install_how(td, t)),
+                )
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.external_tools(&n(rows.len()), &lines(rows)),
+        ));
+    }
+    if !m.pinned_drift.is_empty() {
+        let rows: Vec<String> = m
+            .pinned_drift
+            .iter()
+            .map(|d| {
+                let how = d
+                    .install
+                    .as_deref()
+                    .unwrap_or_else(|| td.external_tool_fallback_how());
+                row(
+                    UPDATE,
+                    &d.plugin_id,
+                    &td.pinned_version_drift_row(&d.installed_version, &d.pinned_version, how),
+                )
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.pinned_version_drift(&n(rows.len()), &lines(rows)),
+        ));
+    }
+    if !m.advisories.is_empty() {
+        let rows: Vec<String> = m
+            .advisories
+            .iter()
+            .map(|a| {
+                let reason = if lang == Lang::Es {
+                    &a.reason_es
+                } else {
+                    &a.reason_en
+                };
+                let text = td.version_advisory_row(&a.installed_version, &a.below, reason);
+                let mut line = row(UPDATE, &a.plugin_id, &text);
+                if let Some(reference) = a.reference.as_deref().filter(|r| !r.is_empty()) {
+                    line.push_str(&format!("\n      {reference}"));
+                }
+                line
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.version_advisories(&n(rows.len()), &lines(rows)),
+        ));
+    }
+    if !m.updates.updates.is_empty() {
+        let rows: Vec<String> = m
+            .updates
+            .updates
+            .iter()
+            .map(|u| {
+                row(
+                    UPDATE,
+                    &u.plugin_id,
+                    &td.tool_update_row(&u.installed_version, &u.latest_version),
+                )
+            })
+            .collect();
+        out.push((Symbol::Warn, td.tool_updates(&n(rows.len()), &lines(rows))));
+    }
+    if !m.updates.unparseable.is_empty() {
+        let rows: Vec<String> = m
+            .updates
+            .unparseable
+            .iter()
+            .map(|u| {
+                row(
+                    UPDATE,
+                    &u.plugin_id,
+                    &td.tool_release_unparseable_row(&u.source, &u.id),
+                )
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.tool_release_unparseable(&n(rows.len()), &lines(rows)),
+        ));
+    }
+    if !m.capability_gaps.is_empty() {
+        let rows: Vec<String> = m
+            .capability_gaps
+            .iter()
+            .map(|g| {
+                let how = g
+                    .install
+                    .as_deref()
+                    .unwrap_or_else(|| td.external_tool_fallback_how());
+                row(
+                    UPDATE,
+                    &g.plugin_id,
+                    &td.external_tool_capability_gap_row(
+                        &g.binary,
+                        &g.missing.join(", "),
+                        &g.min_version,
+                        how,
+                    ),
+                )
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.external_tool_capability_gaps(&n(rows.len()), &lines(rows)),
+        ));
+    }
+    Some(out)
+}
+
+/// `.mcp.json` coherence, optional tools and the audit root (`doctor.ts` 923-962).
+fn coherence_logs(m: &Machine, td: Doctor) -> Option<Logs> {
+    let mut out: Logs = Vec::new();
+    if !m.mcp.is_empty() {
+        let rows: Vec<String> = m
+            .mcp
+            .iter()
+            .map(|issue| match issue {
+                McpCoherenceIssue::MissingEntry { plugin_id } => {
+                    row(FAIL, plugin_id, td.mcp_coherence_missing_entry())
+                }
+                McpCoherenceIssue::CommandMismatch {
+                    plugin_id,
+                    expected,
+                    actual,
+                } => row(
+                    FAIL,
+                    plugin_id,
+                    &td.mcp_coherence_command_mismatch(expected, actual),
+                ),
+            })
+            .collect();
+        out.push((
+            Symbol::Error,
+            td.mcp_coherence(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if !m.optional_tools.is_empty() {
+        let rows: Vec<String> = m
+            .optional_tools
+            .iter()
+            .map(|tool| {
+                let binaries = tool
+                    .binaries
+                    .iter()
+                    .map(|b| format!("'{b}'"))
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+                row(
+                    UPDATE,
+                    tool.id,
+                    &td.optional_tool_row(&binaries, tool.install),
+                )
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.optional_tools(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if let Some(open) = &m.audit_root {
+        let rows = open
+            .paths
+            .iter()
+            .map(|p| p.to_str().map(|p| format!("  {UPDATE} {p}")))
+            .collect::<Option<Vec<_>>>()?
+            .join("\n");
+        let command = audit_root_repair_command(open.root.to_str()?);
+        out.push((Symbol::Warn, td.audit_root_open(&rows, &command)));
+    }
+    Some(out)
+}
+
+/// `auditRootRepairCommand(root)`: the root single-quoted, embedded quotes escaped.
+fn audit_root_repair_command(root: &str) -> String {
+    let quoted = format!("'{}'", root.replace('\'', "'\\''"));
+    format!(
+        "find {quoted} -type d -exec chmod 700 {{}} + && find {quoted} -type f -exec chmod 600 {{}} +"
+    )
+}
+
+/// `MAX_ARTIFACT_ROWS`: interpolation rows printed before the "and n more" line.
+const MAX_ARTIFACT_ROWS: usize = 10;
+
+/// The quality gate, empty user sections, triggerless skills and interpolation leftovers
+/// (`doctor.ts` 990-1049).
+fn readiness_logs(m: &Machine, td: Doctor) -> Logs {
+    let mut out: Logs = Vec::new();
+    if !m.gate.is_empty() {
+        let rows: Vec<String> = m
+            .gate
+            .iter()
+            .map(|issue| {
+                let why = match issue.reason {
+                    GateBlocker::MissingBinary => td.gate_missing_binary_row(&issue.detail),
+                    GateBlocker::MissingDeps => td.gate_missing_deps_row(&issue.detail),
+                    GateBlocker::MissingScript => td.gate_missing_script_row(&issue.detail),
+                };
+                row(UPDATE, &format!("qualityGate.{}", issue.gate), &why)
+            })
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.gate_not_runnable(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if !m.empty_sections.is_empty() {
+        let rows: Vec<String> = m
+            .empty_sections
+            .iter()
+            .map(|s| row(UPDATE, &s.id, &td.empty_user_section_row(&s.path)))
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.empty_user_sections(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if !m.triggerless.is_empty() {
+        let rows: Vec<String> = m
+            .triggerless
+            .iter()
+            .map(|s| row(UPDATE, &s.id, &td.triggerless_skill_row(&s.path)))
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.triggerless_skills(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if !m.interpolation.is_empty() {
+        // Unresolved placeholders first (a stable sort), so the scarce signal survives the cap.
+        let mut by_severity: Vec<&InterpolationArtifact> = m.interpolation.iter().collect();
+        by_severity.sort_by_key(|a| a.reason == ArtifactReason::UnconfiguredGate);
+        let mut rows: Vec<String> = by_severity
+            .iter()
+            .take(MAX_ARTIFACT_ROWS)
+            .map(|a| {
+                let why = match a.reason {
+                    ArtifactReason::UnconfiguredGate => {
+                        td.interpolation_artifact_gate_row().to_owned()
+                    }
+                    ArtifactReason::UnresolvedPlaceholder => {
+                        td.interpolation_artifact_unresolved_row(&a.token)
+                    }
+                };
+                row(UPDATE, &format!("{}:{}", a.path, a.line), &why)
+            })
+            .collect();
+        let hidden = m.interpolation.len() - rows.len();
+        if hidden > 0 {
+            rows.push(td.interpolation_artifacts_more(&hidden.to_string()));
+        }
+        out.push((
+            Symbol::Warn,
+            td.interpolation_artifacts(&m.interpolation.len().to_string(), &lines(rows)),
+        ));
+    }
+    out
+}
+
+/// `Math.round` (halves go up).
+fn js_round(value: f64) -> f64 {
+    (value + 0.5).floor()
+}
+
+/// `humanBytes`: "512 MB" under a GiB, "4.2 GB" above.
+fn human_bytes(bytes: f64) -> String {
+    let gib = bytes / 1024_f64.powi(3);
+    if gib >= 1.0 {
+        let shown = if gib >= 10.0 {
+            js_round(gib)
+        } else {
+            js_round(gib * 10.0) / 10.0
+        };
+        return format!("{shown} GB");
+    }
+    format!("{} MB", js_round(bytes / 1024_f64.powi(2)).max(1.0))
+}
+
+/// Disk usage, the session state size, the global `CLAUDE.md`, the pending render, nested
+/// worktrees, the monorepo and the workspace registry (`doctor.ts` 1051-1180).
+fn host_logs(m: &Machine, td: Doctor) -> Option<Logs> {
+    let mut out: Logs = Vec::new();
+    if !m.disk.is_empty() {
+        let rows = m
+            .disk
+            .iter()
+            .map(|issue| {
+                let size = human_bytes(issue.bytes);
+                let why = match issue.target {
+                    DiskUsageTarget::Backups => td.disk_backups_row(&size),
+                    DiskUsageTarget::Worktrees => td.disk_worktrees_row(&size),
+                };
+                Some(row(UPDATE, issue.path.to_str()?, &why))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        out.push((
+            Symbol::Warn,
+            td.disk_usage(&rows.len().to_string(), &lines(rows)),
+        ));
+    }
+    if let Some(size) = &m.progress_size {
+        let why = td.progress_size_row(&size.bytes.to_string(), &size.threshold_bytes.to_string());
+        out.push((
+            Symbol::Warn,
+            td.progress_size(&row(UPDATE, size.path, &why)),
+        ));
+    }
+    if let Some(global) = &m.global_claude_md {
+        let why = td.global_claude_md_row(
+            &global.chars.to_string(),
+            &global.threshold_chars.to_string(),
+        );
+        out.push((
+            Symbol::Warn,
+            td.global_claude_md(&row(UPDATE, &global.path, &why)),
+        ));
+    }
+    if let Some(pending) = m.render_pending.filter(|p| *p > 0) {
+        out.push((Symbol::Warn, td.render_pending(&pending.to_string())));
+    }
+    if let Some(nested) = &m.nested_worktrees {
+        let rows: Vec<String> = nested
+            .worktrees
+            .iter()
+            .map(|path| row(UPDATE, path, td.nested_worktree_row()))
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.nested_worktrees(&rows.len().to_string(), &nested.eslint_config, &lines(rows)),
+        ));
+    }
+    if let Some(monorepo) = &m.monorepo {
+        let mut rows: Vec<String> = Vec::new();
+        if monorepo.disabled {
+            rows.push(format!("  {UPDATE} {}", td.monorepo_disabled()));
+        }
+        if monorepo.empty_declared {
+            rows.push(format!("  {UPDATE} {}", td.monorepo_empty_declared()));
+        }
+        for path in &monorepo.added {
+            rows.push(format!("  {UPDATE} {path}  {}", td.monorepo_added_row()));
+        }
+        for path in &monorepo.orphan {
+            rows.push(format!("  {UPDATE} {path}  {}", td.monorepo_orphan_row()));
+        }
+        if !rows.is_empty() {
+            out.push((
+                Symbol::Warn,
+                td.monorepo_drift(&rows.len().to_string(), &lines(rows)),
+            ));
+        }
+    }
+    if let Some(link) = &m.workspace_link {
+        out.push((Symbol::Warn, workspace_link_warning(link, td)));
+    }
+    for dead in &m.dead_repos {
+        let rows: Vec<String> = dead
+            .repos
+            .iter()
+            .map(|(name, path)| format!("  - {name}: {path}"))
+            .collect();
+        out.push((
+            Symbol::Warn,
+            td.ws_dead_repos(&dead.workspace, &lines(rows)),
+        ));
+    }
+    Some(out)
+}
+
+/// `formatWorkspaceLinkWarning`.
+fn workspace_link_warning(issue: &WorkspaceLinkIssue, td: Doctor) -> String {
+    match issue {
+        WorkspaceLinkIssue::WorkspaceMissing { workspace } => td.ws_link_missing(workspace),
+        WorkspaceLinkIssue::RepoNotRegistered { workspace } => td.ws_link_not_registered(workspace),
+        WorkspaceLinkIssue::PathMismatch {
+            workspace,
+            repo_name,
+            registered_path,
+        } => td.ws_link_path_mismatch(repo_name, workspace, registered_path),
+        WorkspaceLinkIssue::UndeclaredPathMismatch {
+            workspace,
+            repo_name,
+            registered_path,
+        } => td.ws_link_undeclared_mismatch(repo_name, workspace, registered_path),
+    }
 }
 
 /// `nativeHookFindingText`; `None` for text clack cannot reproduce (non-ASCII paths).
@@ -1027,12 +1532,12 @@ fn native_hook_text(f: &NativeHookFinding, td: Doctor) -> Option<String> {
         FindingCode::GateDeclaredMissing { state, git_version } => td.native_hooks_gate_missing(
             state.manager.map(|m| m.as_str()),
             state.absence.map(|a| a.as_str()),
-            git_version.as_deref().and_then(ascii),
+            ascii_opt(git_version.as_deref())?,
         ),
         FindingCode::PluginDeclaredMissing {
             plugin,
             git_version,
-        } => td.native_hooks_plugin_missing(ascii(plugin)?, git_version.as_deref().and_then(ascii)),
+        } => td.native_hooks_plugin_missing(ascii(plugin)?, ascii_opt(git_version.as_deref())?),
         FindingCode::PluginOnlyGuarantee(plugin) => {
             td.native_hooks_plugin_only_guarantee(ascii(plugin)?)
         }
@@ -1323,5 +1828,254 @@ mod tests {
         assert!(run_args(&args(&["doctor", "extra"])).is_none());
         assert!(run_args(&args(&["doctor", "--", "x"])).is_none());
         assert!(run_args(&args(&["doctor", "--cwd"])).is_none());
+    }
+
+    fn machine() -> Machine {
+        Machine {
+            missing_tools: Vec::new(),
+            pinned_drift: Vec::new(),
+            advisories: Vec::new(),
+            updates: ToolUpdates::default(),
+            capability_gaps: Vec::new(),
+            mcp: Vec::new(),
+            optional_tools: Vec::new(),
+            audit_root: None,
+            gate: Vec::new(),
+            empty_sections: Vec::new(),
+            triggerless: Vec::new(),
+            interpolation: Vec::new(),
+            disk: Vec::new(),
+            progress_size: None,
+            global_claude_md: None,
+            render_pending: None,
+            nested_worktrees: None,
+            monorepo: None,
+            workspace_link: None,
+            dead_repos: Vec::new(),
+        }
+    }
+
+    // Covers: R73
+    #[test]
+    fn human_bytes_rounds_like_the_ts() {
+        let gib = 1024_f64.powi(3);
+        assert_eq!(human_bytes(1.5 * gib), "1.5 GB");
+        assert_eq!(human_bytes(12.4 * gib), "12 GB");
+        assert_eq!(human_bytes(3.04 * gib), "3 GB");
+        assert_eq!(human_bytes(512.0 * 1024.0 * 1024.0), "512 MB");
+        assert_eq!(human_bytes(100.0), "1 MB");
+    }
+
+    // Covers: R73
+    #[test]
+    fn the_audit_root_repair_command_quotes_the_root() {
+        assert_eq!(
+            audit_root_repair_command("/a b/it's"),
+            "find '/a b/it'\\''s' -type d -exec chmod 700 {} + && find '/a b/it'\\''s' -type f -exec chmod 600 {} +"
+        );
+    }
+
+    // Covers: R73
+    #[test]
+    fn disk_and_global_claude_md_rows_in_both_languages() {
+        let mut m = machine();
+        m.disk = vec![
+            DiskUsageIssue {
+                target: DiskUsageTarget::Backups,
+                path: "/h/.navori/backups".into(),
+                bytes: 1.5 * 1024_f64.powi(3),
+                threshold_bytes: 1024_f64.powi(3),
+            },
+            DiskUsageIssue {
+                target: DiskUsageTarget::Worktrees,
+                path: "/r/.claude/worktrees".into(),
+                bytes: 12.0 * 1024_f64.powi(3),
+                threshold_bytes: 2.0 * 1024_f64.powi(3),
+            },
+        ];
+        m.global_claude_md = Some(GlobalClaudeMdIssue {
+            path: "~/.claude/CLAUDE.md".to_owned(),
+            chars: 3000,
+            threshold_chars: 2000,
+        });
+        let en = host_logs(&m, Doctor(Lang::En)).unwrap_or_default();
+        assert_eq!(en.len(), 2);
+        assert_eq!(
+            en[0].1,
+            "Disk usage over threshold (2) \u{2014} nothing bounds these directories automatically; clean them yourself:\n  \u{21e1} /h/.navori/backups  \u{2014} 1.5 GB in backups; run 'navori backup prune' to trim them\n  \u{21e1} /r/.claude/worktrees  \u{2014} 12 GB in agent worktrees; review 'git worktree list' and drop stale ones with 'git worktree remove <path>' (they may hold uncommitted work; navori never deletes them itself)"
+        );
+        assert_eq!(
+            en[1].1,
+            "Your global CLAUDE.md is too large \u{2014} it loads in every session and crowds out the repo's context:\n  \u{21e1} ~/.claude/CLAUDE.md  \u{2014} 3000 characters (cap 2000); move workspace-specific content to its Dominio and drop what the repo already declares (navori never edits this file)"
+        );
+        let es = host_logs(&m, Doctor(Lang::Es)).unwrap_or_default();
+        assert!(
+            es[0]
+                .1
+                .starts_with("Uso de disco por encima del umbral (2)")
+        );
+        assert!(
+            es[0]
+                .1
+                .contains("\u{2014} 1.5 GB en backups; corre 'navori backup prune'")
+        );
+        assert!(es[1].1.contains("3000 caracteres (tope 2000)"));
+    }
+
+    // Covers: R73
+    #[test]
+    fn workspace_link_dead_repos_and_monorepo_rows() {
+        let mut m = machine();
+        m.workspace_link = Some(WorkspaceLinkIssue::UndeclaredPathMismatch {
+            workspace: "acme".to_owned(),
+            repo_name: "x".to_owned(),
+            registered_path: "/old/x".to_owned(),
+        });
+        m.dead_repos = vec![WorkspaceDeadReposIssue {
+            workspace: "acme".to_owned(),
+            repos: vec![("ghost".to_owned(), "/gone".to_owned())],
+        }];
+        m.monorepo = Some(MonorepoDrift {
+            disabled: false,
+            added: vec!["apps/a".to_owned()],
+            orphan: vec!["apps/b".to_owned()],
+            empty_declared: true,
+        });
+        m.render_pending = Some(3);
+        let en = host_logs(&m, Doctor(Lang::En)).unwrap_or_default();
+        assert_eq!(
+            en[0].1,
+            "Render pending: 3 file(s) or block(s) would change (hooks or doctrine from an older navori version) \u{2014} run 'navori render --apply'"
+        );
+        assert_eq!(
+            en[1].1,
+            "Monorepo out of sync with disk (3):\n  \u{21e1} monorepo declared but workspaces[] empty \u{2014} run 'navori scan' to populate it\n  \u{21e1} apps/a  \u{2014} on disk, missing in config (run 'navori scan')\n  \u{21e1} apps/b  \u{2014} in config, missing on disk (remove it from config)"
+        );
+        assert!(en[2].1.starts_with("Repo 'x' is registered in workspace 'acme' with a path that is no longer this one (/old/x)"));
+        assert_eq!(
+            en[3].1,
+            "Workspace 'acme': repos registered with a path that does not exist on disk:\n  - ghost: /gone\nRun 'navori workspace link' from each repo's new location to update it."
+        );
+        m.render_pending = Some(0);
+        m.monorepo = None;
+        assert_eq!(host_logs(&m, Doctor(Lang::Es)).unwrap_or_default().len(), 2);
+    }
+
+    // Covers: R73
+    #[test]
+    fn tool_rows_cover_every_branch_of_the_how() {
+        let mut m = machine();
+        m.missing_tools = vec![
+            MissingExternalTool {
+                plugin_id: "a".to_owned(),
+                binary: "a".to_owned(),
+                install: Some("brew install a".to_owned()),
+                post_install: Some("a login".to_owned()),
+                install_docs: None,
+            },
+            MissingExternalTool {
+                plugin_id: "b".to_owned(),
+                binary: "b".to_owned(),
+                install: None,
+                post_install: None,
+                install_docs: Some("https://b.example".to_owned()),
+            },
+            MissingExternalTool {
+                plugin_id: "c".to_owned(),
+                binary: "c".to_owned(),
+                install: None,
+                post_install: None,
+                install_docs: None,
+            },
+        ];
+        m.pinned_drift = vec![PinnedVersionDrift {
+            plugin_id: "p".to_owned(),
+            binary: "p".to_owned(),
+            installed_version: "1.0.0".to_owned(),
+            pinned_version: "1.6.0".to_owned(),
+            install: None,
+        }];
+        m.advisories = vec![VersionAdvisoryHit {
+            plugin_id: "e".to_owned(),
+            binary: "e".to_owned(),
+            installed_version: "0.1.0".to_owned(),
+            below: "0.2.0".to_owned(),
+            reason_es: "razon".to_owned(),
+            reason_en: "reason".to_owned(),
+            reference: Some("https://ref".to_owned()),
+        }];
+        m.updates = ToolUpdates {
+            updates: vec![navori_core::diagnose::doctor_machine::ToolUpdate {
+                plugin_id: "u".to_owned(),
+                binary: "u".to_owned(),
+                installed_version: "1.0.0".to_owned(),
+                latest_version: "2.0.0".to_owned(),
+            }],
+            unparseable: vec![navori_core::diagnose::doctor_machine::UnparseableRelease {
+                plugin_id: "v".to_owned(),
+                source: "github".to_owned(),
+                id: "o/v".to_owned(),
+            }],
+        };
+        m.capability_gaps = vec![ExternalToolCapabilityGap {
+            plugin_id: "g".to_owned(),
+            binary: "g".to_owned(),
+            missing: vec!["x".to_owned(), "y".to_owned()],
+            min_version: "3.0".to_owned(),
+            install: Some("upgrade g".to_owned()),
+        }];
+        let en = tool_logs(&m, Doctor(Lang::En), Lang::En).unwrap_or_default();
+        assert_eq!(en.len(), 6);
+        assert!(en[0].1.ends_with("\n  \u{21e1} a  \u{2014} missing 'a' in PATH; brew install a && a login\n  \u{21e1} b  \u{2014} missing 'b' in PATH; install it following https://b.example\n  \u{21e1} c  \u{2014} missing 'c' in PATH; install the tool and restart Claude Code"));
+        assert!(en[1].1.ends_with("\n  \u{21e1} p  \u{2014} installed 1.0.0, manifest pins 1.6.0; install the tool and restart Claude Code"));
+        assert!(en[2].1.ends_with(
+            "\n  \u{21e1} e  \u{2014} installed 0.1.0 < 0.2.0: reason\n      https://ref"
+        ));
+        assert!(
+            en[3]
+                .1
+                .ends_with("\n  \u{21e1} u  \u{2014} installed 1.0.0, available 2.0.0")
+        );
+        assert!(
+            en[4]
+                .1
+                .ends_with("\n  \u{21e1} v  \u{2014} source github:o/v")
+        );
+        assert!(en[5].1.ends_with(
+            "\n  \u{21e1} g  \u{2014} 'g' doesn't support x, y (needs >= 3.0); upgrade g"
+        ));
+        let es = tool_logs(&m, Doctor(Lang::Es), Lang::Es).unwrap_or_default();
+        assert!(
+            es[2]
+                .1
+                .ends_with("\u{2014} instalado 0.1.0 < 0.2.0: razon\n      https://ref")
+        );
+    }
+
+    // Covers: R73
+    #[test]
+    fn interpolation_rows_cap_at_ten_with_unresolved_first() {
+        let mut m = machine();
+        let artifact = |line: usize, reason: ArtifactReason| InterpolationArtifact {
+            path: "CLAUDE.md".to_owned(),
+            line,
+            token: "{{x}}".to_owned(),
+            reason,
+        };
+        m.interpolation = (1..=11)
+            .map(|n| artifact(n, ArtifactReason::UnconfiguredGate))
+            .collect();
+        m.interpolation
+            .push(artifact(99, ArtifactReason::UnresolvedPlaceholder));
+        let out = readiness_logs(&m, Doctor(Lang::En));
+        assert_eq!(out.len(), 1);
+        let rows: Vec<&str> = out[0].1.lines().collect();
+        // Header, ten rows and the "more" line.
+        assert_eq!(rows.len(), 12);
+        assert!(
+            rows[1].starts_with("  \u{21e1} CLAUDE.md:99  \u{2014} '{{x}}' published in the prose")
+        );
+        assert!(rows[2].starts_with("  \u{21e1} CLAUDE.md:1  "));
+        assert_eq!(rows[11], "  \u{2026} and 2 more");
     }
 }
