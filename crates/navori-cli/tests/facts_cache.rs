@@ -2,7 +2,7 @@
 use navori_cli::facts_cache::{
     FactsCache, MAX_AGE_MS, jq_init_present, key, lookup, now_ms, stamp,
 };
-use navori_cli::hook_facts::collect_cached;
+use navori_cli::hook_facts::{Source, collect_cached, collect_cached_traced};
 use navori_hooks::hooks::subagent_no_background;
 use navori_hooks::hooks::subagent_no_background::prepare::{Facts, Limits, Output, Request};
 use navori_hooks::runner::Engine;
@@ -18,7 +18,8 @@ use std::time::Duration;
 type TestResult = Result<(), Box<dyn Error>>;
 /// Probes that must succeed get the largest budget `prepare::plan` accepts (500 ms, spec 0060
 /// T17): the 250 ms production default expired under load and made these tests flaky. Deadline
-/// expiry itself is covered by the tests that pass a tight `Limits` on purpose.
+/// expiry itself is covered by the uncached call that passes a tight `Limits` on purpose; a
+/// cache hit is observed through [`Source`], never through a deadline no probe could meet.
 const PROBE_LIMITS: Limits = Limits {
     total: Duration::from_millis(500),
 };
@@ -316,12 +317,11 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
     path.push(&env[0].1);
     env[0].1 = path;
     let request = |env| request(&script, &source, env);
-    let probed = collect_cached(request(&env), &temp.0, PROBE_LIMITS, Some(&cache))?;
-    // One millisecond cannot fit a single probe: success means the facts were replayed.
-    let tight = Limits {
-        total: Duration::from_millis(1),
-    };
-    let replayed = collect_cached(request(&env), &temp.0, tight, Some(&cache))?;
+    let traced = |env| collect_cached_traced(request(env), &temp.0, PROBE_LIMITS, Some(&cache));
+    let (probed, from) = traced(&env)?;
+    assert_eq!(from, Source::Probed, "empty cache");
+    let (replayed, from) = traced(&env)?;
+    assert_eq!(from, Source::Cache, "unchanged host");
     for payload in [
         br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"sleep 1 &"}}"#.as_slice(),
         br#"{"agent_id":"x","tool_name":"Bash","tool_input":{"command":"ls"}}"#.as_slice(),
@@ -331,14 +331,24 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
             subagent_no_background::evaluate_prepared(&replayed, payload)?
         );
     }
+    // Without a cache every call probes; one millisecond cannot fit them, so it expires.
+    let uncached = collect_cached_traced(request(&env), &temp.0, PROBE_LIMITS, None)?;
+    assert_eq!(uncached.1, Source::Probed, "no cache");
+    let tight = Limits {
+        total: Duration::from_millis(1),
+    };
     assert!(collect_cached(request(&env), &temp.0, tight, None).is_err());
 
-    // A new `cat` earlier in PATH is a different host under the same key: miss, so probes run.
+    // A new `cat` earlier in PATH is a different host under the same key: miss, so probes run
+    // and their facts replace the entry, which the next call replays.
     let cat = lookup(&std::env::var_os("PATH").ok_or("PATH")?, "cat").ok_or("cat")?;
     fs::copy(&cat, shadowing.join("cat"))?;
-    assert!(collect_cached(request(&env), &temp.0, tight, Some(&cache)).is_err());
+    assert_eq!(traced(&env)?.1, Source::Probed, "new cat");
+    assert_eq!(traced(&env)?.1, Source::Cache, "new cat, cached");
+    // Removing it changes the host again: the entry now describes the shadowing `cat`.
     fs::remove_file(shadowing.join("cat"))?;
-    assert!(collect_cached(request(&env), &temp.0, tight, Some(&cache)).is_ok());
+    assert_eq!(traced(&env)?.1, Source::Probed, "cat removed");
+    assert_eq!(traced(&env)?.1, Source::Cache, "cat removed, cached");
     Ok(())
 }
 

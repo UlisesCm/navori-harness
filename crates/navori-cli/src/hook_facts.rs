@@ -361,6 +361,29 @@ pub fn collect_cached<'a>(
     limits: Limits,
     cache: Option<&FactsCache>,
 ) -> Result<Prepared<'a>, Ineligible> {
+    collect_cached_traced(request, cwd, limits, cache).map(|(prepared, _)| prepared)
+}
+
+/// Where [`collect_cached_traced`] took the facts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// Replayed from an entry of the facts cache; no probe ran.
+    Cache,
+    /// Probed on the host.
+    Probed,
+}
+
+/// [`collect_cached`] that also reports whether the facts were replayed or probed, so tests can
+/// tell a cache hit apart without relying on a deadline too short for any probe.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn collect_cached_traced<'a>(
+    request: Request<'a>,
+    cwd: &Path,
+    limits: Limits,
+    cache: Option<&FactsCache>,
+) -> Result<(Prepared<'a>, Source), Ineligible> {
     let started = Instant::now();
     let plan = prepare::plan(request, limits)?;
     let deadline = started + plan.limits().total;
@@ -399,7 +422,7 @@ pub fn collect_cached<'a>(
         && facts_cache::tools_unchanged(&discovery, path, &cached.tools)
         && let Ok(prepared) = plan.prepare(&cached.facts)
     {
-        return Ok(prepared);
+        return Ok((prepared, Source::Cache));
     }
     let bootstrap = probe(
         &bash,
@@ -498,7 +521,7 @@ pub fn collect_cached<'a>(
     {
         cache.store(key, &facts, &tools, *now);
     }
-    Ok(prepared)
+    Ok((prepared, Source::Probed))
 }
 
 /// Execute a single probe with null stdin, bounded combined output and an absolute deadline.
