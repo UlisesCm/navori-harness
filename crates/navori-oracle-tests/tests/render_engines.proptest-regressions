@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0a5d1cd691bd414a642bea8b7f742a47538b1db685f7dc81d462fd19bf610758 # shrinks to text = "; \u{a0}😀word  —  — xor need;  😀word 😀😀,a durable fact a durable fact  —  —  — Use when 😀 ; \u{a0}word a durable facta durable fact😀 — " (#1746: the TS cut leaves a lone surrogate)
