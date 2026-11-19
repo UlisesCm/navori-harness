@@ -262,9 +262,19 @@ describe("rust oracle", () => {
     // once both sides agree, the entry itself is a difference
     const fixed = run(`printf 'unchanged\\n'`, `printf 'unchanged\\n'`);
     expect(fixed.differences).toMatchObject([
-      { kind: "known", detail: expect.stringContaining("#1750 no longer differs") },
+      { kind: "known", detail: expect.stringContaining("#1750 no longer differs in stdout") },
     ]);
     expect(fixed.known).toEqual([]);
+
+    // a partial fix: each listed kind that stops differing is reported on its own
+    const partial = run(`printf 'updated\\n'`, `printf 'unchanged\\n'`, {
+      ...known,
+      kinds: ["stdout", "tree:backups"],
+    });
+    expect(partial.known).toMatchObject([{ kind: "stdout" }]);
+    expect(partial.differences).toMatchObject([
+      { kind: "known", detail: expect.stringContaining("no longer differs in tree:backups") },
+    ]);
 
     // without issue, kinds and why the entry is rejected
     expect(() =>

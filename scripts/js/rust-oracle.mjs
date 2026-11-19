@@ -724,8 +724,9 @@ export function runCase(testCase, opts) {
  * Splits a case's differences by its `known` entry: a difference the project accepts because the
  * TS is wrong and Rust right, while the TS stays frozen (each entry names its issue and why Rust
  * is right). Only the difference kinds the entry lists are tolerated; any other kind still counts.
- * A known case that no longer differs is itself a difference, so the entry goes away as soon as
- * the TS is fixed or the case disappears with the cut.
+ * A listed kind that no longer differs is itself a difference, so the entry (or that kind) goes
+ * away as soon as the TS is fixed, even partly, or the case disappears with the cut. Kinds, not
+ * details: what Rust itself must print is pinned by its own test, not here.
  *
  * @param {OracleCase} testCase
  * @param {Difference[]} differences
@@ -738,10 +739,11 @@ export function applyKnown(testCase, differences) {
     throw new Error(`rust-oracle: case ${testCase.id}: \`known\` needs issue, kinds and why`);
   const known = differences.filter((d) => entry.kinds.includes(d.kind));
   const rest = differences.filter((d) => !entry.kinds.includes(d.kind));
-  if (known.length === 0) {
+  for (const kind of entry.kinds) {
+    if (known.some((d) => d.kind === kind)) continue;
     rest.push({
       kind: "known",
-      detail: `${entry.issue} no longer differs: remove the case's \`known\` entry`,
+      detail: `${entry.issue} no longer differs in ${kind}: remove it from the case's \`known\` entry`,
     });
   }
   return { differences: rest, known };
