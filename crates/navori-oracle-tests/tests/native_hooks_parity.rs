@@ -27,6 +27,7 @@ fn prelude() -> String {
     format!(
         "const path = await import('node:path');\nconst c = await import({:?});\n\
          const d = await import({:?});\nconst nh = await import({:?});\n\
+         delete process.env.GIT_DIR; delete process.env.GIT_WORK_TREE;\n\
          process.env.GIT_CONFIG_NOSYSTEM = '1'; process.env.GIT_CONFIG_GLOBAL = '/dev/null';",
         cli_module("lib/config/config.ts"),
         cli_module("commands/doctor.ts"),
