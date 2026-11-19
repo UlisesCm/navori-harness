@@ -1288,3 +1288,34 @@ describe("buildClaudeSettings — implementer-no-markdown hook gated by harness.
     expect(bucket?.matcher).toBe("Bash|Edit|Write|NotebookEdit");
   });
 });
+
+describe("buildClaudeSettings — claudePlugins", () => {
+  const base = withQG();
+
+  it("emits enabledPlugins (sorted, false kept) and leaves permissions/hooks unchanged", () => {
+    const baseline = buildClaudeSettings(base, []);
+    const s = buildClaudeSettings(
+      {
+        ...base,
+        claudePlugins: { "z@m": false, "sentry@claude-plugins-official": true },
+      } as NavoriConfig,
+      [],
+    );
+    expect(Object.entries(s.enabledPlugins as object)).toEqual([
+      ["sentry@claude-plugins-official", true],
+      ["z@m", false],
+    ]);
+    const { enabledPlugins: _drop, ...rest } = s;
+    expect(rest).toEqual(baseline);
+    expect(s.permissions).toEqual(baseline.permissions);
+    expect(s.hooks).toEqual(baseline.hooks);
+  });
+
+  it("omits enabledPlugins when the field is absent or empty, byte-identical to baseline", () => {
+    const baseline = JSON.stringify(buildClaudeSettings(base, []));
+    const empty = buildClaudeSettings({ ...base, claudePlugins: {} } as NavoriConfig, []);
+    expect("enabledPlugins" in empty).toBe(false);
+    expect(JSON.stringify(empty)).toBe(baseline);
+    expect("enabledPlugins" in buildClaudeSettings(base, [])).toBe(false);
+  });
+});
