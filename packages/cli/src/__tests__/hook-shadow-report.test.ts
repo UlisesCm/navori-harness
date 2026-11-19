@@ -10,6 +10,8 @@ interface Row {
   engine: string;
   ok: boolean;
   invocations: number;
+  firstMs: number | null;
+  lastMs: number | null;
   legacyPayloadRows: number;
   problems: string[];
 }
@@ -29,6 +31,7 @@ interface Module {
   buildReport: (input: ReportInput) => Report;
   approvedWithoutTraffic: (history: string, hook: string) => string[];
   collect: (root: string, windowDays: number, now: number, journalRoots?: string[]) => Report;
+  formatMarkdown: (report: Report, batches?: Record<string, string[]>) => string;
 }
 const shadow = (await import(
   pathToFileURL(join(import.meta.dirname, "../../../../scripts/js/hook-shadow-report.mjs")).href
@@ -189,4 +192,20 @@ it("las filas legacy con payloadBase64 se leen, se cuentan y nunca se devuelven"
   // A legacy divergence still turns the report red; the count is informational.
   expect(mixed.ok).toBe(false);
   expect(run(true, [...clean, { ageDays: 3, legacy: true }]).ok).toBe(true);
+});
+
+// Covers: R81
+it("un now fijo cierra la ventana y la tabla da la primera y la última fila por lote", (): void => {
+  const report = run(true, [{ ageDays: 7 }, { ageDays: 1 }, { ageDays: -1 }]);
+  expect(report.rows[0]?.invocations).toBe(2);
+  expect(report.rows[0]?.firstMs).toBe(NOW - 7 * DAY);
+  expect(report.rows[0]?.lastMs).toBe(NOW - DAY);
+  expect(report.ok).toBe(true);
+
+  const table = shadow.formatMarkdown(report, { B: ["example"], X: ["missing"] });
+  expect(table).toContain(new Date(NOW - 7 * DAY).toISOString());
+  expect(table).toContain("| B | example | green |");
+  expect(table).toContain("| X | missing | red: unknown hook missing |");
+  const red = shadow.formatMarkdown(run(true, [{ ageDays: 1, differs: true }]), { B: ["example"] });
+  expect(red).toContain("| B | example | red: example [claude] |");
 });

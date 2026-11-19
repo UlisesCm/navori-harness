@@ -13,6 +13,9 @@ import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.
  * Each checkout writes its own journal under `.navori/state/rust-shadow/`, so the shadow traffic of
  * the migration worktrees is scattered: `--journals <dir>` (repeatable) adds the journals of other
  * checkouts. The manifest, history and registered engines always come from `--root`.
+ *
+ * The R81 close runs `--now <closing instant> --markdown [--batches <json>]`: the window is fixed, so
+ * rows written after the close do not count, and the table adds failures and first/last row.
  */
 
 const DAY_MS = 86_400_000;
@@ -66,7 +69,9 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
     const valid = decoded.every((part) => part !== null);
     const records = valid ? decoded.flatMap((part) => part.records) : null;
     // Journals written before the payload was dropped: informational, the file is safe to delete.
-    const legacyPayloadRows = valid ? decoded.reduce((sum, part) => sum + part.legacyPayloadRows, 0) : 0;
+    const legacyPayloadRows = valid
+      ? decoded.reduce((sum, part) => sum + part.legacyPayloadRows, 0)
+      : 0;
     const problems = [];
     if (records === null) problems.push("journal is invalid or unavailable");
     const begins = new Map();
@@ -84,6 +89,10 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         divergences: 0,
         pending: 0,
         unobserved: 0,
+        nativeFailed: 0,
+        shellFailed: 0,
+        firstMs: null,
+        lastMs: null,
         legacyPayloadRows,
         spanDays: 0,
         problems: [...problems],
@@ -91,14 +100,20 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
       let first = Infinity;
       for (const begin of begins.values()) {
         if (begin.engine !== engine || begin.implementation !== descriptor.impl) continue;
+        // A fixed `now` closes the window: later rows belong to the next one.
+        if (begin.timeMs > now) continue;
         first = Math.min(first, begin.timeMs);
         if (begin.timeMs < now - windowMs) continue;
+        row.firstMs = Math.min(row.firstMs ?? Infinity, begin.timeMs);
+        row.lastMs = Math.max(row.lastMs ?? -Infinity, begin.timeMs);
         const end = ends.get(begin.id);
         if (!end) {
           if (now - begin.timeMs > PENDING_GRACE_MS) row.pending++;
           continue;
         }
         row.invocations++;
+        if (end.comparison.nativeFailed) row.nativeFailed++;
+        if (end.comparison.shellFailed) row.shellFailed++;
         if (diverged(end.comparison)) row.divergences++;
         else if (end.comparison.nativeUnobserved === true) row.unobserved++;
       }
@@ -110,9 +125,7 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
           if (!(approved[hook] ?? []).includes(engine))
             row.problems.push("no shadow traffic and no no-shadow-traffic approval (R82)");
         } else if (row.spanDays < windowDays) {
-          row.problems.push(
-            `window ${row.spanDays.toFixed(1)} d is shorter than ${windowDays} d`,
-          );
+          row.problems.push(`window ${row.spanDays.toFixed(1)} d is shorter than ${windowDays} d`);
         }
       }
       row.ok = row.problems.length === 0;
@@ -127,6 +140,10 @@ export function buildReport({ hooks, journals, engines, approved, now, windowDay
         divergences: 0,
         pending: 0,
         unobserved: 0,
+        nativeFailed: 0,
+        shellFailed: 0,
+        firstMs: null,
+        lastMs: null,
         legacyPayloadRows,
         spanDays: 0,
         problems: ["no engine renders the native block for this hook"],
@@ -172,6 +189,48 @@ function format(report) {
   return lines.join("\n");
 }
 
+/**
+ * Markdown table for the R81 close: one row per hook and engine, then one verdict per activation
+ * batch (`{ "<batch>": ["<hook>", ...] }`), green only when every row of its hooks is green.
+ */
+export function formatMarkdown(report, batches = {}) {
+  const iso = (ms) => (ms === null ? "-" : new Date(ms).toISOString());
+  const lines = [
+    `R81, window ${report.windowDays} d: ${report.ok ? "green" : "red"}`,
+    "",
+    "| Hook | Engine | Gating | Calls | Divergences | nativeFailed | shellFailed | Pending | Unobserved | First row | Last row | Verdict |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|",
+  ];
+  for (const row of report.rows) {
+    lines.push(
+      `| ${row.hook} | ${row.engine} | ${row.gating ? "yes" : "no"} | ${row.invocations} | ` +
+        `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
+        `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ` +
+        `${row.ok ? "green" : `red: ${row.problems.join("; ")}`} |`,
+    );
+  }
+  const names = Object.keys(batches);
+  if (names.length > 0) {
+    lines.push("", "| Batch | Hooks | Verdict |", "|---|---|---|");
+    for (const name of names) {
+      const hooks = batches[name];
+      const rows = report.rows.filter((row) => hooks.includes(row.hook));
+      const missing = hooks.filter((hook) => !rows.some((row) => row.hook === hook));
+      const red = [
+        ...new Set(rows.filter((row) => !row.ok).map((row) => `${row.hook} [${row.engine}]`)),
+      ];
+      const verdict =
+        missing.length > 0
+          ? `red: unknown hook ${missing.join(", ")}`
+          : red.length > 0
+            ? `red: ${red.join(", ")}`
+            : "green";
+      lines.push(`| ${name} | ${hooks.join(", ")} | ${verdict} |`);
+    }
+  }
+  return lines.join("\n");
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const value = (flag, fallback) => {
@@ -189,8 +248,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (extra.some((dir) => dir === undefined || !existsSync(dir)))
       throw new Error("--journals needs an existing directory");
     const journalRoots = [...new Set([root, ...extra.map((dir) => resolve(dir))])];
-    const report = collect(root, windowDays, Date.now(), journalRoots);
-    console.log(args.includes("--json") ? JSON.stringify(report) : format(report));
+    // `--now <ISO date>` evaluates the window as of that instant (the R81 close), not the clock.
+    const nowArg = value("--now", undefined);
+    const now = nowArg === undefined ? Date.now() : Date.parse(nowArg);
+    if (!Number.isFinite(now)) throw new Error("--now needs an ISO date");
+    const batchesPath = value("--batches", undefined);
+    const batches = batchesPath === undefined ? {} : JSON.parse(readFileSync(batchesPath, "utf8"));
+    const report = collect(root, windowDays, now, journalRoots);
+    console.log(
+      args.includes("--json")
+        ? JSON.stringify(report)
+        : args.includes("--markdown")
+          ? formatMarkdown(report, batches)
+          : format(report),
+    );
     process.exitCode = report.ok ? 0 : 1;
   } catch (error) {
     console.error(`hook-shadow-report: ${error.message}`);
