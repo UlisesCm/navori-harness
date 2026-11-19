@@ -148,14 +148,30 @@ impl Shim {
     }
 }
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &Path, body: &str) -> Result<(), Box<dyn Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = Command::new("/bin/cp").arg(&staged).arg(path).status()?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
 /// Install `body` as `grep` in a fresh directory under `scratch`.
 fn shim(scratch: &Path, name: &str, body: &str) -> Result<Shim, Box<dyn Error>> {
-    use std::os::unix::fs::PermissionsExt;
     let dir = scratch.join(format!("shim-{name}"));
     fs::create_dir_all(&dir)?;
     let program = dir.join("grep");
-    fs::write(&program, body)?;
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+    install_executable(&program, body)?;
     let log = dir.join("calls.log");
     fs::write(&log, "")?;
     Ok(Shim { dir, log })
@@ -2259,7 +2275,6 @@ fn the_host_facts_print_nothing_of_the_environment() {
 /// every output the shell reads, and `Unreadable` when the bound expires.
 #[test]
 fn the_probe_reads_the_email_as_read_user_email_does() -> TestResult {
-    use std::os::unix::fs::PermissionsExt;
     let locale = Locale::GnuUtf8;
     let scratch = Scratch::new("probe-email")?;
     let dir = &scratch.0;
@@ -2308,8 +2323,7 @@ fn the_probe_reads_the_email_as_read_user_email_does() -> TestResult {
     .enumerate()
     {
         let program = dir.join(format!("git-{index}"));
-        fs::write(&program, format!("#!/bin/sh\n{body}\n"))?;
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
+        install_executable(&program, &format!("#!/bin/sh\n{body}\n"))?;
         let mut reference = Command::new(&program);
         reference
             .env_clear()
@@ -2336,8 +2350,7 @@ fn the_probe_reads_the_email_as_read_user_email_does() -> TestResult {
 
     // The bound is the deadline's remainder: a `git` that sleeps is cut off and denies.
     let sleeper = dir.join("git-sleep");
-    fs::write(&sleeper, "#!/bin/sh\nexec sleep 30\n")?;
-    fs::set_permissions(&sleeper, fs::Permissions::from_mode(0o755))?;
+    install_executable(&sleeper, "#!/bin/sh\nexec sleep 30\n")?;
     let probe = HostProbe {
         env: &env,
         grep: None,
