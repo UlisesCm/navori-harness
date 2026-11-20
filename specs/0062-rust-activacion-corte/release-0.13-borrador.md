@@ -10,11 +10,14 @@
    crear la org `navori` en npm y se queda el esquema actual, `@navori/<os>-<cpu>` como
    `optionalDependencies` de `navori`, sin cambiar código. Plan B si el nombre está tomado: ver
    "Plan B de Q24" abajo.
-2. **legacy.json**: 0.12.5 NO pasa la prueba rápida de Ulises (20 nov). Con 0.12.5 como legacy,
-   `workspace render --apply` quita el bloque `navori:native-runtime` de 8 hooks, vuelve el texto a
-   "Spanish MX" y borra el `enabledPlugins` del render nativo; `doctor --json` informa 11 renders
-   pendientes en un proyecto al día. Alternativas y detalle en
-   decisiones-ulises/2026-11-20-legacy-json. Decisión pendiente.
+2. **legacy.json**: decidido, opción E (Ulises, 20 nov 11:45). El TS congelado se publica aparte
+   como `@navori/legacy` (`navori-legacy` en el plan B), construido desde el commit anterior al PR
+   de corte y con la versión del release; `packaging/legacy.json` fija `{ version, integrity,
+   commit }`. Implementado en #1760. 0.12.5 no pasó la prueba rápida (detalle en
+   decisiones-ulises/2026-11-20-legacy-json).
+5. **El prólogo nativo busca `navori-rust` y el paquete no lo instala** (decisiones-ulises/2026-11-20-launcher):
+   sin resolverlo, en las máquinas de los usuarios los hooks corren siempre su cuerpo shell.
+   Decisión pendiente (recomendación: exponer también el bin `navori-rust`).
 3. **claudePlugins**: no hay 0.12.6; sale en 0.13 (Ulises, 20 nov 11:25).
 4. **Paso f′**: integrar main en dev (merge commit, #1705 y #1748) y luego dev en migration/rust,
    antes del PR dev → main.
@@ -162,16 +165,58 @@ Solo si la org `navori` está tomada. Los paquetes de plataforma pasan de `@navo
 PR dev → main con merge commit; notas "Qué cambia al actualizar" en el cuerpo, incluyendo #1705 y
 #1748 (decisión de Ulises, 20 nov). Tag con `release-tag.yml` y publicación: Ulises.
 
-Publicación, en este orden:
+### Antes del PR de corte: el legacy
 
-1. Publicar los 4 paquetes de binarios (`@navori/<os>-<cpu>`, o `navori-<os>-<cpu>` con el plan B).
-2. **Verificar que existan antes de publicar el principal** (Ulises, 20 nov 11:25):
+En el commit anterior al PR de corte (T10), con `packages/cli/package.json` ya en la versión del
+release o pasando `--version` igual a la que estampará el binario (`STAMP_VERSION`):
+
+```bash
+node scripts/js/dist-assemble.mjs legacy --from <sha> --version 0.13.0 --out /tmp/legacy-0.13 --write-pin
+```
+
+Se commitea `packaging/legacy.json` (`version`, `integrity`, `commit`). El ensamblado rechaza un
+legacy cuyo `crates/ported.json` difiera del del commit que compila los binarios.
+
+### Publicación, en este orden exacto
+
+Sin `latest` hasta el final: cada paquete se publica con `--tag next` y se promueve al cierre, así
+que un `npm i -g navori` no recibe nada a medias.
+
+1. **Legacy primero:** `npm publish /tmp/legacy-0.13/<tarball> --tag next --access public`.
+   Comprobar que npm sirva los mismos bytes que fija el pin:
 
    ```bash
-   for p in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
-     npm view "@navori/$p@0.13.0" version || { echo "falta @navori/$p"; exit 1; }
+   test "$(npm view @navori/legacy@0.13.0 dist.integrity)" = "$(node -p 'require("./packaging/legacy.json").integrity')"
+   ```
+
+2. **Los 4 binarios:** `npm publish <tarball> --tag next --access public` por plataforma, con los
+   tarballs de `rust-release.yml` del commit del release.
+3. **Verificar que existan los 4 binarios y el legacy antes del principal** (Ulises, 20 nov 11:25):
+
+   ```bash
+   for p in @navori/darwin-arm64 @navori/darwin-x64 @navori/linux-arm64 @navori/linux-x64 @navori/legacy; do
+     npm view "$p@0.13.0" version || { echo "falta $p@0.13.0"; exit 1; }
    done
    ```
 
-   Si falta alguno, no se publica `navori`: esa plataforma quedaría sin binario.
-3. Publicar `navori@0.13.0` y comprobar `npm view navori version`.
+   Con el plan B: `navori-<os>-<cpu>` y `navori-legacy`. Si falta alguno, no se publica `navori`.
+4. **Ensamblar el principal sin `--legacy-tarball`** (lo baja de npm y verifica la integrity) y
+   publicarlo: `npm publish <navori-0.13.0.tgz> --tag next`.
+5. **Humo desde el registro:** en un directorio temporal, `npm i navori@next` y `npx navori --version`
+   (0.13.0), un subcomando delegado (`npx navori workspace ls`) y `dist-legacy-smoke` contra el
+   tarball del registro.
+6. **Promover:** `npm dist-tag add <paquete>@0.13.0 latest` en el mismo orden (legacy, binarios,
+   `navori` al final) y `npm view navori version`.
+
+### Reversa (nunca `npm unpublish`)
+
+- **Falla antes del paso 6:** nada está en `latest`. Se deja `next` apuntando a lo publicado o se
+  mueve a la versión anterior (`npm dist-tag add navori@0.12.5 next`), se corrige y se publica
+  0.13.1. Las versiones publicadas no se borran.
+- **Falla después del paso 6:** `npm dist-tag add navori@0.12.5 latest` devuelve a los usuarios al
+  TS anterior; después `npm deprecate navori@0.13.0 "<motivo>; usa 0.13.1"` y lo mismo para los
+  paquetes de plataforma y el legacy si el fallo es suyo. La corrección sale como 0.13.1 con el
+  mismo orden.
+- Un paquete de plataforma o el legacy roto no se reemplaza (npm no permite republicar una
+  versión): se publica la siguiente versión de todo el conjunto, porque el principal fija la
+  versión exacta de sus `optionalDependencies` y del legacy.
