@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="bbc9fdbe0fa7d471636378554c26ef557cc694552f4a145853cc04f06ad50a1c"
+// navori:managed-file id="pi-extension" hash="cadccfc9554d03ffeccb0401c164b8eb127b8f90331c61a487c848ff9933e156"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1074,6 +1074,11 @@ const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
 const BRIDGE_ADVISORY_CAP = 1_024;
 const BRIDGE_KILL_GRACE_MS = 2_000;
+// After a block the call returns at once, but the siblings still running get this long before they are
+// stopped: a hook in shadow writes its observation after its verdict is computed, and killing it at the
+// block left that observation without its completion (R81, 19 Nov). A slow sibling (a gate run) is still
+// stopped, only later; the blocked call never waits for it.
+const BRIDGE_SIBLING_GRACE_MS = 2_000;
 const BRIDGE_DRAIN_MS = 250;
 const BRIDGE_RENDER_ACTION = "run navori render --apply with the current Navori CLI";
 const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write", navori_subagent: "Agent" };
@@ -1289,8 +1294,10 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
 }
 
 /**
- * Run every matching script concurrently; the first enforced block wins and kills the rest. Asks are collected
- * so the caller resolves them with ONE confirmation; advisory warnings are returned, never thrown.
+ * Run every matching script concurrently; the first enforced block wins and the call returns at once. The rest
+ * are stopped after BRIDGE_SIBLING_GRACE_MS (at once when the call itself is aborted) and nothing they answer
+ * later changes the result. Asks are collected so the caller resolves them with ONE confirmation; advisory
+ * warnings are returned, never thrown.
  */
 async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSignal | undefined): Promise<BridgeResult> {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
@@ -1308,14 +1315,22 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
   signal?.addEventListener("abort", outer, { once: true });
   if (signal?.aborted) outer();
   const payload = bridgePayload(call);
+  let settled = false;
+  let blocked = (): void => {};
+  const firstBlock = new Promise<void>((resolve) => { blocked = resolve; });
   try {
-    await Promise.all(selected.map(async (hook) => {
+    await Promise.race([firstBlock, Promise.all(selected.map(async (hook) => {
       const verdict = bridgeVerdict(hook, await runBridgeScript(shell.shell, call.cwd, hook, payload, stop.signal));
-      if (verdict.kind === "block" && result.block === undefined) { result.block = verdict.reason; stop.abort(); }
+      if (settled) return;
+      if (verdict.kind === "block" && result.block === undefined) {
+        result.block = verdict.reason;
+        blocked();
+        setTimeout(() => stop.abort(), BRIDGE_SIBLING_GRACE_MS).unref();
+      }
       else if (verdict.kind === "ask") { result.asks.push(verdict.reason); result.bodyFiles.push(...verdict.bodyFiles); }
       else if (verdict.kind === "warn") result.warnings.push(verdict.text);
-    }));
-  } finally { signal?.removeEventListener("abort", outer); }
+    }))]);
+  } finally { settled = true; signal?.removeEventListener("abort", outer); }
   return result;
 }
 
