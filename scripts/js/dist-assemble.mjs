@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +16,24 @@ import { fileURLToPath } from "node:url";
  *   <out>/navori-<os>-<cpu>/      `@navori/<os>-<cpu>`: the binary as `bin/navori`, with `os`/`cpu`
  *
  *   node scripts/js/dist-assemble.mjs --out <dir> --binary linux-x64=<path> [--binary ...]
- *                                     [--legacy-tarball <tgz>] [--pack]
+ *                                     [--legacy-tarball <tgz>] [--legacy-pin <json>] [--pack]
  *
- * Without `--legacy-tarball` it downloads the pinned release with `npm pack`. `--pack` leaves one
- * tarball per package in `<out>` and prints their paths as JSON.
+ * Without `--legacy-tarball` it downloads the pinned legacy package (`LEGACY_PACKAGE@<version>`)
+ * with `npm pack`. `--legacy-pin` replaces `packaging/legacy.json` (rehearsals pin the tarball they
+ * just built). `--pack` leaves one tarball per package in `<out>` and prints their paths as JSON.
+ *
+ * The frozen TS is a package of its own (decision of 20 Nov, option E). It is built once, from the
+ * commit before the cutover PR deletes `packages/cli/src`, and published before the release:
+ *
+ *   node scripts/js/dist-assemble.mjs legacy --from <ref> --out <dir> [--version <v>] [--write-pin]
+ *                                     [--pin-out <file>]
+ *   node scripts/js/dist-assemble.mjs legacy --from-dir <built checkout> --out <dir> ...
+ *
+ * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
+ * `{ version, integrity, commit }` in `packaging/legacy.json`. A pin with `null` integrity/commit
+ * means "not published yet": the assembly refuses it (JSON has no comments, so it is said here).
+ * The tarball holds `package/package.json` (the legacy manifest) and `package/navori/`, the TS
+ * package exactly as it ships (`package.json` named `navori`, `dist/`, `README.md`).
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -30,6 +44,9 @@ export const PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x6
 
 /** The package scope of the platform packages (D51, Q24). */
 export const SCOPE = "@navori";
+
+/** The only place the legacy package's name lives. Plan B of Q24 is `navori-legacy`. */
+export const LEGACY_PACKAGE = "@navori/legacy";
 
 /** The version the binaries report: the Cargo workspace's, which the postinstall compares. */
 export function workspaceVersion(root = REPO_ROOT) {
@@ -46,13 +63,19 @@ export function integrityOf(file) {
 }
 
 /**
- * Unpacks the pinned TS release into `<target>`: `package.json`, `dist/` and the rest of its
- * tarball, byte for byte. A tarball whose integrity differs from the pin is refused.
+ * Unpacks the pinned legacy package into `<target>`: the nested `navori/` directory (its
+ * `package.json` named `navori`, `dist/`, `README.md`), byte for byte. A tarball whose integrity
+ * differs from the pin, or whose manifests are not the expected ones, is refused.
  * @param {string} tarball
- * @param {{ version: string, integrity: string }} pin
+ * @param {{ version: string, integrity: string | null }} pin
  * @param {string} target
  */
 export function unpackLegacy(tarball, pin, target) {
+  if (typeof pin.integrity !== "string" || pin.integrity === "") {
+    throw new Error(
+      "packaging/legacy.json has no integrity yet: run `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin`, publish it, then assemble",
+    );
+  }
   const actual = integrityOf(tarball);
   if (actual !== pin.integrity) {
     throw new Error(`legacy tarball integrity ${actual} does not match the pinned ${pin.integrity}`);
@@ -61,23 +84,154 @@ export function unpackLegacy(tarball, pin, target) {
   try {
     const untar = spawnSync("tar", ["-xzf", tarball, "-C", scratch], { encoding: "utf8" });
     if (untar.status !== 0) throw new Error(`cannot unpack ${tarball}: ${untar.stderr}`);
-    const manifest = JSON.parse(readFileSync(join(scratch, "package", "package.json"), "utf8"));
-    if (manifest.name !== "navori" || manifest.version !== pin.version) {
-      throw new Error(`legacy tarball is ${manifest.name}@${manifest.version}, expected navori@${pin.version}`);
+    const outer = JSON.parse(readFileSync(join(scratch, "package", "package.json"), "utf8"));
+    if (outer.name !== LEGACY_PACKAGE || outer.version !== pin.version) {
+      throw new Error(`legacy tarball is ${outer.name}@${outer.version}, expected ${LEGACY_PACKAGE}@${pin.version}`);
     }
-    cpSync(join(scratch, "package"), target, { recursive: true });
+    const nested = join(scratch, "package", "navori");
+    const inner = JSON.parse(readFileSync(join(nested, "package.json"), "utf8"));
+    if (inner.name !== "navori") {
+      throw new Error(`the frozen TS manifest is named ${inner.name}, expected navori (its version lookup requires it)`);
+    }
+    cpSync(nested, target, { recursive: true });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-/** Downloads the pinned release with `npm pack` into `dir` and returns the tarball's path. */
-function fetchLegacy(pin, dir) {
-  const pack = spawnSync("npm", ["pack", `navori@${pin.version}`, "--pack-destination", dir, "--json"], {
-    encoding: "utf8",
-  });
-  if (pack.status !== 0) throw new Error(`npm pack navori@${pin.version} failed: ${pack.stderr}`);
+/** Downloads the pinned legacy package with `npm pack` into `dir` and returns the tarball's path. */
+export function fetchLegacy(pin, dir) {
+  const spec = `${LEGACY_PACKAGE}@${pin.version}`;
+  const pack = spawnSync("npm", ["pack", spec, "--pack-destination", dir, "--json"], { encoding: "utf8" });
+  if (pack.status !== 0) throw new Error(`npm pack ${spec} failed: ${pack.stderr}`);
   return join(dir, JSON.parse(pack.stdout)[0].filename);
+}
+
+/**
+ * The legacy package's manifest: no scripts, a `navori-legacy` bin onto the nested TS, and the TS
+ * package's engines.
+ * @param {string} version
+ * @param {Record<string, unknown>} ts the `packages/cli/package.json` it inherits metadata from
+ */
+export function legacyManifest(version, ts) {
+  return {
+    name: LEGACY_PACKAGE,
+    version,
+    description: "The frozen TypeScript navori CLI that the native navori package delegates to.",
+    license: ts.license,
+    repository: ts.repository,
+    homepage: ts.homepage,
+    type: "module",
+    bin: { "navori-legacy": "navori/dist/index.js" },
+    files: ["navori"],
+    engines: ts.engines,
+  };
+}
+
+/**
+ * The frozen TS's own manifest as it ships inside the legacy package. The name stays `navori`: the
+ * TS reads `dist/../package.json` for its version and only accepts that name.
+ */
+export function nestedManifest(version, ts) {
+  const keep = ["description", "license", "repository", "homepage", "engines", "features", "bin"];
+  return {
+    name: "navori",
+    version,
+    type: ts.type,
+    ...Object.fromEntries(keep.filter((k) => ts[k] !== undefined).map((k) => [k, ts[k]])),
+  };
+}
+
+/**
+ * Stages the legacy package from a built TS checkout and packs it into `out`.
+ * @param {{ root: string, out: string, version?: string }} options `root` has `packages/cli/dist`
+ * @returns {{ tarball: string, name: string, version: string, integrity: string }}
+ */
+export function buildLegacy({ root, out, version }) {
+  const cli = join(root, "packages", "cli");
+  const ts = JSON.parse(readFileSync(join(cli, "package.json"), "utf8"));
+  if (!existsSync(join(cli, "dist", "index.js"))) throw new Error(`${cli} has no dist/index.js; build it first`);
+  const finalVersion = version ?? ts.version;
+  const stage = mkdtempSync(join(tmpdir(), "navori-legacy-stage-"));
+  try {
+    const nested = join(stage, "navori");
+    mkdirSync(nested, { recursive: true });
+    cpSync(join(cli, "dist"), join(nested, "dist"), { recursive: true });
+    copyFileSync(join(cli, "README.md"), join(nested, "README.md"));
+    writeFileSync(join(nested, "package.json"), `${JSON.stringify(nestedManifest(finalVersion, ts), null, 2)}\n`);
+    writeFileSync(join(stage, "package.json"), `${JSON.stringify(legacyManifest(finalVersion, ts), null, 2)}\n`);
+    mkdirSync(out, { recursive: true });
+    const tarball = pack(stage, out);
+    return { tarball, name: LEGACY_PACKAGE, version: finalVersion, integrity: integrityOf(tarball) };
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+}
+
+/** Runs a command, failing loudly. */
+function run(cmd, args, cwd) {
+  const r = spawnSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "ignore", "inherit"] });
+  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed (exit ${r.status})`);
+}
+
+/** Output of a command, trimmed. */
+function capture(cmd, args, cwd) {
+  const r = spawnSync(cmd, args, { cwd, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+/**
+ * `legacy` subcommand: builds the TS at `--from <ref>` in a temporary detached worktree (or uses
+ * `--from-dir`, an already built checkout) and packs it.
+ */
+function legacyCommand(argv) {
+  const opts = { from: undefined, fromDir: undefined, out: undefined, version: undefined, writePin: false, pinOut: undefined };
+  for (let i = 0; i < argv.length; i += 1) {
+    const flag = argv[i];
+    if (flag === "--write-pin") {
+      opts.writePin = true;
+      continue;
+    }
+    const value = argv[++i];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${flag} needs a value`);
+    if (flag === "--from") opts.from = value;
+    else if (flag === "--from-dir") opts.fromDir = resolve(value);
+    else if (flag === "--out") opts.out = resolve(value);
+    else if (flag === "--version") opts.version = value;
+    else if (flag === "--pin-out") opts.pinOut = resolve(value);
+    else throw new Error(`unknown option ${flag}`);
+  }
+  if (opts.out === undefined) throw new Error("--out is required");
+  if ((opts.from === undefined) === (opts.fromDir === undefined)) {
+    throw new Error("exactly one of --from <ref> or --from-dir <path> is required");
+  }
+
+  let result;
+  let commit;
+  if (opts.fromDir !== undefined) {
+    commit = capture("git", ["rev-parse", "HEAD"], opts.fromDir);
+    result = buildLegacy({ root: opts.fromDir, out: opts.out, version: opts.version });
+  } else {
+    commit = capture("git", ["rev-parse", `${opts.from}^{commit}`], REPO_ROOT);
+    const tree = mkdtempSync(join(tmpdir(), "navori-legacy-src-"));
+    rmSync(tree, { recursive: true, force: true });
+    run("git", ["worktree", "add", "--detach", tree, commit], REPO_ROOT);
+    try {
+      run("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], tree); // no hooks:install into the shared .git
+      run("bun", ["run", "build"], join(tree, "packages", "cli"));
+      result = buildLegacy({ root: tree, out: opts.out, version: opts.version });
+    } finally {
+      spawnSync("git", ["worktree", "remove", "--force", tree], { cwd: REPO_ROOT });
+      rmSync(tree, { recursive: true, force: true });
+    }
+  }
+  const report = { ...result, commit };
+  const pin = `${JSON.stringify({ version: report.version, integrity: report.integrity, commit }, null, 2)}\n`;
+  if (opts.writePin) writeFileSync(join(PACKAGING, "legacy.json"), pin);
+  if (opts.pinOut !== undefined) writeFileSync(opts.pinOut, pin);
+  process.stdout.write(`${JSON.stringify(report)}\n`);
+  return 0;
 }
 
 /**
@@ -120,7 +274,7 @@ export function platformManifest(platform, version, ts) {
 
 /**
  * Writes the packages under `out`.
- * @param {{ out: string, binaries: Record<string, string>, legacyTarball: string, pin: { version: string, integrity: string }, version?: string }} options
+ * @param {{ out: string, binaries: Record<string, string>, legacyTarball: string, pin: { version: string, integrity: string | null }, version?: string }} options
  * @returns {{ main: string, platforms: Record<string, string> }} the package directories
  */
 export function assemble({ out, binaries, legacyTarball, pin, version = workspaceVersion() }) {
@@ -158,20 +312,21 @@ export function pack(dir, dest) {
   return join(dest, JSON.parse(run.stdout)[0].filename);
 }
 
-/** Reads `packaging/legacy.json`. */
-export function legacyPin() {
-  return JSON.parse(readFileSync(join(PACKAGING, "legacy.json"), "utf8"));
+/** Reads `packaging/legacy.json`, or the pin file given. */
+export function legacyPin(file = join(PACKAGING, "legacy.json")) {
+  return JSON.parse(readFileSync(file, "utf8"));
 }
 
 /**
  * @param {string[]} argv
- * @returns {{ out: string, binaries: Record<string, string>, legacyTarball?: string, pack: boolean }}
+ * @returns {{ out: string, binaries: Record<string, string>, legacyTarball?: string, legacyPin?: string, pack: boolean }}
  */
 export function parseArgs(argv) {
   /** @type {Record<string, string>} */
   const binaries = {};
   let out;
   let legacyTarball;
+  let legacyPinFile;
   let packIt = false;
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -183,6 +338,7 @@ export function parseArgs(argv) {
     if (value === undefined || value.startsWith("--")) throw new Error(`${flag} needs a value`);
     if (flag === "--out") out = resolve(value);
     else if (flag === "--legacy-tarball") legacyTarball = resolve(value);
+    else if (flag === "--legacy-pin") legacyPinFile = resolve(value);
     else if (flag === "--binary") {
       const at = value.indexOf("=");
       if (at <= 0) throw new Error("--binary must be <os>-<cpu>=<path>");
@@ -190,12 +346,13 @@ export function parseArgs(argv) {
     } else throw new Error(`unknown option ${flag}`);
   }
   if (out === undefined) throw new Error("--out is required");
-  return { out, binaries, legacyTarball, pack: packIt };
+  return { out, binaries, legacyTarball, legacyPin: legacyPinFile, pack: packIt };
 }
 
 async function main(argv) {
+  if (argv[0] === "legacy") return legacyCommand(argv.slice(1));
   const options = parseArgs(argv);
-  const pin = legacyPin();
+  const pin = legacyPin(options.legacyPin);
   mkdirSync(options.out, { recursive: true });
   const legacyTarball = options.legacyTarball ?? fetchLegacy(pin, options.out);
   const dirs = assemble({ out: options.out, binaries: options.binaries, legacyTarball, pin });
