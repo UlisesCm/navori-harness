@@ -5,11 +5,12 @@
 //! `git` or `tgrep`.
 
 use std::cell::RefCell;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 /// What a discard destroys, as `_dsc_dirty` measures it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,14 +171,47 @@ fn capture(command: &mut Command) -> Option<String> {
     Some(text.trim_end_matches('\n').to_owned())
 }
 
+/// The `git` this process runs, resolved once from its `PATH`. A bare `git` makes every spawn
+/// try each `PATH` entry in turn (`execvp`): under Pi's `PATH` that is 13 failed `execve`
+/// before git. The search below is the one `execvp` does, done once, and it only stands when it
+/// is exact: every entry before the hit is absolute (a relative one would resolve against the
+/// child's working directory). Anything else keeps the bare name.
+fn git() -> &'static OsStr {
+    static GIT: OnceLock<OsString> = OnceLock::new();
+    GIT.get_or_init(|| resolve_git(std::env::var_os("PATH").as_deref()))
+}
+
+/// [`git`]'s search over `path`: the first absolute entry holding an executable regular file
+/// named `git`, or the bare name when the search cannot match `execvp` exactly.
+fn resolve_git(path: Option<&OsStr>) -> OsString {
+    use std::os::unix::fs::PermissionsExt;
+    let bare = OsString::from("git");
+    let Some(path) = path.and_then(OsStr::to_str) else {
+        return bare;
+    };
+    for dir in path.split(':') {
+        let dir = Path::new(dir);
+        if !dir.is_absolute() {
+            return bare;
+        }
+        let candidate = dir.join("git");
+        if std::fs::metadata(&candidate)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        {
+            return candidate.into_os_string();
+        }
+    }
+    bare
+}
+
 fn git_in(dir: &str) -> Command {
-    let mut command = Command::new("git");
+    let mut command = Command::new(git());
     command.arg("-C").arg(dir);
     command
 }
 
 fn git_from(root: &str) -> Command {
-    let mut command = Command::new("git");
+    let mut command = Command::new(git());
     command.current_dir(root);
     command
 }
@@ -354,5 +388,77 @@ impl Repo for System {
                     .flatten()
             })
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A scratch directory with `bin/<name>` entries: executable when `exec`, plain otherwise.
+    fn scratch(tag: &str, entries: &[(&str, bool)]) -> Result<PathBuf, io::Error> {
+        let root =
+            std::env::temp_dir().join(format!("navori-resolve-git-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (dir, exec) in entries {
+            let dir = root.join(dir);
+            std::fs::create_dir_all(&dir)?;
+            let git = dir.join("git");
+            std::fs::write(&git, "#!/bin/sh\n")?;
+            std::fs::set_permissions(
+                &git,
+                std::fs::Permissions::from_mode(if *exec { 0o755 } else { 0o644 }),
+            )?;
+        }
+        Ok(root)
+    }
+
+    fn joined(root: &Path, dirs: &[&str]) -> OsString {
+        let entries: Vec<String> = dirs
+            .iter()
+            .map(|dir| {
+                if dir.starts_with('/') || dir.is_empty() || *dir == "rel" {
+                    (*dir).to_owned()
+                } else {
+                    root.join(dir).display().to_string()
+                }
+            })
+            .collect();
+        OsString::from(entries.join(":"))
+    }
+
+    #[test]
+    fn resolves_the_first_executable_git_like_execvp() -> TestResult {
+        let root = scratch("first", &[("a", false), ("b", true), ("c", true)])?;
+        let path = joined(&root, &["/nonexistent-navori", "a", "b", "c"]);
+        assert_eq!(
+            resolve_git(Some(&path)),
+            root.join("b/git").into_os_string()
+        );
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_the_bare_name_when_the_search_cannot_be_exact() -> TestResult {
+        let root = scratch("bare", &[("b", true)])?;
+        // A relative or empty entry before the hit resolves against the child's directory.
+        for dirs in [&["rel", "b"][..], &["", "b"][..]] {
+            assert_eq!(
+                resolve_git(Some(&joined(&root, dirs))),
+                OsString::from("git")
+            );
+        }
+        // No git at all, or no PATH: execvp decides, as before.
+        assert_eq!(
+            resolve_git(Some(&joined(&root, &["/nonexistent-navori"]))),
+            OsString::from("git")
+        );
+        assert_eq!(resolve_git(None), OsString::from("git"));
+        std::fs::remove_dir_all(root)?;
+        Ok(())
     }
 }
