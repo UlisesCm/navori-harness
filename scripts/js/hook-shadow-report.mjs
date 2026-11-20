@@ -52,6 +52,8 @@ const LOST_GROUP_MS = 10 * 60_000;
 const SIBLING_WINDOW_MS = 500;
 /** The only engine whose hook runner kills the siblings of a blocking hook. */
 const SIBLING_CANCEL_ENGINE = "pi";
+/** What a cancelled observation means: an inference from timing, never a recorded block. */
+const CANCELLED_MEANING = "compatible with a sibling's block, inferred";
 const MANIFEST = "crates/ported.json";
 const HISTORY = "crates/ported-history.jsonl";
 /** Rendered hook of each engine; the native block marks it as registered for that engine. */
@@ -349,6 +351,7 @@ function cancelledCell(row) {
 
 function format(report) {
   const lines = [`hook shadow report (window ${report.windowDays} d)`];
+  if (report.siblingCancel) lines.push(`cancelled = ${CANCELLED_MEANING}`);
   for (const row of report.rows) {
     const status = { green: "ok ", amber: "AMB", red: "RED" }[row.status];
     const notes = [...row.problems, ...row.warnings];
@@ -383,7 +386,7 @@ export function formatMarkdown(report, batches = {}) {
     "nativeFailed",
     "shellFailed",
     "Pending",
-    ...(cancelled ? ["Cancelled"] : []),
+    ...(cancelled ? [`Cancelled (${CANCELLED_MEANING})`] : []),
     "Unobserved",
     "First row",
     "Last row",
@@ -441,7 +444,9 @@ const USAGE = `usage: node scripts/js/hook-shadow-report.mjs [options]
                       without it no row closes and a lost observation stays amber (exit 3)
   --causes <json>     { "<hook>|<engine>|<ISO begin>": "<cause>" } for lost observations
   --batches <json>    { "<batch>": ["<hook>", ...] } for the per-batch verdict (--markdown)
-  --sibling-cancel    report Pi begins cut by a sibling's block as cancelled, not lost
+  --sibling-cancel    report a Pi begin that never completed as cancelled, not lost, when a
+                      sibling of the same call completed: compatible with a sibling's block,
+                      INFERRED (the journal keeps no verdicts), so check each one listed
   --json | --markdown output format (default: text)
 exit: 0 green, 1 red, 2 error, 3 amber`;
 

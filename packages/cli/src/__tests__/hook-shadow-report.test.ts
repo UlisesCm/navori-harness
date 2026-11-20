@@ -450,7 +450,10 @@ it("con --sibling-cancel un begin de Pi cortado por el bloqueo de un hermano se 
     cancelledMs: [at],
     status: "green",
   });
-  expect(shadow.formatMarkdown(classified)).toContain("| Pending | Cancelled | Unobserved |");
+  // The column declares that the classification is an inference, not a recorded block.
+  expect(shadow.formatMarkdown(classified)).toContain(
+    "| Pending | Cancelled (compatible with a sibling's block, inferred) | Unobserved |",
+  );
   // The close lists each cancelled observation with its instant.
   expect(shadow.formatMarkdown(classified)).toContain(
     `| lost | pi | yes | 400 | 0 | 0 | 0 | 0 | 1 (${new Date(at).toISOString()}) |`,
@@ -546,6 +549,12 @@ it("la línea de comandos: --help, flags sin valor o ilegibles salen con 2 y una
     const help = cli("--help");
     expect(help.status).toBe(0);
     expect(help.stdout).toContain("LOCAL time");
+    expect(help.stdout).toContain("INFERRED");
+    // The text output declares the inference too, and only with the flag.
+    expect(cli("--sibling-cancel").stdout).toContain(
+      "cancelled = compatible with a sibling's block, inferred",
+    );
+    expect(cli().stdout).not.toContain("cancelled");
 
     // Clock mode (no --close-per-row): the lost observation is amber, never red.
     const amber = cli();
