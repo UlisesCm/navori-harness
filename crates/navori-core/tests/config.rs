@@ -74,3 +74,42 @@ fn a_leading_bom_is_ignored_and_defaults_are_filled() {
         Some(&JsValue::string("conventional-es"))
     );
 }
+
+fn with_claude_plugins(value: &str) -> String {
+    format!(r#"{{"name":"my-repo","engines":["claude"],"preset":"node","claudePlugins":{value}}}"#)
+}
+
+// Covers: R33
+#[test]
+fn claude_plugins_accepts_ids_with_boolean_values_like_the_ts_schema() {
+    for value in ["{}", r#"{"b@m":true,"a@m":false}"#, r#"{"x-y.z@mkt":true}"#] {
+        assert!(
+            config::read(with_claude_plugins(value).as_bytes()).is_ok(),
+            "{value}"
+        );
+    }
+}
+
+// Covers: R33
+#[test]
+fn claude_plugins_rejects_bad_ids_and_non_boolean_values() {
+    for value in [
+        r#"{"noat":true}"#,
+        r#"{"a@b@c":true}"#,
+        r#"{"@m":true}"#,
+        r#"{"p@":true}"#,
+        r#"{"a b@m":true}"#,
+        r#"{"a@m":"yes"}"#,
+        r#"{"a@m":1}"#,
+        r#"{"a@m":null}"#,
+        "[]",
+        r#""a@m""#,
+        "null",
+    ] {
+        assert_eq!(
+            config::read(with_claude_plugins(value).as_bytes()).err(),
+            Some(Delegate::Schema),
+            "{value}"
+        );
+    }
+}
