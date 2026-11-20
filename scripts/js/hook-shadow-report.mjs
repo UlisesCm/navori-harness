@@ -16,14 +16,26 @@ import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.
  *
  * The R81 close runs `--close-per-row --markdown [--batches <json>]`: each hook and engine is judged
  * at its own first row + the window (later rows do not count; a window still open is amber), and the
- * table adds failures, first/last row and that closing instant. `--now <ISO>` replaces the clock.
+ * table adds failures, first/last row and that closing instant. `--now <ISO>` replaces the clock;
+ * it is read by `Date.parse`, so a date without `Z` or `±HH:MM` is LOCAL time (pass the zone).
+ * A begin exactly at a row's closing instant still counts: the window is inclusive at both ends.
  *
  * A begin that never completed (a lost observation, e.g. an interrupted call) is neither a
  * divergence nor silent: it keeps a gating row AMBER, with its time, while the row is open. At the
  * row's close it turns green only when every lost observation has its cause in `--causes <json>`
  * (`{ "<hook>|<engine>|<ISO begin>": "<cause>" }`, mirrored from the engram note sombra-ventana),
  * they are under 0.5 % of the row's calls and no two fall within 10 minutes of each other;
- * otherwise red.
+ * otherwise red. Without `--close-per-row` no row ever closes, so a lost observation stays amber
+ * (exit 3) and never turns red by itself.
+ *
+ * `--sibling-cancel` (opt-in; without it nothing changes): Pi's hook bridge runs the hooks of one
+ * call concurrently and kills the rest when one blocks, so a sibling cut before its completion
+ * leaves a begin pending without hiding a verdict (the call was already blocked). A Pi begin that
+ * never completed is then reported as cancelled by a sibling, not lost, when another hook's Pi
+ * begin within 500 ms (the same call) did complete. Cancelled observations get their own count
+ * and need no cause; they still count as calls for the 0.5 % share. Known limits: a hook killed by
+ * its own bridge timeout in a call whose siblings completed is classified the same way, and so is
+ * an isolated loss that coincides with another Pi session's call.
  */
 
 const DAY_MS = 86_400_000;
@@ -34,6 +46,10 @@ const PENDING_GRACE_MS = 10 * 60_000;
 const MAX_LOST_SHARE = 0.005;
 /** Two lost observations closer than this form a group, which turns the row red at the close. */
 const LOST_GROUP_MS = 10 * 60_000;
+/** Pi begins of different hooks this close together belong to one bridge call (`--sibling-cancel`). */
+const SIBLING_WINDOW_MS = 500;
+/** The only engine whose hook runner kills the siblings of a blocking hook. */
+const SIBLING_CANCEL_ENGINE = "pi";
 const MANIFEST = "crates/ported.json";
 const HISTORY = "crates/ported-history.jsonl";
 /** Rendered hook of each engine; the native block marks it as registered for that engine. */
@@ -73,6 +89,7 @@ export function approvedWithoutTraffic(historyText, hook) {
  *   windowDays: number,
  *   perRowClose?: boolean,
  *   causes?: Record<string, string>,
+ *   siblingCancel?: boolean,
  * }} input
  */
 export function buildReport({
@@ -84,11 +101,19 @@ export function buildReport({
   windowDays,
   perRowClose = false,
   causes = {},
+  siblingCancel = false,
 }) {
   const windowMs = windowDays * DAY_MS;
   const rows = [];
+  const decodedByHook = Object.fromEntries(
+    Object.keys(hooks).map((hook) => [
+      hook,
+      [journals[hook] ?? []].flat().map((bytes) => decodeJournal(bytes)),
+    ]),
+  );
+  const cancelledBySibling = siblingCancel ? siblingCancellations(decodedByHook) : () => false;
   for (const [hook, descriptor] of Object.entries(hooks)) {
-    const decoded = [journals[hook] ?? []].flat().map((bytes) => decodeJournal(bytes));
+    const decoded = decodedByHook[hook];
     const valid = decoded.every((part) => part !== null);
     const records = valid ? decoded.flatMap((part) => part.records) : null;
     // Journals written before the payload was dropped: informational, the file is safe to delete.
@@ -112,6 +137,8 @@ export function buildReport({
         divergences: 0,
         pending: 0,
         pendingMs: [],
+        cancelled: 0,
+        cancelledMs: [],
         unobserved: 0,
         nativeFailed: 0,
         shellFailed: 0,
@@ -153,8 +180,13 @@ export function buildReport({
         if (!end) {
           // Grace runs to `now`, not `closeAt`: a begin just before the close is lost by `now`.
           if (now - begin.timeMs > PENDING_GRACE_MS) {
-            row.pending++;
-            row.pendingMs.push(begin.timeMs);
+            if (cancelledBySibling(begin)) {
+              row.cancelled++;
+              row.cancelledMs.push(begin.timeMs);
+            } else {
+              row.pending++;
+              row.pendingMs.push(begin.timeMs);
+            }
           }
           continue;
         }
@@ -196,6 +228,8 @@ export function buildReport({
         divergences: 0,
         pending: 0,
         pendingMs: [],
+        cancelled: 0,
+        cancelledMs: [],
         unobserved: 0,
         nativeFailed: 0,
         shellFailed: 0,
@@ -210,7 +244,40 @@ export function buildReport({
         ok: false,
       });
   }
-  return { ok: rows.every((row) => row.ok), status: worst(rows), windowDays, rows };
+  return {
+    ok: rows.every((row) => row.ok),
+    status: worst(rows),
+    windowDays,
+    siblingCancel,
+    rows,
+  };
+}
+
+/**
+ * Whether a pending begin was cut by Pi's bridge after a sibling blocked: a Pi begin of another
+ * hook within SIBLING_WINDOW_MS (the same call) that completed. Reads every hook's journal, since
+ * the siblings live in other files; an invalid journal contributes nothing.
+ */
+function siblingCancellations(decodedByHook) {
+  const piBegins = [];
+  const completed = new Set();
+  for (const decoded of Object.values(decodedByHook)) {
+    for (const part of decoded) {
+      for (const record of part?.records ?? []) {
+        if (record.engine !== SIBLING_CANCEL_ENGINE) continue;
+        if (record.kind === "begin") piBegins.push(record);
+        else completed.add(record.id);
+      }
+    }
+  }
+  return (begin) =>
+    begin.engine === SIBLING_CANCEL_ENGINE &&
+    piBegins.some(
+      (other) =>
+        other.hook !== begin.hook &&
+        Math.abs(other.timeMs - begin.timeMs) <= SIBLING_WINDOW_MS &&
+        completed.has(other.id),
+    );
 }
 
 /** The worst status of some rows: red over amber over green. */
@@ -226,7 +293,7 @@ function lostObservationGaps(hook, engine, row, causes) {
     (ms) => !causes[`${hook}|${engine}|${new Date(ms).toISOString()}`],
   );
   if (unexplained.length) gaps.push(`${unexplained.length} without a recorded cause`);
-  const calls = row.invocations + row.pending;
+  const calls = row.invocations + row.pending + row.cancelled;
   if (row.pending / calls >= MAX_LOST_SHARE)
     gaps.push(`${((100 * row.pending) / calls).toFixed(2)} % of calls (limit 0.5 %)`);
   const sorted = [...row.pendingMs].sort((a, b) => a - b);
@@ -243,6 +310,7 @@ export function collect(
   journalRoots = [root],
   perRowClose = false,
   causes = {},
+  siblingCancel = false,
 ) {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
   const historyPath = join(root, HISTORY);
@@ -267,6 +335,7 @@ export function collect(
     windowDays,
     perRowClose,
     causes,
+    siblingCancel,
   });
 }
 
@@ -278,6 +347,7 @@ function format(report) {
     lines.push(
       `${status} ${row.hook} [${row.engine}] ${row.gating ? "gating" : "advisory"} ` +
         `calls=${row.invocations} divergences=${row.divergences} pending=${row.pending} ` +
+        (report.siblingCancel ? `cancelled=${row.cancelled} ` : "") +
         `unobserved=${row.unobserved} span=${row.spanDays.toFixed(1)}d` +
         (row.legacyPayloadRows > 0
           ? ` legacyPayloadRows=${row.legacyPayloadRows} (delete this journal)`
@@ -294,16 +364,35 @@ function format(report) {
  */
 export function formatMarkdown(report, batches = {}) {
   const iso = (ms) => (ms === null ? "-" : new Date(ms).toISOString());
+  // The Cancelled column exists only with `--sibling-cancel`, so the default table is unchanged.
+  const cancelled = report.siblingCancel === true;
+  const columns = [
+    "Hook",
+    "Engine",
+    "Gating",
+    "Calls",
+    "Divergences",
+    "nativeFailed",
+    "shellFailed",
+    "Pending",
+    ...(cancelled ? ["Cancelled"] : []),
+    "Unobserved",
+    "First row",
+    "Last row",
+    "Closes at",
+    "Verdict",
+  ];
   const lines = [
     `R81, window ${report.windowDays} d: ${report.status}`,
     "",
-    "| Hook | Engine | Gating | Calls | Divergences | nativeFailed | shellFailed | Pending | Unobserved | First row | Last row | Closes at | Verdict |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    `| ${columns.join(" | ")} |`,
+    `|${columns.map(() => "---").join("|")}|`,
   ];
   for (const row of report.rows) {
     lines.push(
       `| ${row.hook} | ${row.engine} | ${row.gating ? "yes" : "no"} | ${row.invocations} | ` +
         `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
+        (cancelled ? `${row.cancelled} | ` : "") +
         `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ${iso(row.closesMs)} | ` +
         `${row.status === "green" ? "green" : `${row.status}: ${[...row.problems, ...row.warnings].join("; ")}`} |`,
     );
@@ -333,29 +422,69 @@ export function formatMarkdown(report, batches = {}) {
   return lines.join("\n");
 }
 
+/** `--help` text. */
+const USAGE = `usage: node scripts/js/hook-shadow-report.mjs [options]
+  --root <dir>        project root: manifest, history and registered engines (default: cwd)
+  --journals <dir>    add the journals of another checkout (repeatable)
+  --window <days>     window length in days (default 7)
+  --now <ISO date>    evaluate as of this instant instead of the clock; without Z or ±HH:MM it is
+                      LOCAL time (Date.parse), so pass the zone
+  --close-per-row     judge each hook and engine at its own first row + the window (R81 close);
+                      without it no row closes and a lost observation stays amber (exit 3)
+  --causes <json>     { "<hook>|<engine>|<ISO begin>": "<cause>" } for lost observations
+  --batches <json>    { "<batch>": ["<hook>", ...] } for the per-batch verdict (--markdown)
+  --sibling-cancel    report Pi begins cut by a sibling's block as cancelled, not lost
+  --json | --markdown output format (default: text)
+exit: 0 green, 1 red, 2 error, 3 amber`;
+
+/** Parse `--batches`: an object of batch name to a list of hook names, or an error. */
+export function parseBatches(text) {
+  const batches = JSON.parse(text);
+  const valid =
+    batches !== null &&
+    typeof batches === "object" &&
+    !Array.isArray(batches) &&
+    Object.values(batches).every(
+      (hooks) =>
+        Array.isArray(hooks) && hooks.every((hook) => typeof hook === "string" && hook !== ""),
+    );
+  if (!valid)
+    throw new Error(
+      '--batches needs a JSON object of batch to hook names: { "<batch>": ["<hook>"] }',
+    );
+  return batches;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  if (args.includes("--help")) {
+    console.log(USAGE);
+    process.exit(0);
+  }
+  // A flag given without its value is an error, never a silent default.
   const value = (flag, fallback) => {
     const at = args.indexOf(flag);
-    return at === -1 ? fallback : args[at + 1];
+    if (at === -1) return fallback;
+    const next = args[at + 1];
+    if (next === undefined || next.startsWith("--")) throw new Error(`${flag} needs a value`);
+    return next;
   };
-  const windowDays = Number(value("--window", "7"));
-  if (!Number.isFinite(windowDays) || windowDays <= 0) {
-    console.error("hook-shadow-report: --window needs a positive number of days");
-    process.exit(2);
-  }
   try {
+    const windowDays = Number(value("--window", "7"));
+    if (!Number.isFinite(windowDays) || windowDays <= 0)
+      throw new Error("--window needs a positive number of days");
     const root = resolve(value("--root", process.cwd()));
     const extra = args.flatMap((arg, at) => (arg === "--journals" ? [args[at + 1]] : []));
     if (extra.some((dir) => dir === undefined || !existsSync(dir)))
       throw new Error("--journals needs an existing directory");
     const journalRoots = [...new Set([root, ...extra.map((dir) => resolve(dir))])];
     // `--now <ISO date>` evaluates the window as of that instant (the R81 close), not the clock.
-    const nowArg = args.includes("--now") ? (value("--now", undefined) ?? "") : undefined;
+    const nowArg = value("--now", undefined);
     const now = nowArg === undefined ? Date.now() : Date.parse(nowArg);
     if (!Number.isFinite(now)) throw new Error("--now needs an ISO date");
     const batchesPath = value("--batches", undefined);
-    const batches = batchesPath === undefined ? {} : JSON.parse(readFileSync(batchesPath, "utf8"));
+    const batches =
+      batchesPath === undefined ? {} : parseBatches(readFileSync(batchesPath, "utf8"));
     const causesPath = value("--causes", undefined);
     const causes = causesPath === undefined ? {} : JSON.parse(readFileSync(causesPath, "utf8"));
     const report = collect(
@@ -365,6 +494,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       journalRoots,
       args.includes("--close-per-row"),
       causes,
+      args.includes("--sibling-cancel"),
     );
     console.log(
       args.includes("--json")
