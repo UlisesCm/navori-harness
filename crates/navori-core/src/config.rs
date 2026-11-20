@@ -501,6 +501,8 @@ mod unknown_keys {
     };
     const CODEX_PROFILE: Rule = rule(&["model", "effort"]);
     const PLUGIN: Rule = rule(&["enabled", "nativeHook"]);
+    /// Open keys (plugin ids) with boolean values: nothing nested to check.
+    const CLAUDE_PLUGIN_VALUE: Rule = rule(&[]);
     const ROOT: Rule = Rule {
         children: &[
             ("qualityGate", &QUALITY_GATE),
@@ -573,6 +575,14 @@ mod unknown_keys {
                     ..rule(&[])
                 },
             ),
+            (
+                "claudePlugins",
+                &Rule {
+                    record_values: Some(&CLAUDE_PLUGIN_VALUE),
+                    allow_extensions: true,
+                    ..rule(&[])
+                },
+            ),
             ("blocks", &rule(&["exclude"])),
             ("progress", &rule(&["dir", "currentFile", "historyFile"])),
             (
@@ -632,6 +642,7 @@ mod unknown_keys {
             "models",
             "effort",
             "plugins",
+            "claudePlugins",
             "blocks",
             "progress",
             "project",
@@ -1067,6 +1078,24 @@ mod schema {
         Ok(shape.strip())
     }
 
+    /// `ClaudePluginIdSchema`: `/^[^@\s]+@[^@\s]+$/` over UTF-16 units (one `@`, both sides
+    /// non-empty, no JS whitespace).
+    fn claude_plugin_id(key: &JsString) -> bool {
+        let units = key.units();
+        let at = u16::from(b'@');
+        let blank = |unit: &u16| char::from_u32(u32::from(*unit)).is_some_and(is_js_whitespace);
+        let mut parts = units.split(|unit| *unit == at);
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some(plugin), Some(marketplace), None) => {
+                !plugin.is_empty()
+                    && !marketplace.is_empty()
+                    && !plugin.iter().any(blank)
+                    && !marketplace.iter().any(blank)
+            }
+            _ => false,
+        }
+    }
+
     fn plugin_entry(value: &JsValue) -> Parsed {
         Ok(Shape::new(value)?
             .required("enabled", boolean)?
@@ -1179,6 +1208,7 @@ mod schema {
             .optional("models", models)?
             .optional("effort", effort)?
             .optional("plugins", |v| record(v, |_| true, plugin_entry))?
+            .optional("claudePlugins", |v| record(v, claude_plugin_id, boolean))?
             .optional("blocks", blocks)?
             .optional("progress", progress)?
             .optional("project", project)?

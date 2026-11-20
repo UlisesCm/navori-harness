@@ -996,5 +996,19 @@ pub fn build_claude_settings(
         )]),
     );
     coalesce_hook_matchers(&mut s);
+    // `claudePlugins` -> `enabledPlugins`, after the permissions/hooks work so it cannot affect
+    // either. Keys sorted by UTF-16 units (like JS `<`); `false` is kept (an explicit disable);
+    // absent or empty -> no key. The config replaces any fragment's `enabledPlugins`.
+    if let Some(JsValue::Object(declared)) = get(config, "claudePlugins")
+        && !declared.is_empty()
+    {
+        let mut entries: Vec<_> = declared.entries().to_vec();
+        entries.sort_by(|(a, _), (b, _)| a.units().cmp(b.units()));
+        let mut enabled = JsObject::new();
+        for (key, value) in entries {
+            enabled.insert(key, value);
+        }
+        s.insert("enabledPlugins", JsValue::Object(enabled));
+    }
     Ok(JsValue::Object(s))
 }
