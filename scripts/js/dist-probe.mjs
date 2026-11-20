@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, openSync, readSync, closeSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PLATFORMS, assemble, legacyPin, pack, workspaceVersion } from "./dist-assemble.mjs";
+import { LEGACY_PACKAGE, PLATFORMS, assemble, fetchLegacy, integrityOf, legacyPin, pack, workspaceVersion } from "./dist-assemble.mjs";
 import { readCorpus } from "./hook-verdict-replay.mjs";
 import { runRustHook } from "./rust-hook-adapter.mjs";
 import { writeSignedAssets } from "./rust-replay-assets.mjs";
@@ -23,6 +23,10 @@ import { PERMANENT_DELEGATION } from "./rust-areas.mjs";
  * frozen TS and `navori-native-hook` exits 127 so the hook prologue runs its shell body (R22).
  *
  *   node scripts/js/dist-probe.mjs [--binary <path>] [--managers npm,pnpm,bun] [--keep]
+ *                                  [--legacy-tarball <tgz> --legacy-pin <json>]
+ *
+ * The legacy package is the pinned one (`packaging/legacy.json`), downloaded from npm; a rehearsal
+ * passes the tarball it just built with its pin, and the probe asserts the integrity matches.
  *
  * The binary defaults to NAVORI_RUST_BIN, else `target/debug/navori-rust`. Without pnpm on PATH it
  * runs the pinned `pnpm@PNPM_VERSION` through npx.
@@ -213,7 +217,7 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
 }
 
 function parseArgs(argv) {
-  const options = { binary: process.env.NAVORI_RUST_BIN || join(REPO_ROOT, "target", "debug", "navori-rust"), managers: MANAGERS, keep: false };
+  const options = { binary: process.env.NAVORI_RUST_BIN || join(REPO_ROOT, "target", "debug", "navori-rust"), managers: MANAGERS, keep: false, legacyTarball: undefined, legacyPin: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === "--keep") {
@@ -223,6 +227,8 @@ function parseArgs(argv) {
     const value = argv[++i];
     if (value === undefined || value.startsWith("--")) throw new Error(`${flag} needs a value`);
     if (flag === "--binary") options.binary = resolve(value);
+    else if (flag === "--legacy-tarball") options.legacyTarball = resolve(value);
+    else if (flag === "--legacy-pin") options.legacyPin = resolve(value);
     else if (flag === "--managers") {
       options.managers = value.split(",");
       const unknown = options.managers.filter((m) => !MANAGERS.includes(m));
@@ -236,15 +242,17 @@ function main(argv) {
   const options = parseArgs(argv);
   const platform = `${process.platform}-${process.arch}`;
   if (!PLATFORMS.includes(platform)) throw new Error(`${platform} has no binary package; run the probe on ${PLATFORMS.join(", ")}`);
-  const pin = legacyPin();
+  if ((options.legacyTarball === undefined) !== (options.legacyPin === undefined)) {
+    throw new Error("--legacy-tarball and --legacy-pin go together");
+  }
+  const pin = legacyPin(options.legacyPin);
   const version = workspaceVersion();
   const root = mkdtempSync(join(tmpdir(), "navori-dist-probe-"));
   try {
     const dist = join(root, "dist");
     mkdirSync(dist);
-    const fetched = spawnSync("npm", ["pack", `navori@${pin.version}`, "--pack-destination", dist, "--json"], { encoding: "utf8" });
-    if (fetched.status !== 0) throw new Error(`npm pack navori@${pin.version} failed: ${fetched.stderr}`);
-    const legacyTarball = join(dist, JSON.parse(fetched.stdout)[0].filename);
+    const legacyTarball = options.legacyTarball ?? fetchLegacy(pin, dist);
+    const legacyIntegrity = integrityOf(legacyTarball);
     const dirs = assemble({ out: dist, binaries: { [platform]: options.binary }, legacyTarball, pin, version });
     const main = pack(dirs.main, dist);
     const plat = pack(dirs.platforms[platform], dist);
@@ -281,6 +289,12 @@ function main(argv) {
       process.stdout.write(`  ${r.failures.length === 0 ? "ok  " : "FAIL"} ${r.name}\n`);
       for (const f of r.failures) process.stdout.write(`       ${f}\n`);
     }
+    // assemble() already refuses a mismatch; the report states it.
+    results.push({
+      name: `legacy ${LEGACY_PACKAGE}@${pin.version} integrity matches the pin`,
+      failures: legacyIntegrity === pin.integrity ? [] : [`integrity ${legacyIntegrity} != pinned ${pin.integrity}`],
+    });
+    process.stdout.write(`  ${results.at(-1).failures.length === 0 ? "ok  " : "FAIL"} ${results.at(-1).name}\n`);
     const ok = results.every((r) => r.failures.length === 0);
     process.stdout.write(`dist-probe: ${platform} ${ok ? "green" : "red"} (${results.length} installs)\n`);
     return ok ? 0 : 1;
