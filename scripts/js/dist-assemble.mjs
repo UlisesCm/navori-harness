@@ -28,6 +28,12 @@ import { fileURLToPath } from "node:url";
  *   node scripts/js/dist-assemble.mjs legacy --from <ref> --out <dir> [--version <v>] [--write-pin]
  *                                     [--pin-out <file>]
  *   node scripts/js/dist-assemble.mjs legacy --from-dir <built checkout> --out <dir> ...
+ *   node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir> ...
+ *
+ * `--from-pin` is what the rehearsal runs: it builds the commit and version `packaging/legacy.json`
+ * pins, so it keeps working after the cutover deletes `packages/cli/src`; with an empty pin it
+ * builds `HEAD`, which only works while the TS sources are still in the tree. `--from-dir`
+ * refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
  *
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
  * `{ version, integrity, commit }` in `packaging/legacy.json`. A pin with `null` integrity/commit
@@ -78,11 +84,19 @@ export function integrityOf(file) {
  * When `ported` is given (the path of the `crates/ported.json` the binaries were built from), the
  * legacy's copy must be identical: the frozen TS renders the native hook prologues from it, and a
  * different manifest makes it fight the binary's render.
+ * When `stamp` is given (the `packages/cli/package.json` version the binaries stamp, STAMP_VERSION),
+ * the pin must carry it: the frozen TS refuses to write over markers stamped by a newer version.
  * @param {{ version: string, integrity: string | null }} pin
  * @param {string} target
  * @param {string} [ported]
+ * @param {string} [stamp]
  */
-export function unpackLegacy(tarball, pin, target, ported) {
+export function unpackLegacy(tarball, pin, target, ported, stamp) {
+  if (stamp !== undefined && pin.version !== stamp) {
+    throw new Error(
+      `the legacy pin is ${pin.version} but the binaries stamp ${stamp} (packages/cli/package.json); the legacy must be built with --version ${stamp}`,
+    );
+  }
   if (typeof pin.integrity !== "string" || pin.integrity === "") {
     throw new Error(
       "packaging/legacy.json has no integrity yet: run `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin`, publish it, then assemble",
@@ -104,6 +118,10 @@ export function unpackLegacy(tarball, pin, target, ported) {
     const inner = JSON.parse(readFileSync(join(nested, "packages", "cli", "package.json"), "utf8"));
     if (inner.name !== "navori") {
       throw new Error(`the frozen TS manifest is named ${inner.name}, expected navori (its version lookup requires it)`);
+    }
+    // The frozen TS reports (and stamps) this one, not the outer manifest's.
+    if (inner.version !== pin.version) {
+      throw new Error(`the frozen TS inside the legacy tarball is ${inner.version}, expected ${pin.version}`);
     }
     for (const file of ["crates/ported.json", "dist/index.js"]) {
       if (!existsSync(join(nested, file))) throw new Error(`the legacy tarball has no navori/${file}`);
@@ -210,15 +228,51 @@ function capture(cmd, args, cwd) {
 }
 
 /**
- * `legacy` subcommand: builds the TS at `--from <ref>` in a temporary detached worktree (or uses
- * `--from-dir`, an already built checkout) and packs it.
+ * What `legacy --from-pin` builds: the pinned commit at the pinned version, or `HEAD` at its own
+ * version while the pin is empty. After the cutover (`packages/cli/src` gone) an empty pin is an
+ * error: `HEAD` has no TS to build.
+ * @param {{ version: string, commit?: string | null }} pin
+ * @param {{ hasTsSources: boolean }} tree
+ * @returns {{ from: string, version: string | undefined }}
+ */
+export function legacySource(pin, { hasTsSources }) {
+  if (typeof pin.commit === "string" && pin.commit !== "") return { from: pin.commit, version: pin.version };
+  if (!hasTsSources) {
+    throw new Error(
+      "packages/cli/src is gone (cutover) and packaging/legacy.json pins no commit: pin the legacy with `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin` first",
+    );
+  }
+  return { from: "HEAD", version: undefined };
+}
+
+/**
+ * Refuses a checkout with uncommitted changes (`git status --porcelain`, ignored files aside): the
+ * pin records its `HEAD`, which must be what was built.
+ * @param {string} porcelain the output of `git status --porcelain`
+ * @param {string} dir
+ */
+export function assertCleanCheckout(porcelain, dir) {
+  if (porcelain.trim() !== "") {
+    throw new Error(
+      `${dir} has uncommitted changes, so its HEAD is not what would be packed; commit or stash them, or use --from <ref>:\n${porcelain.trim()}`,
+    );
+  }
+}
+
+/**
+ * `legacy` subcommand: builds the TS at `--from <ref>` (or the pinned one, `--from-pin`) in a
+ * temporary detached worktree, or uses `--from-dir`, an already built clean checkout, and packs it.
  */
 function legacyCommand(argv) {
-  const opts = { from: undefined, fromDir: undefined, out: undefined, version: undefined, writePin: false, pinOut: undefined };
+  const opts = { from: undefined, fromDir: undefined, fromPin: false, out: undefined, version: undefined, writePin: false, pinOut: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === "--write-pin") {
       opts.writePin = true;
+      continue;
+    }
+    if (flag === "--from-pin") {
+      opts.fromPin = true;
       continue;
     }
     const value = argv[++i];
@@ -231,13 +285,19 @@ function legacyCommand(argv) {
     else throw new Error(`unknown option ${flag}`);
   }
   if (opts.out === undefined) throw new Error("--out is required");
-  if ((opts.from === undefined) === (opts.fromDir === undefined)) {
-    throw new Error("exactly one of --from <ref> or --from-dir <path> is required");
+  if ([opts.from !== undefined, opts.fromDir !== undefined, opts.fromPin].filter(Boolean).length !== 1) {
+    throw new Error("exactly one of --from <ref>, --from-dir <path> or --from-pin is required");
+  }
+  if (opts.fromPin) {
+    const source = legacySource(legacyPin(), { hasTsSources: existsSync(join(REPO_ROOT, "packages", "cli", "src")) });
+    opts.from = source.from;
+    opts.version ??= source.version;
   }
 
   let result;
   let commit;
   if (opts.fromDir !== undefined) {
+    assertCleanCheckout(capture("git", ["status", "--porcelain"], opts.fromDir), opts.fromDir);
     commit = capture("git", ["rev-parse", "HEAD"], opts.fromDir);
     result = buildLegacy({ root: opts.fromDir, out: opts.out, version: opts.version });
   } else {
@@ -316,7 +376,7 @@ export function assemble({ out, binaries, legacyTarball, pin, version = workspac
   cpSync(join(PACKAGING, "npm"), main, { recursive: true });
   for (const bin of ["navori", "navori-native-hook"]) chmodSync(join(main, "bin", bin), 0o755);
   copyFileSync(join(REPO_ROOT, "packages", "cli", "README.md"), join(main, "README.md"));
-  unpackLegacy(legacyTarball, pin, join(main, "legacy"), join(REPO_ROOT, "crates", "ported.json"));
+  unpackLegacy(legacyTarball, pin, join(main, "legacy"), join(REPO_ROOT, "crates", "ported.json"), ts.version);
   writeFileSync(join(main, "package.json"), `${JSON.stringify(mainManifest(version, ts), null, 2)}\n`);
 
   /** @type {Record<string, string>} */

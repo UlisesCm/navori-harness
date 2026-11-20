@@ -65,8 +65,9 @@ jobs:
           path: target/${{ matrix.target }}/release/navori-rust
           if-no-files-found: error
 
-  # The frozen TS as its own package (option E): built from this commit, never published here. The
-  # pin it prints is what `packaging/legacy.json` gets at release time.
+  # The frozen TS as its own package (option E), never published here. `--from-pin` builds the
+  # commit `packaging/legacy.json` pins (the one before the cutover, so it still has
+  # packages/cli/src) at the pinned version; while the pin is empty it builds this commit.
   legacy:
     runs-on: ubuntu-latest
     steps:
@@ -80,7 +81,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      - run: node scripts/js/dist-assemble.mjs legacy --from HEAD --out legacy-package --pin-out legacy-package/pin.json
+      - run: node scripts/js/dist-assemble.mjs legacy --from-pin --out legacy-package --pin-out legacy-package/pin.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: navori-legacy
@@ -88,6 +89,22 @@ jobs:
             legacy-package/*.tgz
             legacy-package/pin.json
           if-no-files-found: error
+
+  # The legacy job on the tree the cutover leaves (no packages/cli/src, pin filled in): it must
+  # build the pinned commit and assemble navori, and refuse an empty pin with its own message.
+  legacy-cutover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: node scripts/js/dist-legacy-cutover.mjs
 
   package:
     needs: [build, legacy]

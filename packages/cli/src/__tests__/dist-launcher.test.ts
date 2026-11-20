@@ -43,7 +43,13 @@ interface Assemble {
     pin: { version: string; integrity: string | null },
     target: string,
     ported?: string,
+    stamp?: string,
   ) => void;
+  legacySource: (
+    pin: { version: string; commit?: string | null },
+    tree: { hasTsSources: boolean },
+  ) => { from: string; version: string | undefined };
+  assertCleanCheckout: (porcelain: string, dir: string) => void;
   legacyManifest: (
     version: string,
     ts: Record<string, unknown>,
@@ -347,6 +353,49 @@ describe("ensamblado", () => {
       expect(() => assemble.unpackLegacy(wrongInner.tarball, wrongInner.pin, target)).toThrow(
         "expected navori",
       );
+
+      // the frozen TS reports the nested version, not the outer one
+      const innerVersion = legacyTarball({ inner: { name: "navori", version: "0.12.2" } });
+      expect(() => assemble.unpackLegacy(innerVersion.tarball, innerVersion.pin, target)).toThrow(
+        "inside the legacy tarball is 0.12.2, expected 0.12.3",
+      );
     });
+
+    it("exige que el pin lleve la versión que estampan los binarios", () => {
+      const { dir, tarball, pin } = legacyTarball();
+      expect(() =>
+        assemble.unpackLegacy(tarball, pin, join(dir, "stamp"), undefined, "0.13.0"),
+      ).toThrow("the binaries stamp 0.13.0");
+      expect(() =>
+        assemble.unpackLegacy(tarball, pin, join(dir, "same"), undefined, "0.12.3"),
+      ).not.toThrow();
+    });
+  });
+
+  // Covers: R22
+  it("--from-pin construye el commit fijado y, sin pin, HEAD solo antes del corte", () => {
+    const pinned = { version: "0.13.0", commit: "abc123" };
+    expect(assemble.legacySource(pinned, { hasTsSources: false })).toEqual({
+      from: "abc123",
+      version: "0.13.0",
+    });
+    expect(assemble.legacySource(pinned, { hasTsSources: true })).toEqual({
+      from: "abc123",
+      version: "0.13.0",
+    });
+    const empty = { version: "0.13.0", commit: null };
+    expect(assemble.legacySource(empty, { hasTsSources: true })).toEqual({
+      from: "HEAD",
+      version: undefined,
+    });
+    expect(() => assemble.legacySource(empty, { hasTsSources: false })).toThrow("pins no commit");
+  });
+
+  // Covers: R22
+  it("--from-dir rechaza un checkout con cambios sin guardar", () => {
+    expect(() => assemble.assertCleanCheckout("", "/repo")).not.toThrow();
+    expect(() => assemble.assertCleanCheckout(" M packages/cli/src/a.ts\n", "/repo")).toThrow(
+      "/repo has uncommitted changes",
+    );
   });
 });
