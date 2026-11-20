@@ -104,9 +104,17 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   línea que importa `../packages/cli/dist/index.js`) y un `package.json` sin nombre con
   `type: module`. Así el lanzador y `delegate.rs` siguen ejecutando `legacy/dist/index.js`.
   El ensamblado rechaza un legacy cuyo `crates/ported.json` difiera del checkout que compila los
-  binarios, y `--version` debe ser la de `packages/cli/package.json` del release (el
-  `STAMP_VERSION` del binario), o los marcadores no coinciden. El ensayo de `rust-release.yml` lo
-  construye desde `HEAD` y `scripts/js/dist-legacy-smoke.mjs` lo comprueba.
+  binarios, y la versión del pin y la del TS anidado deben ser la de `packages/cli/package.json`
+  del checkout que ensambla (el `STAMP_VERSION` del binario), o los marcadores no coinciden; el
+  ensamblado rechaza cualquier diferencia. `--from-dir` rechaza un checkout con cambios sin
+  guardar, porque el pin registra su `HEAD`. El ensayo de `rust-release.yml` lo construye con
+  `legacy --from-pin`: el commit y la versión que fija `packaging/legacy.json`, o `HEAD` mientras
+  el pin esté vacío (después del corte, un pin vacío es un error, porque `HEAD` ya no tiene
+  `packages/cli/src`). `scripts/js/dist-legacy-cutover.mjs` (job `legacy-cutover`) repite ese job
+  en un árbol sin `packages/cli/src`, y `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  **`crates/ported.json` queda fijado al commit del legacy:** después del corte, cualquier cambio
+  en `crates/ported.json` (una re-firma de hooks) obliga a publicar un legacy nuevo desde un commit
+  con ese manifiesto, o el ensamblado lo rechaza.
 - **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
   127, así el prólogo del hook corre su cuerpo shell.
 - **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
