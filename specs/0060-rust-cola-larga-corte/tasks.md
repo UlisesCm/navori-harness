@@ -188,7 +188,7 @@ multi-engine.
 - **A8** [observable] — salud y mantenimiento son nativos y sus hooks reproducen el corpus · `bun run oracle:rust --only doctor,status,scan,migrations,backup && node scripts/js/hook-verdict-replay.mjs --impl rust --only managed-drift-watch.sh,worktree-reclaim.sh` → exit 0; 0 diferencias
   - Enmienda (2026-11-19): el replay de `managed-drift-watch.sh` y `worktree-reclaim.sh` sale de A8 porque T25 quedó fuera de alcance (ver T25). A8 es el oráculo `--only doctor,status,scan,migrations,backup`.
 - [x] **T23** (R73, R76) — `doctor` (`lib/diagnose` completo), `status` y `scan` nativos, con las herramientas externas por el `ProcessRunner` · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"doctor, status y scan en cada fixture"
-  - Cerrado (2026-11-19): `doctor` en texto es nativo en cinco PRs: 5e5a (#1740, esqueleto y secciones comunes), 5e5b-1 (#1741, hooks nativos, docBudget y distribution), 5e5b-2 (#1749, máquina y herramientas) y 5e5c (notas finales: CLI global desfasado, `.gitignore` y `.prettierignore` del harness, higiene de git, deriva contra el workspace, harness congelado, skills planos, índices de skills ajenos, modos de permiso, harness ajeno y restos de la capa global). Cada nota que el oráculo puede provocar tiene caso nativo en es y en. Delegan al TS antes del primer byte: `doctor --json` (`PERMANENT_DELEGATION`: su JSON lleva la procedencia del entrypoint de Node); los scans sin puerto de `doctor_ts_only_scans` (receptor OTel, herramientas operativas, cableado de codegraph y salud de Pi); un registro de plan maestro (congelado, #1484); un checkout de git con hooks nativos declarados; la nota de workspace con harness `full` y las variantes recortadas del harness congelado, cuyos scans responden `Unmodeled` con workspaces habilitados; texto derivado del usuario que no es ASCII, y una línea que clack partiría. La nota de CLI global desfasado no tiene caso de oráculo porque depende del `navori` del `PATH` de la máquina; la cubre una prueba unitaria. `status` y `scan` ya eran nativos antes de 5e5 y entran en el mismo oráculo de A8.
+  - Cerrado (2026-11-19): `doctor` en texto es nativo en cinco PRs: 5e5a (#1740, esqueleto y secciones comunes), 5e5b-1 (#1741, hooks nativos, docBudget y distribution), 5e5b-2 (#1749, máquina y herramientas) y 5e5c (#1756, notas finales: CLI global desfasado, `.gitignore` y `.prettierignore` del harness, higiene de git, deriva contra el workspace, harness congelado, skills planos, índices de skills ajenos, modos de permiso, harness ajeno y restos de la capa global). Cada nota que el oráculo puede provocar tiene caso nativo en es y en. Delegan al TS antes del primer byte: `doctor --json` (`PERMANENT_DELEGATION`: su JSON lleva la procedencia del entrypoint de Node); los scans sin puerto de `doctor_ts_only_scans` (receptor OTel, herramientas operativas, cableado de codegraph y salud de Pi); un registro de plan maestro (congelado, #1484); un checkout de git con hooks nativos declarados; la nota de workspace con harness `full` y las variantes recortadas del harness congelado, cuyos scans responden `Unmodeled` con workspaces habilitados; texto derivado del usuario que no es ASCII, y una línea que clack partiría. La nota de CLI global desfasado no tiene caso de oráculo porque depende del `navori` del `PATH` de la máquina; la cubre una prueba unitaria. `status` y `scan` ya eran nativos antes de 5e5 y entran en el mismo oráculo de A8.
   - Evidencia: oráculo `--only doctor,status,scan,migrations,backup` con 0 diferencias (A8; la corrida completa está en el PR de 5e5c).
 - [x] **T24** (R73, R74) — `migrations` y `backup` (incluido `backup restore`) nativos · effect: behavior · test: `scripts/js/rust-oracle/cases/`::"migrations y backup"
   - Cerrado (2026-11-18, decisión de Ulises en #262, opción A): `backup restore` y `migrations restore` son nativos con `--yes`. Sin `--yes` delegan para siempre al TS, que confirma con el prompt interactivo de clack (`p.confirm`). Los dos quedan en `PERMANENT_DELEGATION` como entradas `unless: ["yes"]` con ese motivo; los casos `backup:restore-confirm-delegates` y `migrations:restore-confirm-delegates` comprueban la delegación.
@@ -222,15 +222,15 @@ contra el `main` de `cli.ts` y `crates/ported.json`, descontando `PERMANENT_DELE
 | previa (0057-0059) | ninguno | `render --all`, `--prune`, `--verbose`, `--workspace`; `sync --interactive`, `--workspace` | ninguno |
 
 Checklist:
-- [x] E1 completa (M1-M5). T16 no tiene la prueba con nombre propio; el inventario medido de E1
+- Hecho: E1 completa (M1-M5). T16 no tiene la prueba con nombre propio; el inventario medido de E1
   está vacío.
-- [x] M8: T23 y T24 cerrados, A8 verde. T25 fuera de alcance (shell permanente).
-- [ ] E2: T20 (`gate`, `receipt` y `tools`), T21 (`bash-outcome-watch` y `routing-watch`, hoy en
+- Hecho: M8: T23 y T24 cerrados, A8 verde. T25 fuera de alcance (shell permanente).
+- Pendiente: E2: T20 (`gate`, `receipt` y `tools`), T21 (`bash-outcome-watch` y `routing-watch`, hoy en
   `PERMANENT_SHELL_HOOKS` con motivo propio) y T22. T19 fuera de alcance; `audit` todavía no figura
   en `PERMANENT_DELEGATION`.
-- [ ] M9: T26 (`init`, `add`, `configure`) y T27 (`update`, `refresh`). `preset` ya es nativo. T28
+- Pendiente: M9: T26 (`init`, `add`, `configure`) y T27 (`update`, `refresh`). `preset` ya es nativo. T28
   fuera de alcance.
-- [ ] T29: depende de E2 y M9.
+- Pendiente: T29 depende de E2 y M9.
 
 Qué se difiere y por qué: lo que no está en el manifiesto lo ejecuta el TS congelado por la
 delegación del binario (D3 de 0057), con la misma salida, así que no bloquea 0.13, que sale en
