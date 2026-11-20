@@ -564,6 +564,36 @@ fn config_doc() -> BoxedStrategy<Doc> {
     let plugins = prop::collection::vec((interesting_string(), plugin), 0..3)
         .prop_map(Doc::Obj)
         .boxed();
+    // Ids against `/^[^@\s]+@[^@\s]+$/`: U+FEFF, U+00A0 and U+2028 are JS whitespace (invalid),
+    // U+0085 and U+180E are not (valid). Lone surrogates are not representable: `Doc` keys are
+    // Rust `String`s, which cannot hold them.
+    let claude_plugin_id = prop_oneof![
+        8 => prop::sample::select(vec![
+            "a@m",
+            "Mid@market",
+            "x-y.z@mkt",
+            "a\u{85}@m",
+            "a\u{180e}@m",
+        ])
+        .prop_map(str::to_owned),
+        6 => prop::sample::select(vec![
+            "a\u{feff}@m",
+            "a\u{a0}@m",
+            "a\u{2028}@m",
+            "a@m\u{a0}",
+            "a b@m",
+            "a@b@c",
+            "noat",
+            "@m",
+            "p@",
+        ])
+        .prop_map(str::to_owned),
+        1 => interesting_string(),
+    ];
+    let claude_plugin_value = prop_oneof![8 => boolean(), 2 => scalar()].boxed();
+    let claude_plugins = prop::collection::vec((claude_plugin_id, claude_plugin_value), 0..4)
+        .prop_map(Doc::Obj)
+        .boxed();
     let engines = (
         prop::collection::vec(
             prop_oneof![
@@ -657,6 +687,7 @@ fn config_doc() -> BoxedStrategy<Doc> {
             )),
         ),
         ("plugins", either(plugins)),
+        ("claudePlugins", either(claude_plugins)),
         (
             "blocks",
             either(object_of(vec![("exclude", either(string_list()))], 0.7)),
