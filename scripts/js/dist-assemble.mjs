@@ -51,7 +51,8 @@ export const SCOPE = "@navori";
 export const LEGACY_PACKAGE = "@navori/legacy";
 
 /** The entry the launcher and `delegate.rs` run (`<pkg>/legacy/dist/index.js`), onto the real one. */
-export const LEGACY_SHIM = `// Entry shim: the frozen TS lives at packages/cli/dist so it finds crates/ported.json.
+export const LEGACY_SHIM = `#!/usr/bin/env node
+// Entry shim: the frozen TS lives at packages/cli/dist so it finds crates/ported.json.
 import "../packages/cli/dist/index.js";
 `;
 
@@ -74,10 +75,14 @@ export function integrityOf(file) {
  * layout, see the header), byte for byte. A tarball whose integrity differs from the pin, or whose
  * manifests or layout are not the expected ones, is refused.
  * @param {string} tarball
+ * When `ported` is given (the path of the `crates/ported.json` the binaries were built from), the
+ * legacy's copy must be identical: the frozen TS renders the native hook prologues from it, and a
+ * different manifest makes it fight the binary's render.
  * @param {{ version: string, integrity: string | null }} pin
  * @param {string} target
+ * @param {string} [ported]
  */
-export function unpackLegacy(tarball, pin, target) {
+export function unpackLegacy(tarball, pin, target, ported) {
   if (typeof pin.integrity !== "string" || pin.integrity === "") {
     throw new Error(
       "packaging/legacy.json has no integrity yet: run `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin`, publish it, then assemble",
@@ -102,6 +107,11 @@ export function unpackLegacy(tarball, pin, target) {
     }
     for (const file of ["crates/ported.json", "dist/index.js"]) {
       if (!existsSync(join(nested, file))) throw new Error(`the legacy tarball has no navori/${file}`);
+    }
+    if (ported !== undefined && !readFileSync(join(nested, "crates", "ported.json")).equals(readFileSync(ported))) {
+      throw new Error(
+        `the legacy's crates/ported.json differs from ${ported}, the one the binaries were built from; rebuild the legacy from a commit with the same manifest`,
+      );
     }
     cpSync(nested, target, { recursive: true });
   } finally {
@@ -306,7 +316,7 @@ export function assemble({ out, binaries, legacyTarball, pin, version = workspac
   cpSync(join(PACKAGING, "npm"), main, { recursive: true });
   for (const bin of ["navori", "navori-native-hook"]) chmodSync(join(main, "bin", bin), 0o755);
   copyFileSync(join(REPO_ROOT, "packages", "cli", "README.md"), join(main, "README.md"));
-  unpackLegacy(legacyTarball, pin, join(main, "legacy"));
+  unpackLegacy(legacyTarball, pin, join(main, "legacy"), join(REPO_ROOT, "crates", "ported.json"));
   writeFileSync(join(main, "package.json"), `${JSON.stringify(mainManifest(version, ts), null, 2)}\n`);
 
   /** @type {Record<string, string>} */

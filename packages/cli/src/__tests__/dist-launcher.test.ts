@@ -36,11 +36,13 @@ interface Install {
 interface Assemble {
   PLATFORMS: string[];
   LEGACY_PACKAGE: string;
+  LEGACY_SHIM: string;
   integrityOf: (file: string) => string;
   unpackLegacy: (
     tarball: string,
     pin: { version: string; integrity: string | null },
     target: string,
+    ported?: string,
   ) => void;
   legacyManifest: (
     version: string,
@@ -263,6 +265,8 @@ describe("ensamblado", () => {
     expect(legacy.files).toEqual(["navori"]);
     expect(legacy.engines).toEqual({ node: ">=22.12" });
     expect(legacy).not.toHaveProperty("scripts");
+    // the bin target runs on its own (npx, an installed navori-legacy), not only through node
+    expect(assemble.LEGACY_SHIM.startsWith("#!/usr/bin/env node\n")).toBe(true);
 
     const nested = assemble.nestedManifest("1.2.3", ts);
     expect(nested).toMatchObject({ name: "navori", version: "1.2.3", license: "MIT" });
@@ -310,7 +314,7 @@ describe("ensamblado", () => {
       expect(existsSync(join(dir, "legacy", "crates", "ported.json"))).toBe(true);
     });
 
-    it("rechaza integrity distinta, nula, nombre externo, versión y nombre anidado incorrectos", () => {
+    it("rechaza integrity distinta, nula, nombre externo, versión, ported.json ajeno y nombre anidado incorrectos", () => {
       const { dir, tarball, pin } = legacyTarball();
       const target = join(dir, "out");
       expect(() =>
@@ -332,6 +336,12 @@ describe("ensamblado", () => {
       expect(() => assemble.unpackLegacy(noPorted.tarball, noPorted.pin, target)).toThrow(
         "navori/crates/ported.json",
       );
+
+      const ported = join(dir, "ported.json");
+      writeFileSync(ported, '{"schema":2}\n');
+      expect(() => assemble.unpackLegacy(tarball, pin, target, ported)).toThrow("differs from");
+      writeFileSync(ported, "{}\n");
+      expect(() => assemble.unpackLegacy(tarball, pin, join(dir, "same"), ported)).not.toThrow();
 
       const wrongInner = legacyTarball({ inner: { name: "other", version: "0.12.3" } });
       expect(() => assemble.unpackLegacy(wrongInner.tarball, wrongInner.pin, target)).toThrow(
