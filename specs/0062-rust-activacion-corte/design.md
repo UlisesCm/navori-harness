@@ -103,8 +103,10 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   release), `packages/cli/dist/**`, `crates/ported.json` del mismo commit, `dist/index.js` (una
   línea que importa `../packages/cli/dist/index.js`) y un `package.json` sin nombre con
   `type: module`. Así el lanzador y `delegate.rs` siguen ejecutando `legacy/dist/index.js`.
-  `crates/ported.json` del legacy debe ser el mismo que compiló el binario; el ensayo de
-  `rust-release.yml` lo construye desde `HEAD` y `scripts/js/dist-legacy-smoke.mjs` lo comprueba.
+  El ensamblado rechaza un legacy cuyo `crates/ported.json` difiera del checkout que compila los
+  binarios, y `--version` debe ser la de `packages/cli/package.json` del release (el
+  `STAMP_VERSION` del binario), o los marcadores no coinciden. El ensayo de `rust-release.yml` lo
+  construye desde `HEAD` y `scripts/js/dist-legacy-smoke.mjs` lo comprueba.
 - **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
   127, así el prólogo del hook corre su cuerpo shell.
 - **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
