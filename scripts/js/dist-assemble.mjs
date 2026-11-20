@@ -384,7 +384,7 @@ export function mainManifest(version, ts) {
     repository: ts.repository,
     homepage: ts.homepage,
     keywords: ts.keywords,
-    bin: { navori: "bin/navori", "navori-native-hook": "bin/navori-native-hook" },
+    bin: { navori: "bin/navori", "navori-native-hook": "bin/navori-native-hook", "navori-rust": "bin/navori-rust" },
     files: ["bin", "lib", "postinstall.js", "legacy", "README.md"],
     scripts: { postinstall: "node postinstall.js" },
     optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`${SCOPE}/${p}`, version])),
@@ -421,7 +421,7 @@ export function assemble({ out, binaries, legacyTarball, pin, version = workspac
   rmSync(main, { recursive: true, force: true });
   mkdirSync(main, { recursive: true });
   cpSync(join(PACKAGING, "npm"), main, { recursive: true });
-  for (const bin of ["navori", "navori-native-hook"]) chmodSync(join(main, "bin", bin), 0o755);
+  for (const bin of ["navori", "navori-native-hook", "navori-rust"]) chmodSync(join(main, "bin", bin), 0o755);
   copyFileSync(join(REPO_ROOT, "packages", "cli", "README.md"), join(main, "README.md"));
   unpackLegacy(legacyTarball, pin, join(main, "legacy"), join(REPO_ROOT, "crates", "ported.json"), ts.version);
   writeFileSync(join(main, "package.json"), `${JSON.stringify(mainManifest(version, ts), null, 2)}\n`);
