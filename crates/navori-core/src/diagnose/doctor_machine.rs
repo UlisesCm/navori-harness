@@ -795,7 +795,7 @@ pub struct GlobalClaudeMdIssue {
 pub const GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS: usize = SESSION_CONTEXT_DELIVERY_BUDGET_CHARS / 4;
 
 /// `claudeUserDir()`: `Ok(None)` where it throws.
-pub(crate) fn claude_user_dir(host: &Host<'_>) -> Result<Option<String>, Unmodeled> {
+pub fn claude_user_dir(host: &Host<'_>) -> Result<Option<String>, Unmodeled> {
     if let Some(dir) = host.var("CLAUDE_CONFIG_DIR")? {
         let trimmed = dir.trim_matches(is_js_whitespace);
         if !trimmed.is_empty() {

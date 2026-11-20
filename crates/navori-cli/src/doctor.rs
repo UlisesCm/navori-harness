@@ -16,8 +16,11 @@
 //! - a scan the port does not model applies to this config ([`doctor_ts_only_scans`]: the OTel
 //!   receiver, operational tools, the codegraph wiring, Pi health) or to this repo (a master plan
 //!   registry; a git checkout, where `scanNativeHooks` always prints its note);
-//! - any of the closing notes (5e5c) would print: those are not rendered here, so a non-empty scan
-//!   sends the whole report to the TS (the machine and tools sections of 5e5b are native);
+//! - a workspace with a full harness (`scanWorkspaceFullHarness`): its note is not rendered, so
+//!   any answer other than "none" sends the whole report to the TS. The other closing notes
+//!   (stale global CLI, harness `.gitignore` and `.prettierignore`, git hygiene, workspace drift,
+//!   frozen harness, flat skills, foreign skill indexes, permission mode, foreign harness, global
+//!   layer leftovers) and the machine and tools sections of 5e5b are native;
 //! - user-derived text in a note that is not plain ASCII, or a note line Rust cannot wrap.
 
 use std::ffi::OsString;
@@ -30,36 +33,38 @@ use navori_core::config::Config;
 use navori_core::diagnose::distribution::{DistributionReport, scan_distribution};
 use navori_core::diagnose::doctor_assets::{
     ArtifactReason, BlockKind, ContextDelivery, ControlGap, ControlState,
-    DEFAULT_PROGRESS_THRESHOLD_BYTES, DocBudgetLever, DocBudgetReport, EmptyUserSection,
-    GateBlocker, GateReadinessIssue, InterpolationArtifact, MissingModelProfile, MissingTier,
-    NestedWorktreeConflict, ProgressSizeIssue, TriggerlessSkill, doctor_skill_dirs,
-    scan_control_gaps, scan_doc_budget, scan_empty_user_sections, scan_flat_skills,
-    scan_foreign_skill_indexes, scan_git_hygiene, scan_gitignore_harness,
-    scan_interpolation_artifacts, scan_missing_model_profile, scan_nested_worktrees,
-    scan_prettier_ignore, scan_progress_size, scan_quality_gate_readiness, scan_stale_harness,
-    scan_triggerless_local_skills, scan_workspace_full_harness,
+    DEFAULT_PROGRESS_THRESHOLD_BYTES, DocBudgetLever, DocBudgetReport, EmptyUserSection, FlatSkill,
+    ForeignSkillIndex, GateBlocker, GateReadinessIssue, GitHygieneReport, IgnoreHealth,
+    InterpolationArtifact, MissingModelProfile, MissingTier, NestedWorktreeConflict,
+    ProgressSizeIssue, StaleHarness, TriggerlessSkill, doctor_skill_dirs, scan_control_gaps,
+    scan_doc_budget, scan_empty_user_sections, scan_flat_skills, scan_foreign_skill_indexes,
+    scan_git_hygiene, scan_gitignore_harness, scan_interpolation_artifacts,
+    scan_missing_model_profile, scan_nested_worktrees, scan_prettier_ignore, scan_progress_size,
+    scan_quality_gate_readiness, scan_stale_harness, scan_triggerless_local_skills,
+    scan_workspace_full_harness,
 };
 use navori_core::diagnose::doctor_local::LocalSkills;
 use navori_core::diagnose::doctor_local::{
     ClaudeHookScripts, ExcludedBlocks, LegacyAgent, MalformedMarker, MalformedReason,
-    McpCoherenceIssue, MonorepoDrift, NameMismatch, OrderReport, RetiredAssetOnDisk, RetiredBlock,
-    classify_local_skills, is_placeholder_name, list_available_external_providers,
-    list_context_markers, needs_external_provider_setup_hint, preset_override,
-    scan_claude_hook_scripts, scan_excluded_blocks, scan_legacy_agents, scan_malformed_markers,
-    scan_managed_order, scan_mcp_coherence, scan_monorepo_drift, scan_name_mismatch,
-    scan_permission_mode, scan_retired_assets, scan_retired_plugin_leftovers,
+    McpCoherenceIssue, MonorepoDrift, NameMismatch, OrderReport, PermissionModeConflict,
+    RetiredAssetOnDisk, RetiredBlock, classify_local_skills, is_placeholder_name,
+    list_available_external_providers, list_context_markers, needs_external_provider_setup_hint,
+    preset_override, scan_claude_hook_scripts, scan_excluded_blocks, scan_legacy_agents,
+    scan_malformed_markers, scan_managed_order, scan_mcp_coherence, scan_monorepo_drift,
+    scan_name_mismatch, scan_permission_mode, scan_retired_assets, scan_retired_plugin_leftovers,
 };
 use navori_core::diagnose::doctor_machine::{
     AuditRootOpen, DiskUsageIssue, DiskUsageTarget, ExternalToolCapabilityGap,
     GLOBAL_CLAUDE_MD_SOFT_CAP_CHARS, GlobalClaudeMdIssue, Host, MissingExternalTool,
-    MissingOptionalTool, PinnedVersionDrift, ToolUpdates, VersionAdvisoryHit,
-    WorkspaceDeadReposIssue, WorkspaceLinkIssue, scan_audit_root_permissions, scan_disk_usage,
-    scan_external_tool_capabilities, scan_global_claude_md, scan_missing_external_tools,
-    scan_missing_optional_tools, scan_pinned_version_drift, scan_stale_global_cli,
-    scan_tool_updates, scan_version_advisories, scan_workspace_dead_repos, scan_workspace_drift,
-    scan_workspace_link,
+    MissingOptionalTool, PinnedVersionDrift, StaleGlobalCli, ToolUpdates, VersionAdvisoryHit,
+    WorkspaceDeadReposIssue, WorkspaceDriftReport, WorkspaceLinkIssue, claude_user_dir,
+    scan_audit_root_permissions, scan_disk_usage, scan_external_tool_capabilities,
+    scan_global_claude_md, scan_missing_external_tools, scan_missing_optional_tools,
+    scan_pinned_version_drift, scan_stale_global_cli, scan_tool_updates, scan_version_advisories,
+    scan_workspace_dead_repos, scan_workspace_drift, scan_workspace_link,
 };
 use navori_core::diagnose::doctor_user_scope::{
+    ConflictWinner, ForeignAssetType, ForeignHarnessReport, GlobalLeftover, GlobalLeftoverKind,
     doctor_ts_only_scans, scan_foreign_harness, scan_global_layer_leftovers,
 };
 use navori_core::diagnose::health::{
@@ -190,13 +195,8 @@ fn git_succeeds(env: &Env, process_cwd: &Path, cwd: &str, args: &[&str]) -> Opti
     }
 }
 
-/// `Some(())` when a scan answered and found nothing: the closing notes (5e5c) that would print
-/// for a finding are not ported here, so anything else (a finding, or no answer) delegates.
-fn none_found<T>(scan: Result<Vec<T>, Unmodeled>) -> Option<()> {
-    scan.ok()?.is_empty().then_some(())
-}
-
-/// Same for the scans that answer `T | null`.
+/// `Some(())` when a scan that answers `T | null` found nothing (a finding, or no answer,
+/// delegates).
 fn absent<T>(scan: Result<Option<T>, Unmodeled>) -> Option<()> {
     scan.ok()?.is_none().then_some(())
 }
@@ -258,6 +258,19 @@ struct Report {
     order: Option<OrderReport>,
     doc_budget: Option<DocBudgetReport>,
     distribution: Option<DistributionReport>,
+    stale_global_cli: Option<StaleGlobalCli>,
+    gitignore: Option<IgnoreHealth>,
+    prettier_ignore: Option<IgnoreHealth>,
+    git_hygiene: Option<GitHygieneReport>,
+    workspace_drift: Option<WorkspaceDriftReport>,
+    stale_harness: Vec<StaleHarness>,
+    flat_skills: Vec<FlatSkill>,
+    foreign_indexes: Vec<ForeignSkillIndex>,
+    permission_modes: Vec<PermissionModeConflict>,
+    foreign_harness: Option<ForeignHarnessReport>,
+    /// The leftovers of the retired global layer and the resolved `<claudeUserDir>/settings.json`.
+    global_leftovers: Vec<GlobalLeftover>,
+    claude_settings: Option<String>,
 }
 
 /// The scans `doctor` runs for this repo; `None` delegates.
@@ -380,49 +393,27 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         dead_repos,
     };
 
-    // Closing notes (5e5c): not rendered here, so a finding delegates.
-    for health in [
-        scan_gitignore_harness(root, config).ok()?,
-        scan_prettier_ignore(root, config).ok()?,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if health.missing || health.drift {
-            return None;
-        }
-    }
-    if let Some(hygiene) = scan_git_hygiene(root, config, &RealRunner, &env).ok()?
-        && (hygiene.specs_ignored.is_some()
-            || !hygiene.ephemeral_not_ignored.is_empty()
-            || !hygiene.ephemeral_tracked.is_empty()
-            || hygiene.presets_ignored
-            || hygiene.nested_state_unprotected)
-    {
-        return None;
-    }
+    // Closing notes (5e5c, part 1): rendered here.
+    let stale_global_cli =
+        scan_stale_global_cli(&host, root, config, navori_core::STAMP_VERSION).ok()?;
+    let gitignore = scan_gitignore_harness(root, config).ok()?;
+    let prettier_ignore = scan_prettier_ignore(root, config).ok()?;
+    let git_hygiene = scan_git_hygiene(root, config, &RealRunner, &env).ok()?;
     let doc_budget = scan_doc_budget(root, config, navori_core::STAMP_VERSION).ok()?;
     let distribution = scan_distribution(root, &config.data, &RealRunner, &env).ok()?;
-    absent(scan_workspace_drift(&host, root, config))?;
-    none_found(scan_stale_harness(root, config, &env))?;
+    let workspace_drift = scan_workspace_drift(&host, root, config).ok()?;
+    let stale_harness = scan_stale_harness(root, config, &env).ok()?;
     absent(scan_workspace_full_harness(config))?;
-    none_found(scan_flat_skills(root, &home()?, &env))?;
-    none_found(scan_foreign_skill_indexes(root))?;
-    none_found(scan_permission_mode(root))?;
-    if let Some(foreign) = scan_foreign_harness(&host, cwd, config, None).ok()?
-        && (!foreign.conflicts.is_empty()
-            || !foreign.permissions.is_empty()
-            || !foreign.stale_acknowledged.is_empty())
-    {
-        return None;
-    }
-    none_found(scan_global_layer_leftovers(&host))?;
-    absent(scan_stale_global_cli(
-        &host,
-        root,
-        config,
-        navori_core::STAMP_VERSION,
-    ))?;
+    let flat_skills = scan_flat_skills(root, &home()?, &env).ok()?;
+    let foreign_indexes = scan_foreign_skill_indexes(root).ok()?;
+    let permission_modes = scan_permission_mode(root).ok()?;
+    let foreign_harness = scan_foreign_harness(&host, cwd, config, None).ok()?;
+    let global_leftovers = scan_global_layer_leftovers(&host).ok()?;
+    let claude_settings = if global_leftovers.is_empty() {
+        None
+    } else {
+        Some(format!("{}/settings.json", claude_user_dir(&host).ok()??))
+    };
 
     let progress = if member(member(Some(&config.data), "harness"), "sessionState")
         == Some(&JsValue::Bool(false))
@@ -467,6 +458,18 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         order,
         doc_budget,
         distribution,
+        stale_global_cli,
+        gitignore,
+        prettier_ignore,
+        git_hygiene,
+        workspace_drift,
+        stale_harness,
+        flat_skills,
+        foreign_indexes,
+        permission_modes,
+        foreign_harness,
+        global_leftovers,
+        claude_settings,
     })
 }
 
@@ -1038,6 +1041,66 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     .collect();
     note(&mut clack, &steps.join("\n"), td.next_steps_title())?;
 
+    if let Some(stale) = &report.stale_global_cli {
+        clack.log(
+            Symbol::Warn,
+            &td.global_cli_stale(ascii(&stale.global)?, ascii(&stale.current)?),
+        );
+    }
+    for (health, missing, drift, title) in [
+        (
+            &report.gitignore,
+            td.gitignore_missing(),
+            td.gitignore_drift(),
+            td.gitignore_title(),
+        ),
+        (
+            &report.prettier_ignore,
+            td.prettier_ignore_missing(),
+            td.prettier_ignore_drift(),
+            td.prettier_ignore_title(),
+        ),
+    ] {
+        if let Some(health) = health
+            && (health.missing || health.drift)
+        {
+            let body = if health.missing { missing } else { drift };
+            note(&mut clack, &format!("  {update} {body}"), title)?;
+        }
+    }
+    if let Some(hygiene) = &report.git_hygiene {
+        let mut rows = Vec::new();
+        if let Some(dir) = &hygiene.specs_ignored {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_specs_ignored(ascii(dir)?)
+            ));
+        }
+        for path in &hygiene.ephemeral_not_ignored {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_ephemeral_not_ignored(path)
+            ));
+        }
+        for path in &hygiene.ephemeral_tracked {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_ephemeral_tracked(path)
+            ));
+        }
+        if hygiene.presets_ignored {
+            rows.push(format!("  {update} {}", td.git_hygiene_presets_ignored()));
+        }
+        if hygiene.nested_state_unprotected {
+            rows.push(format!(
+                "  {update} {}",
+                td.git_hygiene_nested_state_unprotected()
+            ));
+        }
+        if !rows.is_empty() {
+            note(&mut clack, &lines(rows), td.git_hygiene_title())?;
+        }
+    }
     // Spec 0045 D3: errors flip the verdict (counted in `compute_health_verdict`).
     if let Some(hooks) = &verdict.native_hooks {
         let rows = hooks
@@ -1068,6 +1131,102 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
             td.distribution_title(),
         )?;
     }
+    if let Some(drift) = &report.workspace_drift {
+        let mut rows = Vec::new();
+        for d in &drift.vs_defaults {
+            rows.push(format!(
+                "  {update} {}",
+                td.workspace_drift_default_row(
+                    ascii(&d.key)?,
+                    ascii(&d.local)?,
+                    ascii(&d.expected)?
+                )
+            ));
+        }
+        for d in &drift.vs_siblings {
+            rows.push(format!(
+                "  {update} {}",
+                td.workspace_drift_sibling_row(
+                    ascii(&d.key)?,
+                    ascii(&d.local)?,
+                    ascii(&d.expected)?,
+                    d.agree,
+                    d.total
+                )
+            ));
+        }
+        rows.push(format!("  {bullet} {}", td.workspace_drift_hint()));
+        note(
+            &mut clack,
+            &lines(rows),
+            &td.workspace_drift_title(ascii(&drift.workspace)?, drift.siblings_read),
+        )?;
+    }
+    if !report.stale_harness.is_empty() {
+        let mut rows = Vec::new();
+        for h in &report.stale_harness {
+            rows.push(format!(
+                "  {update} {}\n      {}",
+                td.stale_harness_row(ascii(&h.path)?, h.files, ascii_opt(h.frozen_at.as_deref())?),
+                td.stale_harness_undeclared()
+            ));
+        }
+        note(&mut clack, &lines(rows), td.stale_harness_title())?;
+    }
+
+    // `workspaceFullHarness` is always empty here (it delegates in `gather`).
+    if !report.flat_skills.is_empty() {
+        let mut rows = Vec::new();
+        for f in &report.flat_skills {
+            rows.push(format!(
+                "  {update} {}",
+                td.flat_skills_row(ascii(&f.path)?, ascii(&f.suggested)?)
+            ));
+        }
+        rows.push(format!("  {bullet} {}", td.flat_skills_hint()));
+        note(&mut clack, &lines(rows), td.flat_skills_title())?;
+    }
+    if !report.foreign_indexes.is_empty() {
+        let mut rows = Vec::new();
+        for idx in &report.foreign_indexes {
+            let frozen = match ascii_opt(idx.frozen_at.as_deref())? {
+                None => String::new(),
+                Some(date) => format!(" ({})", td.foreign_skill_index_frozen(date)),
+            };
+            rows.push(format!(
+                "  {update} {}{frozen}",
+                td.foreign_skill_index_row(idx.path, idx.indexed, idx.producer)
+            ));
+        }
+        rows.push(format!("  {bullet} {}", td.foreign_skill_index_hint()));
+        note(&mut clack, &lines(rows), td.foreign_skill_index_title())?;
+    }
+    for conflict in &report.permission_modes {
+        note(
+            &mut clack,
+            &format!(
+                "  {update} {}",
+                td.permission_mode_unsupported(
+                    ascii(&conflict.mode)?,
+                    ascii(&conflict.path)?,
+                    &conflict.missing.join(", ")
+                )
+            ),
+            td.permission_mode_title(),
+        )?;
+    }
+    if let Some(foreign) = &report.foreign_harness {
+        let rows = foreign_harness_lines(foreign, td, update)?;
+        if !rows.is_empty() {
+            note(&mut clack, &lines(rows), td.foreign_harness_title())?;
+        }
+    }
+    if let Some(settings) = &report.claude_settings {
+        clack.log(
+            Symbol::Warn,
+            &global_layer_message(&report.global_leftovers, ascii(settings)?, td)?,
+        );
+    }
 
     let has_issues = !verdict.ok;
     // `isStrictModeFailure`: drift or an incoherent `.mcp.json` fail `--strict`.
@@ -1081,6 +1240,100 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
     });
     clack.out.code = if has_issues { 2 } else { u8::from(strict_fail) };
     Some(clack.out)
+}
+
+/// `foreignHarnessLines` (#555): the rows of a foreign-harness report; `None` delegates (non-ASCII
+/// user text).
+fn foreign_harness_lines(
+    report: &ForeignHarnessReport,
+    td: Doctor,
+    update: &str,
+) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    for c in &report.conflicts {
+        let what = match c.asset_type {
+            ForeignAssetType::Agent => td.foreign_harness_agent_word(),
+            ForeignAssetType::Skill => td.foreign_harness_skill_word(),
+        };
+        let (name, foreign, navori) = (
+            ascii(&c.name)?,
+            ascii(&c.foreign_path)?,
+            ascii(&c.navori_path)?,
+        );
+        let row = match c.winner {
+            ConflictWinner::Undecided => td.foreign_harness_undecided(what, name, navori, foreign),
+            ConflictWinner::Navori => td.foreign_harness_conflict(what, name, navori, foreign),
+            ConflictWinner::Foreign => td.foreign_harness_conflict(what, name, foreign, navori),
+        };
+        let gitignored = if c.gitignored == Some(true) {
+            format!(" {}", td.foreign_harness_gitignored())
+        } else {
+            String::new()
+        };
+        out.push(format!("  {update} {row}{gitignored}"));
+        out.push(format!(
+            "      {}",
+            if c.adoptable {
+                td.foreign_harness_adopt_hint(foreign)
+            } else {
+                td.foreign_harness_ack_hint(ascii(&c.id)?)
+            }
+        ));
+    }
+    for p in &report.permissions {
+        out.push(format!(
+            "  {update} {}",
+            td.foreign_harness_permission(ascii(&p.rule)?, ascii(&p.path)?)
+        ));
+    }
+    for id in &report.stale_acknowledged {
+        out.push(format!(
+            "  {update} {}",
+            td.foreign_harness_stale_ack(ascii(id)?)
+        ));
+    }
+    Some(out)
+}
+
+/// `globalLayerLeftoversMessage` (spec 0046 D5): the leftovers found and only the removal steps
+/// that apply; `None` delegates (non-ASCII path).
+fn global_layer_message(
+    leftovers: &[GlobalLeftover],
+    settings: &str,
+    td: Doctor,
+) -> Option<String> {
+    let by = |kind: GlobalLeftoverKind| -> Option<Option<&str>> {
+        leftovers
+            .iter()
+            .find(|l| l.kind == kind)
+            .map(|l| ascii(&l.path))
+            .map_or(Some(None), |p| p.map(Some))
+    };
+    let plist = by(GlobalLeftoverKind::LaunchAgent)?;
+    let hook = by(GlobalLeftoverKind::LegacyHook)?;
+    let plugin = by(GlobalLeftoverKind::Plugin)?;
+    let manifest = by(GlobalLeftoverKind::Manifest)?;
+    let mut steps = Vec::new();
+    if let Some(plist) = plist {
+        steps.push(td.global_layer_step_launch_agent(plist));
+        steps.push(td.global_layer_step_audit_always().to_owned());
+    }
+    if hook.is_some() || manifest.is_some() {
+        steps.push(td.global_layer_step_settings(settings, "navori-global-baseline.sh", manifest));
+    }
+    let files: Vec<&str> = [plugin, hook].into_iter().flatten().collect();
+    if !files.is_empty() {
+        steps.push(td.global_layer_step_files(&files));
+    }
+    if let Some(manifest) = manifest {
+        steps.push(td.global_layer_step_manifest(manifest));
+    }
+    let mut rows = Vec::new();
+    for l in leftovers {
+        rows.push(td.global_layer_leftover_row(l.kind.as_str(), ascii(&l.path)?));
+    }
+    rows.extend(steps);
+    Some(td.global_layer_leftovers(&rows))
 }
 
 /// The log messages of one block of sections, in print order.
@@ -2077,5 +2330,85 @@ mod tests {
         );
         assert!(rows[2].starts_with("  \u{21e1} CLAUDE.md:1  "));
         assert_eq!(rows[11], "  \u{2026} and 2 more");
+    }
+
+    // Covers: R73
+    #[test]
+    fn closing_note_texts_interpolate_like_the_ts_catalog() {
+        let en = Doctor(Lang::En);
+        let es = Doctor(Lang::Es);
+        assert_eq!(
+            en.global_cli_stale("0.1.0", "0.2.0"),
+            "the global 'navori' on PATH is 0.1.0, older than this CLI (0.2.0) and the rendered hooks run it: they would silently run old logic \u{2014} update with 'npm i -g navori@0.2.0'"
+        );
+        assert_eq!(
+            es.workspace_drift_sibling_row("branchBase", "main", "dev", 2, 3),
+            "branchBase: main (2/3 repos usan dev)"
+        );
+        assert_eq!(
+            en.workspace_drift_title("acme", 0),
+            "Drift from workspace 'acme':"
+        );
+        assert_eq!(
+            es.workspace_drift_title("acme", 2),
+            "Drift respecto al workspace 'acme' (2 repos hermanos):"
+        );
+        assert_eq!(
+            en.stale_harness_row("pkg/.claude", 3, Some("0.9.0")),
+            "pkg/.claude \u{2014} 3 file(s), frozen at 0.9.0"
+        );
+        assert_eq!(
+            es.stale_harness_row("pkg/.claude", 1, None),
+            "pkg/.claude \u{2014} 1 archivo(s)"
+        );
+        assert!(
+            en.git_hygiene_specs_ignored("specs")
+                .ends_with("(\"sdd\": { \"enabled\": false })")
+        );
+    }
+
+    // Covers: R73
+    #[test]
+    fn part_two_closing_notes_follow_the_ts_catalog() {
+        let en = Doctor(Lang::En);
+        let es = Doctor(Lang::Es);
+        assert_eq!(
+            es.flat_skills_row(".claude/skills/a.md", ".claude/skills/a/SKILL.md"),
+            ".claude/skills/a.md \u{2014} mu\u{e9}vela a .claude/skills/a/SKILL.md"
+        );
+        assert_eq!(
+            en.foreign_skill_index_row(".atl/skill-registry.md", 4, "gentle-ai"),
+            ".atl/skill-registry.md indexes 4 skills and not one of those paths exists here \u{2014} written by gentle-ai"
+        );
+        assert_eq!(
+            es.foreign_skill_index_frozen("2026-01-01"),
+            "congelado el 2026-01-01"
+        );
+        assert!(
+            en.permission_mode_unsupported("dontAsk", "s.json", "Edit, Write")
+                .starts_with("'s.json' sets defaultMode 'dontAsk', and that mode auto-denies")
+        );
+        assert_eq!(
+            es.foreign_harness_conflict("el agente", "x", "a", "b"),
+            "el agente 'x': gana 'a' y 'b' queda inerte"
+        );
+        assert_eq!(
+            en.foreign_harness_stale_ack("k"),
+            "'k' is in project.foreignHarness.acknowledged but matches no conflict any more \u{2014} remove it"
+        );
+        assert_eq!(
+            en.global_layer_step_settings("/h/s.json", "hook.sh", Some("/h/g.json")),
+            "  2. in /h/s.json, remove the SessionStart entries pointing to hook.sh and the rules listed in ownedPermissions of /h/g.json (before deleting the manifest)"
+        );
+        assert_eq!(
+            es.global_layer_step_settings("/h/s.json", "hook.sh", None),
+            "  2. en /h/s.json, quita las entradas SessionStart que apuntan a hook.sh (antes de borrar el manifiesto)"
+        );
+        assert_eq!(es.global_layer_step_files(&["a", "b"]), "  3. borra a y b");
+        assert_eq!(en.global_layer_step_manifest("m"), "  4. delete m");
+        assert_eq!(
+            en.global_layer_leftovers(&["  - plugin: /p".to_owned()]),
+            "leftovers of navori's retired global layer remain. Steps to clean them up, in this order:\n  - plugin: /p"
+        );
     }
 }
