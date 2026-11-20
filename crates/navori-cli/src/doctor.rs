@@ -59,9 +59,10 @@ use navori_core::diagnose::doctor_machine::{
     MissingOptionalTool, PinnedVersionDrift, StaleGlobalCli, ToolUpdates, VersionAdvisoryHit,
     WorkspaceDeadReposIssue, WorkspaceDriftReport, WorkspaceLinkIssue, claude_user_dir,
     scan_audit_root_permissions, scan_disk_usage, scan_external_tool_capabilities,
-    scan_global_claude_md, scan_missing_external_tools, scan_missing_optional_tools,
-    scan_pinned_version_drift, scan_stale_global_cli, scan_tool_updates, scan_version_advisories,
-    scan_workspace_dead_repos, scan_workspace_drift, scan_workspace_link,
+    scan_global_claude_md, scan_js_launcher_on_path, scan_missing_external_tools,
+    scan_missing_optional_tools, scan_pinned_version_drift, scan_stale_global_cli,
+    scan_tool_updates, scan_version_advisories, scan_workspace_dead_repos, scan_workspace_drift,
+    scan_workspace_link,
 };
 use navori_core::diagnose::doctor_user_scope::{
     ConflictWinner, ForeignAssetType, ForeignHarnessReport, GlobalLeftover, GlobalLeftoverKind,
@@ -259,6 +260,8 @@ struct Report {
     doc_budget: Option<DocBudgetReport>,
     distribution: Option<DistributionReport>,
     stale_global_cli: Option<StaleGlobalCli>,
+    /// Bins whose `PATH` match is the package's Node launcher (native-only note).
+    js_launchers: Vec<&'static str>,
     gitignore: Option<IgnoreHealth>,
     prettier_ignore: Option<IgnoreHealth>,
     git_hygiene: Option<GitHygieneReport>,
@@ -396,6 +399,7 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
     // Closing notes (5e5c, part 1): rendered here.
     let stale_global_cli =
         scan_stale_global_cli(&host, root, config, navori_core::STAMP_VERSION).ok()?;
+    let js_launchers = scan_js_launcher_on_path(&host);
     let gitignore = scan_gitignore_harness(root, config).ok()?;
     let prettier_ignore = scan_prettier_ignore(root, config).ok()?;
     let git_hygiene = scan_git_hygiene(root, config, &RealRunner, &env).ok()?;
@@ -459,6 +463,7 @@ fn gather(cwd: &str, config: &Config, process_cwd: &Path) -> Option<Report> {
         doc_budget,
         distribution,
         stale_global_cli,
+        js_launchers,
         gitignore,
         prettier_ignore,
         git_hygiene,
@@ -1045,6 +1050,12 @@ fn doctor(cwd: &str, strict: bool, process_cwd: &Path) -> Option<Output> {
         clack.log(
             Symbol::Warn,
             &td.global_cli_stale(ascii(&stale.global)?, ascii(&stale.current)?),
+        );
+    }
+    if !report.js_launchers.is_empty() {
+        clack.log(
+            Symbol::Warn,
+            &td.js_launcher_on_path(&report.js_launchers.join("', '")),
         );
     }
     for (health, missing, drift, title) in [
@@ -2340,6 +2351,14 @@ mod tests {
         assert_eq!(
             en.global_cli_stale("0.1.0", "0.2.0"),
             "the global 'navori' on PATH is 0.1.0, older than this CLI (0.2.0) and the rendered hooks run it: they would silently run old logic \u{2014} update with 'npm i -g navori@0.2.0'"
+        );
+        assert!(
+            en.js_launcher_on_path("navori', 'navori-rust")
+                .starts_with("'navori', 'navori-rust' on PATH is the package's Node launcher")
+        );
+        assert!(
+            es.js_launcher_on_path("navori")
+                .contains("pnpm: sus atajos siempre ejecutan 'node <bin>'")
         );
         assert_eq!(
             es.workspace_drift_sibling_row("branchBase", "main", "dev", 2, 3),
