@@ -114,7 +114,7 @@ Decidido por Ulises (`decisiones-ulises/2026-11-20-post-013-orden`):
 3. **0.14**, en este orden:
    1. port de `routing-watch` + `bash-outcome-watch` (L, #1701), que entra en sombra con su propia ventana de observación;
    2. activación de los dos con la evidencia de esa ventana;
-   3. **recien después**, borrar el journal de sombra (TS y Rust) y sus herramientas;
+   3. **recién después**, borrar el journal de sombra (TS y Rust) y sus herramientas;
    4. `gate foreign` y `audit` (M).
 4. **`managed-drift-watch`**: solo con un motivo concreto.
 5. **Lo demás** (`init`, `add`, `configure`, `update`, `refresh`, `receipt`): por demanda.
@@ -123,7 +123,7 @@ Decidido por Ulises (`decisiones-ulises/2026-11-20-post-013-orden`):
 
 ## Preguntas abiertas
 
-- El `navori` del PATH después de 0.13: pendiente; S2 verifica si el launcher de npm arranca Node. Si es el CLI TS, la sonda `navori --version` y los ayudantes en proceso de los hooks lanzan Node.
+- El `navori` del PATH después de 0.13: Ulises eligió la opción A (decisiones-ulises/2026-11-20-1645): el paquete expone el bin `navori-rust` nativo con postinstall; sin postinstall queda un script de Node y `doctor` avisa del costo. Sigue abierta solo la verificación de S2 sobre `navori`: si es el CLI TS, la sonda `navori --version` y los ayudantes en proceso de los hooks lanzan Node.
 - El punto 8 (#350), que define cuándo entra `subagent-stop-handoff`.
 - Repetir las mediciones de arranque en una ventana limpia antes del PR del bridge.
 
