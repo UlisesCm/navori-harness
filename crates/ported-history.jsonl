@@ -32,3 +32,4 @@
 {"date":"2026-11-11","op":"port","id":"preset","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
 {"date":"2026-11-12","op":"port","id":"scan","reason":"scan nativo, re-land de E3 (0060, #1473)","pr":1685}
 {"date":"2026-11-12","op":"port","id":"status","reason":"status nativo, re-land de E3 (0060, #1473)","pr":1689}
+{"date":"2026-11-26","op":"activate","id":"guard-destructive","reason":"lote del guard de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias en Claude y Pi","pr":1527}
