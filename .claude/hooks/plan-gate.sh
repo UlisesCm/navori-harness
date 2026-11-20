@@ -1,4 +1,4 @@
-# navori:native-hook v=1 file=sha256:308844998ce62c0bebce89ebbeddf1d77ba2993436dcf39dfabd770ecd5d2fab impl=sha256:819983096646b07f8d63130db3bfbef5c71803031400a146b09c7bd18f0ae6b9
+# navori:native-hook v=1 file=sha256:7352b19d6926a49e6f0ac2fafa0d1076404cd903d5011bce82e2edf453f142ea impl=sha256:caa45d6f6dd3225a1416d8aba073768256cdbb8fa3fef210d1ca6c4e9076a131
 # navori:managed start id="plan-gate-base" hash="e24dbd41" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
