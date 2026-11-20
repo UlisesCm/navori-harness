@@ -82,6 +82,15 @@ const bash = (command: string): Record<string, unknown> => ({
   input: { command },
 });
 const reasonOf = (result: unknown): string => (result as { reason: string }).reason;
+/** Whether a process still exists (signal 0 only probes it). */
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** Decide one bash call against a single enforced script. */
 async function decide(
@@ -393,6 +402,13 @@ describe("hook bridge verdict contract", () => {
     const result = await load().get("tool_call")!(bash("ls"), ctxFor(killed));
     expect(reasonOf(result)).toBe("stop");
     expect(Date.now() - started).toBeLessThan(8_000);
+    // The slow sibling is still stopped, after the sibling grace plus the kill grace.
+    const pidFile = join(killed, "slow.pid");
+    await vi.waitFor(() => expect(readFileSync(pidFile, "utf8")).toMatch(/^\d+\n$/), {
+      timeout: 5_000,
+    });
+    const slowPid = Number(readFileSync(pidFile, "utf8"));
+    await vi.waitFor(() => expect(alive(slowPid)).toBe(false), { timeout: 8_000 });
     // Scope and tool filters: a parent-only script never runs in a child, a bash script never runs for edit.
     const scoped = project([
       { script: "parent-only", scope: "parent", body: `touch "$PWD/parent.ran"\n` },
@@ -408,6 +424,22 @@ describe("hook bridge verdict contract", () => {
       ctxFor(scoped),
     );
     expect(existsSync(join(scoped, "parent.ran"))).toBe(false);
+  });
+
+  // Covers: R15 — reproduction of the R81 loss (19 Nov): a block killed a sibling in shadow before it
+  // wrote its completion. The blocked call still returns at once; the sibling now finishes its work.
+  it("a block returns at once and lets a sibling that is about to finish complete", async () => {
+    const cwd = project([
+      { script: "blocker", body: "echo stop >&2\nexit 2\n" },
+      { script: "sibling", body: `sleep 1\ntouch "$PWD/sibling.completed"\n` },
+    ]);
+    const result = await load().get("tool_call")!(bash("ls"), ctxFor(cwd));
+    expect(reasonOf(result)).toBe("stop");
+    // Returned before the sibling finished: the block does not wait for it.
+    expect(existsSync(join(cwd, "sibling.completed"))).toBe(false);
+    await vi.waitFor(() => expect(existsSync(join(cwd, "sibling.completed"))).toBe(true), {
+      timeout: 5_000,
+    });
   });
 
   // Covers: R5, R15
