@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -274,6 +275,7 @@ describe("ensamblado", () => {
     interface Fixture {
       outer?: Record<string, unknown>;
       inner?: Record<string, unknown>;
+      omit?: "ported";
     }
     /** A legacy tarball: the outer manifest and the nested frozen TS. */
     function legacyTarball(fixture: Fixture = {}): {
@@ -284,25 +286,28 @@ describe("ensamblado", () => {
       const dir = scratch();
       const nested = join(dir, "package", "navori");
       mkdirSync(join(nested, "dist"), { recursive: true });
+      mkdirSync(join(nested, "packages", "cli"), { recursive: true });
+      mkdirSync(join(nested, "crates"), { recursive: true });
+      if (fixture.omit !== "ported") writeFileSync(join(nested, "crates", "ported.json"), "{}\n");
       const outer = fixture.outer ?? { name: assemble.LEGACY_PACKAGE, version: "0.12.3" };
       const inner = fixture.inner ?? { name: "navori", version: "0.12.3" };
       writeFileSync(join(dir, "package", "package.json"), `${JSON.stringify(outer)}\n`);
-      writeFileSync(join(nested, "package.json"), `${JSON.stringify(inner)}\n`);
+      writeFileSync(join(nested, "packages", "cli", "package.json"), `${JSON.stringify(inner)}\n`);
       writeFileSync(join(nested, "dist", "index.js"), "// frozen\n");
       const tarball = join(dir, "legacy-0.12.3.tgz");
       expect(spawnSync("tar", ["-czf", tarball, "-C", dir, "package"]).status).toBe(0);
       return { dir, tarball, pin: { version: "0.12.3", integrity: assemble.integrityOf(tarball) } };
     }
 
-    it("deja el TS congelado en legacy con package.json de nombre navori", () => {
+    it("deja el TS congelado en legacy con el layout del checkout y ported.json", () => {
       const { dir, tarball, pin } = legacyTarball();
       assemble.unpackLegacy(tarball, pin, join(dir, "legacy"));
       expect(readFileSync(join(dir, "legacy", "dist", "index.js"), "utf8")).toBe("// frozen\n");
-      const manifest = JSON.parse(readFileSync(join(dir, "legacy", "package.json"), "utf8")) as {
-        name: string;
-        version: string;
-      };
+      const manifest = JSON.parse(
+        readFileSync(join(dir, "legacy", "packages", "cli", "package.json"), "utf8"),
+      ) as { name: string; version: string };
       expect(manifest).toEqual({ name: "navori", version: "0.12.3" });
+      expect(existsSync(join(dir, "legacy", "crates", "ported.json"))).toBe(true);
     });
 
     it("rechaza integrity distinta, nula, nombre externo, versión y nombre anidado incorrectos", () => {
@@ -321,6 +326,11 @@ describe("ensamblado", () => {
       const wrongOuter = legacyTarball({ outer: { name: "navori", version: "0.12.3" } });
       expect(() => assemble.unpackLegacy(wrongOuter.tarball, wrongOuter.pin, target)).toThrow(
         `expected ${assemble.LEGACY_PACKAGE}@`,
+      );
+
+      const noPorted = legacyTarball({ omit: "ported" });
+      expect(() => assemble.unpackLegacy(noPorted.tarball, noPorted.pin, target)).toThrow(
+        "navori/crates/ported.json",
       );
 
       const wrongInner = legacyTarball({ inner: { name: "other", version: "0.12.3" } });

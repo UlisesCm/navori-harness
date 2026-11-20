@@ -32,8 +32,10 @@ import { fileURLToPath } from "node:url";
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
  * `{ version, integrity, commit }` in `packaging/legacy.json`. A pin with `null` integrity/commit
  * means "not published yet": the assembly refuses it (JSON has no comments, so it is said here).
- * The tarball holds `package/package.json` (the legacy manifest) and `package/navori/`, the TS
- * package exactly as it ships (`package.json` named `navori`, `dist/`, `README.md`).
+ * The tarball holds `package/package.json` (the legacy manifest) and `package/navori/`, which
+ * mirrors the checkout layout because the TS only loads `crates/ported.json` from
+ * `<dir>/packages/cli/dist` (native-hook.ts): `packages/cli/{package.json,dist/}`,
+ * `crates/ported.json` (same commit) and `dist/index.js`, a shim onto the real entry.
  */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -47,6 +49,11 @@ export const SCOPE = "@navori";
 
 /** The only place the legacy package's name lives. Plan B of Q24 is `navori-legacy`. */
 export const LEGACY_PACKAGE = "@navori/legacy";
+
+/** The entry the launcher and `delegate.rs` run (`<pkg>/legacy/dist/index.js`), onto the real one. */
+export const LEGACY_SHIM = `// Entry shim: the frozen TS lives at packages/cli/dist so it finds crates/ported.json.
+import "../packages/cli/dist/index.js";
+`;
 
 /** The version the binaries report: the Cargo workspace's, which the postinstall compares. */
 export function workspaceVersion(root = REPO_ROOT) {
@@ -63,9 +70,9 @@ export function integrityOf(file) {
 }
 
 /**
- * Unpacks the pinned legacy package into `<target>`: the nested `navori/` directory (its
- * `package.json` named `navori`, `dist/`, `README.md`), byte for byte. A tarball whose integrity
- * differs from the pin, or whose manifests are not the expected ones, is refused.
+ * Unpacks the pinned legacy package into `<target>`: the nested `navori/` directory (checkout
+ * layout, see the header), byte for byte. A tarball whose integrity differs from the pin, or whose
+ * manifests or layout are not the expected ones, is refused.
  * @param {string} tarball
  * @param {{ version: string, integrity: string | null }} pin
  * @param {string} target
@@ -89,9 +96,12 @@ export function unpackLegacy(tarball, pin, target) {
       throw new Error(`legacy tarball is ${outer.name}@${outer.version}, expected ${LEGACY_PACKAGE}@${pin.version}`);
     }
     const nested = join(scratch, "package", "navori");
-    const inner = JSON.parse(readFileSync(join(nested, "package.json"), "utf8"));
+    const inner = JSON.parse(readFileSync(join(nested, "packages", "cli", "package.json"), "utf8"));
     if (inner.name !== "navori") {
       throw new Error(`the frozen TS manifest is named ${inner.name}, expected navori (its version lookup requires it)`);
+    }
+    for (const file of ["crates/ported.json", "dist/index.js"]) {
+      if (!existsSync(join(nested, file))) throw new Error(`the legacy tarball has no navori/${file}`);
     }
     cpSync(nested, target, { recursive: true });
   } finally {
@@ -156,9 +166,17 @@ export function buildLegacy({ root, out, version }) {
   try {
     const nested = join(stage, "navori");
     mkdirSync(nested, { recursive: true });
-    cpSync(join(cli, "dist"), join(nested, "dist"), { recursive: true });
+    const nestedCli = join(nested, "packages", "cli");
+    mkdirSync(nestedCli, { recursive: true });
+    cpSync(join(cli, "dist"), join(nestedCli, "dist"), { recursive: true });
+    writeFileSync(join(nestedCli, "package.json"), `${JSON.stringify(nestedManifest(finalVersion, ts), null, 2)}\n`);
+    mkdirSync(join(nested, "crates"), { recursive: true });
+    copyFileSync(join(root, "crates", "ported.json"), join(nested, "crates", "ported.json"));
+    mkdirSync(join(nested, "dist"), { recursive: true });
+    writeFileSync(join(nested, "dist", "index.js"), LEGACY_SHIM);
+    // Nameless on purpose: only packages/cli/package.json may be named `navori` (readCliVersion).
+    writeFileSync(join(nested, "package.json"), `${JSON.stringify({ type: "module", private: true })}\n`);
     copyFileSync(join(cli, "README.md"), join(nested, "README.md"));
-    writeFileSync(join(nested, "package.json"), `${JSON.stringify(nestedManifest(finalVersion, ts), null, 2)}\n`);
     writeFileSync(join(stage, "package.json"), `${JSON.stringify(legacyManifest(finalVersion, ts), null, 2)}\n`);
     mkdirSync(out, { recursive: true });
     const tarball = pack(stage, out);
