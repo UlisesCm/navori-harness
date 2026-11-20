@@ -142,13 +142,16 @@ fn run(
     email: impl FnOnce() -> EmailRead,
     ids: Option<&Secret>,
 ) -> Code {
-    let live = inert::live(cmd, skeleton, rules);
-    let scan = inert::scan(&live, rules);
+    // An invalid inert pattern is a build defect (`every_inert_pattern_compiles`); should one
+    // slip through, the lane fails closed like any other doubt.
+    let Ok(segments) = inert::live(cmd, skeleton, rules)
+        .and_then(|live| inert::scan(&live, rules))
+        .and_then(|scan| inert::segments(&scan, rules))
+    else {
+        return Code::Unverified;
+    };
     let mut texts = String::new();
-    for segment in inert::segments(&scan, rules)
-        .iter()
-        .filter(|segment| !segment.is_empty())
-    {
+    for segment in segments.iter().filter(|segment| !segment.is_empty()) {
         if !is_request(segment, locale) {
             continue;
         }

@@ -348,7 +348,8 @@ pub(super) fn evaluate(
             reason: "sin comando que inspeccionar",
         });
     }
-    let rules = Rules::get(locale)?;
+    // Nothing compiles here: each inert pattern is built on first use (see `Rules`).
+    let rules = Rules::get(locale);
     let size = length(cmd, locale);
     if size > CMD_MAX {
         return Ok(block(
@@ -359,7 +360,7 @@ pub(super) fn evaluate(
             Some(SPLIT_ROUTE),
         ));
     }
-    let skeleton = match inert::skeleton(cmd, rules) {
+    let skeleton = match inert::skeleton(cmd, rules)? {
         Ok(skeleton) => skeleton,
         Err(message) => return Ok(block(message, "oversize", Some(SPLIT_ROUTE))),
     };
@@ -399,10 +400,13 @@ pub(super) fn evaluate(
     // building them is most of a short command's cost. They are static, so the only error is an
     // invalid pattern, which no input can trigger and `every_pattern_compiles` rules out.
     let patterns = Patterns::get(locale);
-    let live = inert::live(cmd, &skeleton, rules);
-    let scan = inert::scan(&live, rules);
-    let segments = inert::segments(&scan, rules);
-    let unquoted: Vec<String> = segments.iter().map(|s| rules.remove_quotes(s)).collect();
+    let live = inert::live(cmd, &skeleton, rules)?;
+    let scan = inert::scan(&live, rules)?;
+    let segments = inert::segments(&scan, rules)?;
+    let unquoted = segments
+        .iter()
+        .map(|s| rules.remove_quotes(s))
+        .collect::<Result<Vec<String>, String>>()?;
 
     // 1. Skipping hooks/gates.
     if any(&segments, patterns.no_verify()?) || any(&unquoted, patterns.no_verify_short()?) {
