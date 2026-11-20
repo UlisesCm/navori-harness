@@ -565,8 +565,8 @@ fn config_doc() -> BoxedStrategy<Doc> {
         .prop_map(Doc::Obj)
         .boxed();
     // Ids against `/^[^@\s]+@[^@\s]+$/`: U+FEFF, U+00A0 and U+2028 are JS whitespace (invalid),
-    // U+0085 and U+180E are not (valid). Lone surrogates are not representable: `Doc` keys are
-    // Rust `String`s, which cannot hold them.
+    // U+0085 and U+180E are not (valid). Lone surrogates are not generated: `Doc` keys are Rust
+    // `String`s, which cannot hold them (a raw `\ud800` escape in the JSON text could; not covered).
     let claude_plugin_id = prop_oneof![
         8 => prop::sample::select(vec![
             "a@m",

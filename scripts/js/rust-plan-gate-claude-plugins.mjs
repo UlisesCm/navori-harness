@@ -18,7 +18,7 @@
  */
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 /** @type {string} */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -26,10 +26,8 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BIN = process.env.NAVORI_RUST_BIN ??
   join(process.env.CARGO_TARGET_DIR ?? `${process.env.HOME}/.cache/navori-rust/target-s2`, "debug", "navori-rust");
 process.env.NAVORI_RUST_BIN = BIN;
-/** @param {string} p script name under scripts/js @returns {Promise<any>} */
-const mod = (p) => import(pathToFileURL(join(REPO, "scripts", "js", p)).href);
-const replay = await mod("hook-verdict-replay.mjs");
-const adapter = await mod("rust-hook-adapter.mjs");
+const replay = await import("./hook-verdict-replay.mjs");
+const adapter = await import("./rust-hook-adapter.mjs");
 
 const VARIANTS = {
   absent: undefined,
@@ -134,7 +132,11 @@ const rustDeps = adapter.prepareRustReplay({
   scriptsRoot: signed,
 });
 const deferralReasons = new Map();
-/** @param {"shell" | "rust"} impl @param {any} deps @param {"off" | "active"} mode @returns {any[]} */
+/**
+ * @typedef {Awaited<ReturnType<typeof replay.loadDeps>> | ReturnType<typeof adapter.prepareRustReplay>} ReplayDeps
+ * @typedef {ReturnType<typeof replay.runMode>[number] | { deferred: true, reason: string }} RunResult
+ * @param {"shell" | "rust"} impl @param {ReplayDeps} deps @param {"off" | "active"} mode @returns {RunResult[]}
+ */
 const run = (impl, deps, mode) => {
   const scratch = replay.createScratch();
   try {
