@@ -33,8 +33,10 @@ import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.
  * leaves a begin pending without hiding a verdict (the call was already blocked). A Pi begin that
  * never completed is then reported as cancelled by a sibling, not lost, when another hook's Pi
  * begin within 500 ms (the same call) did complete. Cancelled observations get their own count
- * and need no cause; they still count as calls for the 0.5 % share. Known limits: a hook killed by
- * its own bridge timeout in a call whose siblings completed is classified the same way, and so is
+ * and need no cause, and are listed with their instant (text and Markdown). The 0.5 % share and the
+ * 10-minute grouping apply only to the losses that are not cancelled (a recorded cause does not
+ * exempt one); cancelled ones still count as calls in the share's denominator. Known limits: a hook
+ * killed by its own bridge timeout in a call whose siblings completed is classified the same way, and so is
  * an isolated loss that coincides with another Pi session's call.
  */
 
@@ -339,6 +341,12 @@ export function collect(
   });
 }
 
+/** The cancelled count of a row with the instant of each one, so the close lists them. */
+function cancelledCell(row) {
+  if (row.cancelled === 0) return "0";
+  return `${row.cancelled} (${row.cancelledMs.map((ms) => new Date(ms).toISOString()).join(", ")})`;
+}
+
 function format(report) {
   const lines = [`hook shadow report (window ${report.windowDays} d)`];
   for (const row of report.rows) {
@@ -347,7 +355,7 @@ function format(report) {
     lines.push(
       `${status} ${row.hook} [${row.engine}] ${row.gating ? "gating" : "advisory"} ` +
         `calls=${row.invocations} divergences=${row.divergences} pending=${row.pending} ` +
-        (report.siblingCancel ? `cancelled=${row.cancelled} ` : "") +
+        (report.siblingCancel ? `cancelled=${cancelledCell(row)} ` : "") +
         `unobserved=${row.unobserved} span=${row.spanDays.toFixed(1)}d` +
         (row.legacyPayloadRows > 0
           ? ` legacyPayloadRows=${row.legacyPayloadRows} (delete this journal)`
@@ -392,7 +400,7 @@ export function formatMarkdown(report, batches = {}) {
     lines.push(
       `| ${row.hook} | ${row.engine} | ${row.gating ? "yes" : "no"} | ${row.invocations} | ` +
         `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
-        (cancelled ? `${row.cancelled} | ` : "") +
+        (cancelled ? `${cancelledCell(row)} | ` : "") +
         `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ${iso(row.closesMs)} | ` +
         `${row.status === "green" ? "green" : `${row.status}: ${[...row.problems, ...row.warnings].join("; ")}`} |`,
     );

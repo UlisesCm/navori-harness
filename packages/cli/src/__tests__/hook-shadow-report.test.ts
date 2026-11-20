@@ -411,7 +411,11 @@ it("con --sibling-cancel un begin de Pi cortado por el bloqueo de un hermano se 
     Array.from({ length: 400 }, (_, n) =>
       record(hook, engine, NOW - 9 * DAY + n * 60_000, true),
     ).flat();
-  const build = (lines: { lost: string[]; sibling: string[] }, siblingCancel: boolean): Report =>
+  const build = (
+    lines: { lost: string[]; sibling: string[] },
+    siblingCancel: boolean,
+    causes: Record<string, string> = {},
+  ): Report =>
     shadow.buildReport({
       hooks: { lost: { gating: true, impl: IMPL }, sibling: { gating: true, impl: IMPL } },
       journals: {
@@ -424,6 +428,7 @@ it("con --sibling-cancel un begin de Pi cortado por el bloqueo de un hermano se 
       windowDays: 7,
       perRowClose: true,
       siblingCancel,
+      causes,
     });
   const base = (engine: string): string[] => traffic("lost", engine);
   const row = (report: Report, hook: string, engine: string): Row | undefined =>
@@ -446,6 +451,19 @@ it("con --sibling-cancel un begin de Pi cortado por el bloqueo de un hermano se 
     status: "green",
   });
   expect(shadow.formatMarkdown(classified)).toContain("| Pending | Cancelled | Unobserved |");
+  // The close lists each cancelled observation with its instant.
+  expect(shadow.formatMarkdown(classified)).toContain(
+    `| lost | pi | yes | 400 | 0 | 0 | 0 | 0 | 1 (${new Date(at).toISOString()}) |`,
+  );
+  // The 10-minute grouping and the 0.5 % share count only the losses that are not cancelled: an
+  // isolated loss with its cause 5 minutes after a cancelled one keeps the row green.
+  const later = at + 5 * 60_000;
+  const mixed = build(
+    { ...cut, lost: [...cut.lost, ...record("lost", "pi", later, false)] },
+    true,
+    { [`lost|pi|${new Date(later).toISOString()}`]: "interrupción probable" },
+  );
+  expect(row(mixed, "lost", "pi")).toMatchObject({ pending: 1, cancelled: 1, status: "green" });
   // Without the flag nothing changes: the same begin is a lost observation with no cause.
   const unchanged = build(cut, false);
   expect(row(unchanged, "lost", "pi")).toMatchObject({ pending: 1, cancelled: 0, status: "red" });
