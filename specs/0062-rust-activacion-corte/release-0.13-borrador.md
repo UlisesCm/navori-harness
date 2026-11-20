@@ -6,13 +6,16 @@
 
 ## Bloqueos antes de ejecutar
 
-1. **Q24 de 0062 (abierta): cómo se publican los binarios.** `dist-assemble.mjs` arma `navori` y
-   `@navori/<os>-<cpu>`, pero no hay org `navori` en npm (Ulises, 2026-11-02). Sin decidir el
-   nombre de los paquetes de plataforma no hay `npm publish` posible. Opciones de 0062: paquetes
-   sin scope, con el scope del usuario, o un solo paquete con los cuatro binarios.
-2. **legacy.json**: decisión pendiente (decisiones-ulises/2026-11-20-legacy-json). Recomendación:
-   0.12.5.
-3. **claudePlugins en 0.12.6**: decisión pendiente. Recomendación: no hacer 0.12.6.
+1. **Q24 de 0062: cómo se publican los binarios.** Decisión de Ulises (20 nov 11:25): intenta
+   crear la org `navori` en npm y se queda el esquema actual, `@navori/<os>-<cpu>` como
+   `optionalDependencies` de `navori`, sin cambiar código. Plan B si el nombre está tomado: ver
+   "Plan B de Q24" abajo.
+2. **legacy.json**: 0.12.5 NO pasa la prueba rápida de Ulises (20 nov). Con 0.12.5 como legacy,
+   `workspace render --apply` quita el bloque `navori:native-runtime` de 8 hooks, vuelve el texto a
+   "Spanish MX" y borra el `enabledPlugins` del render nativo; `doctor --json` informa 11 renders
+   pendientes en un proyecto al día. Alternativas y detalle en
+   decisiones-ulises/2026-11-20-legacy-json. Decisión pendiente.
+3. **claudePlugins**: no hay 0.12.6; sale en 0.13 (Ulises, 20 nov 11:25).
 4. **Paso f′**: integrar main en dev (merge commit, #1705 y #1748) y luego dev en migration/rust,
    antes del PR dev → main.
 
@@ -25,8 +28,8 @@ Un solo commit `chore(release): navori v0.13.0` sobre `dev`, después del corte:
 | `packages/cli/package.json` | `0.12.5` → `0.13.0` | El TS congelado del repo; `release-tag.yml` crea el tag al llegar a main. |
 | `Cargo.toml` (`[workspace.package]`) | `0.13.0-rust.1` → `0.13.0` | `workspaceVersion()` de `dist-assemble.mjs` toma de aquí la versión de `navori` y de los paquetes de plataforma. |
 | `Cargo.lock` | `cargo update --workspace` (con `--locked`, el build falla hasta actualizarlo) | Solo cambian las versiones de los crates del workspace. |
-| `packaging/legacy.json` | según la decisión pendiente | Opción B: `"version": "0.12.5"`, `"integrity": "sha512-pwUGb3d6+HimictLuB6/Ndtlwbk3VAxAve6Mn9H3RV8DuD1TyhHPhuWEUxcf4XpttKGz11ab9H+OP5qzWkvWQQ=="`. |
-| `crates/navori-cli/src/notices.rs` | `ENABLED: bool = false` → `true` | T11/R85. Revisar si va en el PR de corte (T10) en vez del bump: el oráculo compara sin avisos, así que se enciende cuando el oráculo ya no corre. |
+| `packaging/legacy.json` | según la decisión pendiente | 0.12.5 descartado por la prueba rápida; ver decisiones-ulises/2026-11-20-legacy-json. |
+| `crates/navori-cli/src/notices.rs` | `ENABLED: bool = false` → `true` | T11/R85. **Va en este PR del bump, no en el del corte** (Ulises, 20 nov 11:25). |
 | `navori.config.json` (`harnessVersion`) y `.claude/settings.json` (`$navori.version`) | los escribe el render | No editar a mano. |
 
 Comandos, en este orden (los mismos de README § Releases, adaptados al binario):
@@ -137,7 +140,38 @@ escritores concurrentes, en la memoria release-0.13-plan) y #1718 (plazo de du e
 - 0060: ya cerrada para 0.13 (T23, A8) en #1756; revisar T29.
 - 0057–0061: estado final en sus `tasks.md` (correr `navori spec check <spec>` antes de commitear).
 
-## Paso g (referencia)
+## Plan B de Q24: paquetes sin scope
+
+Solo si la org `navori` está tomada. Los paquetes de plataforma pasan de `@navori/<os>-<cpu>` a
+`navori-<os>-<cpu>` (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`,
+`navori-linux-x64`). Archivos que cambian:
+
+- `scripts/js/dist-assemble.mjs`: `SCOPE` (:32) y los nombres que arma (:101 `optionalDependencies`,
+  :110 `name` del paquete de plataforma); el directorio de salida ya es `navori-<platform>` (:143).
+- `packaging/npm/lib/launcher.js:23`: el paquete que resuelve el lanzador (`@navori/${key}` →
+  `navori-${key}`).
+- `packages/cli/src/__tests__/dist-launcher.test.ts`: los nombres esperados.
+- `.github/workflows/rust-release.yml`: el nombre del paso de ensamblado (:78) y las sondas R84 si
+  nombran el paquete.
+- Docs: el comentario de cabecera de `dist-assemble.mjs` (:16), `specs/0062-rust-activacion-corte`
+  (D53 en `design.md` y T6/T7 en `tasks.md`) y la sección de instalación del README.
+- Antes de publicar: comprobar con `npm view navori-<os>-<cpu>` que los 4 nombres estén libres.
+
+## Paso g
 
 PR dev → main con merge commit; notas "Qué cambia al actualizar" en el cuerpo, incluyendo #1705 y
 #1748 (decisión de Ulises, 20 nov). Tag con `release-tag.yml` y publicación: Ulises.
+
+Publicación, en este orden:
+
+1. Publicar los 4 paquetes de binarios (`@navori/<os>-<cpu>`, o `navori-<os>-<cpu>` con el plan B).
+2. **Verificar que existan antes de publicar el principal** (Ulises, 20 nov 11:25):
+
+   ```bash
+   for p in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+     npm view "@navori/$p@0.13.0" version || { echo "falta @navori/$p"; exit 1; }
+   done
+   ```
+
+   Si falta alguno, no se publica `navori`: esa plataforma quedaría sin binario.
+3. Publicar `navori@0.13.0` y comprobar `npm view navori version`.
