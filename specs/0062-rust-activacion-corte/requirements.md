@@ -45,6 +45,33 @@ manifiesto y del binario junto con `master` (enmienda de 0060). Extender `PERMAN
 | E2 | 3 500 | 0 (T6–T9 hechas) | 0 |
 | E3 | 2 000 | ≈2 000 | ≈2 200 (más hooks shell permanentes y motores del corte en `cutover:check`) |
 
+## Enmienda de R22 (2026-11-20, decisión de Ulises): el TS congelado se publica aparte
+
+**Por qué no sirve el último TS publicado.** Se probó el binario de `migration/rust` (a313f2d5) con
+`navori@0.12.5` como `legacy/`, en 23 pasos (los comandos nativos y toda la delegación permanente)
+y 5 configs (sin `claudePlugins`, válido, vacío, id inválido y valor no booleano). 0.12.5 trae sus
+propios assets, no los del TS congelado:
+
+- sobre un proyecto al día, `workspace render --apply` reescribe 11 archivos: quita el bloque
+  `navori:native-runtime` de los 8 hooks portados, vuelve `publisher.md` e `idioma-rol` a
+  "Spanish MX" y reescribe `.claude/settings.json`; el siguiente render nativo los vuelve a escribir;
+- `doctor --json` informa `renderPending: 11` (0 con el TS congelado del checkout);
+- con `claudePlugins` válido, `workspace render --apply` borra el `enabledPlugins` del render nativo;
+- con `claudePlugins` inválido sale 0 e ignora la clave, donde el TS congelado sale 1 con el error
+  de schema.
+
+**Qué se decide (opción E).** El TS congelado se construye desde el commit anterior al PR de corte
+(T10 borra `packages/cli/src`) y se publica como paquete aparte con la versión del release. El
+nombre sale de la constante `LEGACY_PACKAGE` de `scripts/js/dist-assemble.mjs`: `@navori/legacy`
+si existe la org `navori`, `navori-legacy` si no. `packaging/legacy.json` fija `version`,
+`integrity` y `commit`, y el ensamblado lo baja de npm y verifica la `integrity` antes de
+desempacarlo, como antes.
+
+**Hallazgo al implementarla.** Aun con el TS correcto, fuera del layout del checkout el TS no carga
+`crates/ported.json` (`packages/cli/src/lib/render/native-hook.ts:42-60`) y renderiza hooks shell:
+`renderPending: 8` sobre un proyecto al día. Por eso el paquete replica el layout del checkout (D53).
+Con el paquete nuevo, `scripts/js/dist-legacy-smoke.mjs` repite la prueba: 115 pasos, 0 fallos.
+
 ## Contexto
 
 Esta spec nace de partir la fase 4 (`specs/0060-rust-cola-larga-corte/`) en dos (decisión del
@@ -99,7 +126,9 @@ sustituidos por R81 y R82.
 - **R21** — El release SHALL incluir binarios para darwin arm64 y x64 y para linux arm64 y x64; en
   Linux, un binario musl estático por arquitectura.
 - **R22** — IF el paquete `navori` se instala en una plataforma sin binario THEN SHALL ejecutar el
-  TS congelado: el `dist/` exacto del último `navori` TS publicado, verificado con su `integrity`.
+  TS congelado: el `dist/` del commit anterior al PR de corte, publicado como paquete aparte
+  (`@navori/legacy`, o `navori-legacy` si no hay org) con la versión del release y verificado con
+  su `integrity` (enmienda del 2026-11-20).
   IF el `postinstall` no corre en una plataforma con binario THEN el lanzador SHALL ejecutar el
   binario a través de Node, sin cambio de comportamiento. El TS congelado SHALL atender también las
   delegaciones permanentes de R20.

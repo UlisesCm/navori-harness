@@ -89,10 +89,22 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
   hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
   `@navori/<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
-- **`legacy/` es el paquete entero.** El tarball del último TS publicado (`packaging/legacy.json`
-  fija versión e `integrity`) se desempaca completo en `legacy/`, así que el TS congelado es
-  `legacy/dist/index.js` y no `legacy/index.js`: conserva su `package.json` y sus lecturas
-  relativas, y responde su propia versión.
+- **`legacy/` es el paquete legacy (enmienda del 2026-11-20, R22).** El TS congelado del commit
+  anterior al PR de corte se publica como paquete aparte, `LEGACY_PACKAGE` de `dist-assemble.mjs`
+  (`@navori/legacy`; `navori-legacy` sin org), con la versión del release.
+  `dist-assemble.mjs legacy --from <commit> --version <release> --write-pin` lo construye, lo
+  empaqueta y escribe `packaging/legacy.json` (`version`, `integrity`, `commit`); el ensamblado lo
+  baja de npm, verifica la `integrity` y desempaca `package/navori/` en `legacy/`.
+  El tarball replica el layout del checkout, porque el TS solo carga `crates/ported.json` desde
+  `<dir>/packages/cli/dist` con `<dir>/crates/ported.json`
+  (`packages/cli/src/lib/render/native-hook.ts:42-60`); sin él renderiza hooks shell y pelea con
+  los bloques `navori:native-runtime` del binario. Dentro de `package/navori/`:
+  `packages/cli/package.json` (con `name: "navori"`, que exige `readCliVersion`, y la versión del
+  release), `packages/cli/dist/**`, `crates/ported.json` del mismo commit, `dist/index.js` (una
+  línea que importa `../packages/cli/dist/index.js`) y un `package.json` sin nombre con
+  `type: module`. Así el lanzador y `delegate.rs` siguen ejecutando `legacy/dist/index.js`.
+  `crates/ported.json` del legacy debe ser el mismo que compiló el binario; el ensayo de
+  `rust-release.yml` lo construye desde `HEAD` y `scripts/js/dist-legacy-smoke.mjs` lo comprueba.
 - **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
   127, así el prólogo del hook corre su cuerpo shell.
 - **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
