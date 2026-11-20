@@ -10,11 +10,21 @@ interface Row {
   engine: string;
   ok: boolean;
   invocations: number;
+  firstMs: number | null;
+  lastMs: number | null;
+  closesMs: number | null;
+  status: "green" | "amber" | "red";
+  warnings: string[];
+  nativeFailed: number;
+  shellFailed: number;
+  divergences: number;
+  pending: number;
   legacyPayloadRows: number;
   problems: string[];
 }
 interface Report {
   ok: boolean;
+  status: "green" | "amber" | "red";
   rows: Row[];
 }
 interface ReportInput {
@@ -24,11 +34,14 @@ interface ReportInput {
   approved: Record<string, string[]>;
   now: number;
   windowDays: number;
+  perRowClose?: boolean;
+  causes?: Record<string, string>;
 }
 interface Module {
   buildReport: (input: ReportInput) => Report;
   approvedWithoutTraffic: (history: string, hook: string) => string[];
   collect: (root: string, windowDays: number, now: number, journalRoots?: string[]) => Report;
+  formatMarkdown: (report: Report, batches?: Record<string, string[]>) => string;
 }
 const shadow = (await import(
   pathToFileURL(join(import.meta.dirname, "../../../../scripts/js/hook-shadow-report.mjs")).href
@@ -37,9 +50,9 @@ const shadow = (await import(
 const DAY = 86_400_000;
 const NOW = Date.parse("2026-11-10T12:00:00Z");
 const IMPL = `sha256:${"a".repeat(64)}`;
-const comparison = (differs: boolean): Record<string, boolean> => ({
-  nativeFailed: false,
-  shellFailed: false,
+const comparison = (differs: boolean, failed?: "native" | "shell"): Record<string, boolean> => ({
+  nativeFailed: failed === "native",
+  shellFailed: failed === "shell",
   codeDiffers: differs,
   stdoutDiffers: false,
   stderrDiffers: false,
@@ -49,7 +62,13 @@ const comparison = (differs: boolean): Record<string, boolean> => ({
 function journal(
   hook: string,
   engine: string,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[],
+  calls: {
+    ageDays: number;
+    differs?: boolean;
+    complete?: boolean;
+    legacy?: boolean;
+    failed?: "native" | "shell";
+  }[],
 ): Uint8Array {
   const lines: string[] = [];
   for (const call of calls) {
@@ -62,7 +81,7 @@ function journal(
         ...common,
         timeMs: NOW - call.ageDays * DAY + 5,
         kind: "complete",
-        comparison: comparison(call.differs === true),
+        comparison: comparison(call.differs === true, call.failed),
         ...(call.legacy ? { payloadBase64: "e30=" } : {}),
       }),
     );
@@ -72,7 +91,7 @@ function journal(
 
 const run = (
   gating: boolean,
-  calls: { ageDays: number; differs?: boolean; complete?: boolean; legacy?: boolean }[] | undefined,
+  calls: Parameters<typeof journal>[2] | undefined,
   approved: string[] = [],
 ): Report =>
   shadow.buildReport({
@@ -189,4 +208,140 @@ it("las filas legacy con payloadBase64 se leen, se cuentan y nunca se devuelven"
   // A legacy divergence still turns the report red; the count is informational.
   expect(mixed.ok).toBe(false);
   expect(run(true, [...clean, { ageDays: 3, legacy: true }]).ok).toBe(true);
+});
+
+// Covers: R81
+it("un now fijo cierra la ventana y la tabla da fallas, primera y última fila y veredicto por lote", (): void => {
+  const report = run(true, [{ ageDays: 7 }, { ageDays: 1 }, { ageDays: -1 }]);
+  expect(report.rows[0]?.invocations).toBe(2);
+  expect(report.rows[0]?.firstMs).toBe(NOW - 7 * DAY);
+  expect(report.rows[0]?.lastMs).toBe(NOW - DAY);
+  expect(report.ok).toBe(true);
+
+  const table = shadow.formatMarkdown(report, { B: ["example"], X: ["missing"] });
+  expect(table).toContain(
+    `| ${new Date(NOW - 7 * DAY).toISOString()} | ${new Date(NOW - DAY).toISOString()} | - | green |`,
+  );
+  expect(table).toContain("| B | example | green |");
+  expect(table).toContain("| X | missing | red: no rows for missing");
+
+  const failed = run(true, [
+    { ageDays: 8 },
+    { ageDays: 2, failed: "native" },
+    { ageDays: 1, failed: "shell" },
+  ]);
+  expect(failed.rows[0]).toMatchObject({ nativeFailed: 1, shellFailed: 1, divergences: 2 });
+
+  // One red engine turns the whole batch red, even when the other engine is green.
+  const twoEngines = shadow.buildReport({
+    hooks: { example: { gating: true, impl: IMPL } },
+    journals: {
+      example: [
+        journal("example", "claude", [{ ageDays: 8 }, { ageDays: 1 }]),
+        journal("example", "pi", [{ ageDays: 8 }, { ageDays: 1, differs: true }]),
+      ],
+    },
+    engines: { example: ["claude", "pi"] },
+    approved: {},
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(shadow.formatMarkdown(twoEngines, { B: ["example"] })).toContain(
+    "| B | example | red: example [pi] |",
+  );
+});
+
+// Covers: R81
+it("con cierre por fila cada hook y engine se juzga a los 7 días de su primera fila", (): void => {
+  const perRow = (calls: Parameters<typeof journal>[2], gating = true): Report =>
+    shadow.buildReport({
+      hooks: { example: { gating, impl: IMPL } },
+      journals: { example: journal("example", "claude", calls) },
+      engines: { example: ["claude"] },
+      approved: {},
+      now: NOW,
+      windowDays: 7,
+      perRowClose: true,
+    });
+  // First row 9 d ago: the window closed 2 d ago, so the divergence 1 d ago does not count.
+  const closed = perRow([{ ageDays: 9 }, { ageDays: 5 }, { ageDays: 1, differs: true }]);
+  expect(closed.rows[0]).toMatchObject({ invocations: 2, divergences: 0, closesMs: NOW - 2 * DAY });
+  expect(closed.ok).toBe(true);
+  // First row 3 d ago: the window is still open, amber (not red) for a gating hook only.
+  const open = perRow([{ ageDays: 3 }, { ageDays: 1 }]);
+  expect(open.rows[0]?.status).toBe("amber");
+  expect(open.rows[0]?.problems).toEqual([]);
+  expect(open.rows[0]?.warnings).toEqual([
+    `window open until ${new Date(NOW + 4 * DAY).toISOString()}`,
+  ]);
+  expect(perRow([{ ageDays: 3 }], false).ok).toBe(true);
+});
+
+// Covers: R81
+it("una observación sin completar queda en ámbar y al cierre pasa a verde solo con causa, < 0,5 % y aislada", (): void => {
+  const LOST = 8.5;
+  const lostAt = (ageDays: number): string => new Date(NOW - ageDays * DAY).toISOString();
+  // 200 completed calls inside the row's window (9 to 3 days ago; it closes 2 days ago), so one
+  // lost observation is 1/201 < 0.5 %.
+  const traffic = Array.from({ length: 200 }, (_, at) => ({ ageDays: 9 - at * 0.03 }));
+  const report = (
+    lost: number[],
+    causes: Record<string, string>,
+    perRowClose = true,
+    calls = traffic,
+  ): Report =>
+    shadow.buildReport({
+      hooks: { example: { gating: true, impl: IMPL } },
+      journals: {
+        example: journal("example", "claude", [
+          ...calls,
+          ...lost.map((ageDays) => ({ ageDays, complete: false })),
+        ]),
+      },
+      engines: { example: ["claude"] },
+      approved: {},
+      now: NOW,
+      windowDays: 7,
+      perRowClose,
+      causes,
+    });
+  const cause = { [`example|claude|${lostAt(LOST)}`]: "interrupción probable" };
+
+  // Open window (clock mode): amber with its time, never red, never green.
+  const open = report([1], {}, false);
+  expect(open.rows[0]?.status).toBe("amber");
+  expect(open.status).toBe("amber");
+  expect(open.rows[0]?.warnings.join()).toContain(lostAt(1));
+  expect(shadow.formatMarkdown(open, { B: ["example"] })).toContain(
+    "| B | example | amber: example [claude] |",
+  );
+
+  // At the close: green with a recorded cause, red without one.
+  expect(report([LOST], cause).rows[0]?.status).toBe("green");
+  const unexplained = report([LOST], {});
+  expect(unexplained.rows[0]?.status).toBe("red");
+  expect(unexplained.rows[0]?.problems.join()).toContain("without a recorded cause");
+
+  // At the close: red when they reach 0.5 % of the calls, or when two fall within 10 minutes.
+  const few = report([LOST], cause, true, traffic.slice(0, 100));
+  expect(few.rows[0]?.problems.join()).toContain("% of calls");
+  const twin = LOST - 5 / 1440;
+  // 400 calls keep two lost observations under 0.5 %, so only the grouping turns the row red.
+  const grouped = report(
+    [LOST, twin],
+    { ...cause, [`example|claude|${lostAt(twin)}`]: "interrupción probable" },
+    true,
+    [...traffic, ...traffic],
+  );
+  expect(grouped.rows[0]?.status).toBe("red");
+  expect(grouped.rows[0]?.problems.join()).toContain("grouped");
+  expect(grouped.rows[0]?.problems.join()).not.toContain("% of calls");
+
+  // A begin 5 minutes before the row closes (2 days ago) is long lost by NOW: it counts, not
+  // hidden by the grace measured against the close.
+  const lastMinute = 2 + 5 / 1440;
+  const late = report([lastMinute], {});
+  expect(late.rows[0]?.pending).toBe(1);
+  expect(late.rows[0]?.status).toBe("red");
+  expect(late.rows[0]?.problems.join()).toContain(lostAt(lastMinute));
 });
