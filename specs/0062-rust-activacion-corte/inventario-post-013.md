@@ -38,7 +38,7 @@ Columnas:
 |---|---|---|---|---|---|
 | Envoltura de los 12 hooks portados (Claude) | `settings.json` lleva el bloque `native-runtime` en línea: una shell, un `$(…)` y `navori-rust`. Si sale con 3, 126 o 127, cae a `bash "$f"`. | Sí (PreToolUse Bash, Edit, Write y Agent) | sh/bash + subshell + `navori-rust` | S | **Dejar** en 0.13. Para 0.13.1, evaluar el comando directo al binario (pregunta a). |
 | Envoltura de los 6 hooks portados (Pi) | El bridge corre `bash .pi/navori/hooks/<hook>.sh`, que tiene el bloque con `--via-script`. | Sí (cada llamada de Pi) | bash (lee el `.sh` renderizado, de 898 a 3.525 líneas) + subshell + `navori-rust` | M (el bridge tiene que llamar al binario y conservar el respaldo) | **Portar en 0.13.1** (decidido): el bridge llama a `navori-rust hook` directo y cae a bash ante exit 3, 126 o 127, junto con `wip/pi-bridge-siblings-complete`. |
-| Journal de sombra (`journal.rs` 270, `shadow.rs` 340 → `tools rust-shadow begin/complete`; `packages/cli/src/lib/rust-shadow/`, 505 líneas sin tests y 1.293 con tests) | Registro de la ventana R81 y mecanismo con el que entran los portes nuevos y las re-firmas (modo `shadow` de `ported.json`, `hook.rs:427,468-515`). | Sí, pero solo en sombra | **2 × Node** por llamada (begin y complete), más el carril de bash en sombra (`shadow.rs:250`) | M (lista de archivos en la pregunta c) | **Borrar después de activar el lote C** (0.13.1) y hacer su `render --apply`, sin modo de depuración (decidido). Ver la nota del orden: los portes de 0.14 entran sin sombra o se portan antes del borrado. |
+| Journal de sombra (`journal.rs` 270, `shadow.rs` 340 → `tools rust-shadow begin/complete`; `packages/cli/src/lib/rust-shadow/`, 505 líneas sin tests y 1.293 con tests) | Registro de la ventana R81 y mecanismo con el que entran los portes nuevos y las re-firmas (modo `shadow` de `ported.json`, `hook.rs:427,468-515`). | Sí, pero solo en sombra | **2 × Node** por llamada (begin y complete), más el carril de bash en sombra (`shadow.rs:250`) | M (lista de archivos en la pregunta c) | **Borrar en 0.14**, sin modo de depuración (decidido), después de activar el lote C (0.13.1) y después de portar y activar `routing-watch` y `bash-outcome-watch` con su propia ventana de sombra. |
 | `routing-watch` + partial `bash-outcome.sh` (444 + 494 líneas) | Avisos de ruteo y evidencia de bash. | **Sí, el único hook en shell que corre en cada llamada**: PostToolUse Bash, Edit, Write, NotebookEdit, Agent y Task (Claude) y `tool_result` en el padre de Pi | Siempre: `git rev-parse` y `jq`. A veces: `node -e`, al registrar la evidencia de bash de un plan (`bash-outcome.sh:122-126`, `:284-288`), al armar un aviso (`routing-watch.sh:240`) o en Codex (`:324`). Con auditoría: `navori audit --record-metadata`. Estimado en `rust-areas.mjs:162`: unos 76 ms. | L (paridad byte a byte con `lib/plan/evidence.ts`; `plan_evidence_parity.rs` ya cubre una parte) | **Portar** (0.14, #1701): es el único hook caliente que todavía lanza Node en uso normal. |
 | `bash-outcome-watch` (25 líneas + el mismo partial) | Evidencia de un Bash que falló. | **No**: solo PostToolUseFailure con matcher Bash (Claude). En Pi no tiene binding (`.pi/navori.json` solo enlaza `managed-drift-watch` y `routing-watch` en `tool_result`). | `node -e` para el aviso (`:23`) + el partial | S, sale con el de routing-watch | **Portar** junto con routing-watch (comparten el partial y su paridad). |
 | `managed-drift-watch` (334 líneas) | Aviso de deriva de bloques gestionados. | Sí (PostToolUse Bash, Edit, Write y NotebookEdit; `tool_result` de Pi) | `git rev-parse` + `shasum`/`sha1sum` sobre los archivos gestionados (de 15 a 35 ms) | M (el hash de bloque ya es nativo en navori-core; zona crítica) | **Dejar** (decidido): solo se porta con un motivo concreto. Sigue en `PERMANENT_SHELL_HOOKS`. |
@@ -95,7 +95,7 @@ Columnas:
 
 | Pieza | Líneas | ¿Se puede borrar? |
 |---|---|---|
-| `lib/rust-shadow/` + `tools rust-shadow` (journal de sombra, TS) y `journal.rs` (270) / `shadow.rs` (340) (Rust) | 505 TS sin tests (1.293 con tests) + 610 Rust | **Sí**, después de activar el lote C y hacer su `render --apply` (decidido: sin modo de depuración). El borrado también toca `hook.rs` (`use_shadow`, `Comparison`), el modo de `native-hook.ts`, `cutover-check.mjs:26,108`, `cli-surface.golden.json:259`, `tools.ts:6,145`, `crates/navori-cli/tests/{hooks,shadow,shadow_deadline}.rs`, `hook-shadow-report.mjs:4-5` y `CONTRIBUTING.md:119-129`. |
+| `lib/rust-shadow/` + `tools rust-shadow` (journal de sombra, TS) y `journal.rs` (270) / `shadow.rs` (340) (Rust) | 505 TS sin tests (1.293 con tests) + 610 Rust | **Sí**, en 0.14 (decidido: sin modo de depuración), después de activar el lote C y después de portar y activar `routing-watch` y `bash-outcome-watch` en sombra. El borrado también toca `hook.rs` (`use_shadow`, `Comparison`), el modo de `native-hook.ts`, `cutover-check.mjs:26,108`, `cli-surface.golden.json:259`, `tools.ts:6,145`, `crates/navori-cli/tests/{hooks,shadow,shadow_deadline}.rs`, `hook-shadow-report.mjs:4-5` y `CONTRIBUTING.md:119-129`. |
 | Herramientas de cierre (`hook-shadow-report.mjs`, `bench-hooks --impl shell`) | unas 1.500 | Sí, cuando ya no haya hooks en sombra (o dejarlas para el próximo port). |
 | `commands/*.ts` y `lib/*` de los comandos portados | unas 24.000 | **No** en 0.13.x: el binario delega en ellos las formas que no modela y son el oráculo de paridad. Se borran por comando cuando desaparezca la última rama `None` → delegar. |
 | `.sh` de los 12 hooks y sus partials | 4.633 + 3.195 (fuente) | **No**: son el respaldo y la entrada de integridad. Borrarlos exige otro modelo (implementación embebida en el binario) y una historia para instalar sin binario. |
@@ -111,20 +111,20 @@ Decidido por Ulises (`decisiones-ulises/2026-11-20-post-013-orden`):
    - activación del lote C;
    - `subagent-stop-handoff`, según el punto 8 (#350).
    - **La sombra se mantiene hasta acá.**
-3. **0.14 (a decidir)**:
-   - borrar el journal de sombra (TS y Rust) y sus herramientas, después de activar el lote C;
-   - port de `routing-watch` + `bash-outcome-watch` (L, #1701);
-   - `gate foreign` y `audit` (M).
+3. **0.14**, en este orden:
+   1. port de `routing-watch` + `bash-outcome-watch` (L, #1701), que entra en sombra con su propia ventana de observación;
+   2. activación de los dos con la evidencia de esa ventana;
+   3. **recien después**, borrar el journal de sombra (TS y Rust) y sus herramientas;
+   4. `gate foreign` y `audit` (M).
 4. **`managed-drift-watch`**: solo con un motivo concreto.
 5. **Lo demás** (`init`, `add`, `configure`, `update`, `refresh`, `receipt`): por demanda.
 
-**Nota sobre la sombra y 0.14** (de la revisión de S3): el modo `shadow` es como hoy entran los portes nuevos y las re-firmas con ventana de observación. Si en 0.14 se borra el journal, los portes de ese release (`routing-watch`, `bash-outcome-watch`) entran sin sombra, cubiertos solo por R83 (replay, fuzz, oráculo y R17). La otra opción es portarlos antes del borrado. Ulises decide cuál al planificar 0.14.
+**Nota sobre la sombra y 0.14** (de la revisión de S3; decidido por Ulises el 20 nov): el modo `shadow` es como entran los portes nuevos con ventana de observación. Por eso `routing-watch` y `bash-outcome-watch` se portan y se activan ANTES de borrar el journal; el borrado va después de su activación.
 
 ## Preguntas abiertas
 
 - El `navori` del PATH después de 0.13: pendiente; S2 verifica si el launcher de npm arranca Node. Si es el CLI TS, la sonda `navori --version` y los ayudantes en proceso de los hooks lanzan Node.
-- 0.14: ¿los portes de `routing-watch` y `bash-outcome-watch` van antes del borrado de la sombra, o entran sin sombra?
 - El punto 8 (#350), que define cuándo entra `subagent-stop-handoff`.
 - Repetir las mediciones de arranque en una ventana limpia antes del PR del bridge.
 
-Cerradas: la sombra se borra después del lote C, sin modo de depuración; el bridge de Pi va directo en 0.13.1.
+Cerradas: la sombra no queda como modo de depuración; en 0.14 se borra después de portar y activar `routing-watch` y `bash-outcome-watch`; el bridge de Pi va directo en 0.13.1.
