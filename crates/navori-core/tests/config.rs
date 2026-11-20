@@ -113,3 +113,27 @@ fn claude_plugins_rejects_bad_ids_and_non_boolean_values() {
         );
     }
 }
+
+// Covers: R33
+#[test]
+fn claude_plugins_ids_follow_js_whitespace_not_unicode_whitespace() {
+    // JS `\s` includes U+FEFF, U+00A0 and U+2028, but not U+0085 or U+180E.
+    for value in [
+        r#"{"a\ufeff@m":true}"#,
+        r#"{"a\u00a0@m":true}"#,
+        r#"{"a\u2028@m":true}"#,
+        r#"{"a@m\u00a0":true}"#,
+    ] {
+        assert_eq!(
+            config::read(with_claude_plugins(value).as_bytes()).err(),
+            Some(Delegate::Schema),
+            "{value}"
+        );
+    }
+    for value in [r#"{"a\u0085@m":true}"#, r#"{"a\u180e@m":false}"#] {
+        assert!(
+            config::read(with_claude_plugins(value).as_bytes()).is_ok(),
+            "{value}"
+        );
+    }
+}
