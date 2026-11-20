@@ -101,7 +101,7 @@ jobs:
         with:
           pattern: navori-*
           path: binaries
-      - name: Assemble navori and @navori/<os>-<cpu> without publishing
+      - name: Assemble navori and navori-<os>-<cpu> without publishing
         run: |
           # navori-legacy/ holds the tarball and its pin; the binaries' artifacts are navori-<os>-<cpu>/.
           node scripts/js/dist-assemble.mjs --out npm-packages --pack \

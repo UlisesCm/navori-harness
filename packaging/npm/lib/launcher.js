@@ -20,7 +20,7 @@ const NO_NATIVE_HOOK = 127;
  */
 function platformPackage(platform = process.platform, arch = process.arch) {
   const key = `${platform}-${arch}`;
-  return PLATFORMS.includes(key) ? `@navori/${key}` : undefined;
+  return PLATFORMS.includes(key) ? `navori-${key}` : undefined;
 }
 
 /**

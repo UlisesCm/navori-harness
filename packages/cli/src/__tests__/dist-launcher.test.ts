@@ -169,7 +169,7 @@ describe("lanzador del paquete navori", () => {
       exit: 127,
     });
     expect(launcher.callerEnv({ NODE_PATH: "/a/.pnpm/b:/a/.pnpm" })).toEqual({});
-    expect(launcher.platformPackage("linux", "x64")).toBe("@navori/linux-x64");
+    expect(launcher.platformPackage("linux", "x64")).toBe("navori-linux-x64");
     expect(launcher.platformPackage("win32", "x64")).toBeUndefined();
     expect(launcher.PLATFORMS).toEqual(assemble.PLATFORMS);
   });
@@ -228,14 +228,14 @@ describe("postinstall", () => {
 
 describe("ensamblado", () => {
   // Covers: R21, R22
-  it("declara los cuatro paquetes @navori y rechaza un legacy que no coincide con su integrity", () => {
+  it("declara los cuatro paquetes navori-<os>-<cpu> y rechaza un legacy que no coincide con su integrity", () => {
     const ts = { license: "MIT", engines: { node: ">=22.12" } };
     const main = assemble.mainManifest("1.2.3", ts);
     expect(main.optionalDependencies).toEqual({
-      "@navori/darwin-arm64": "1.2.3",
-      "@navori/darwin-x64": "1.2.3",
-      "@navori/linux-arm64": "1.2.3",
-      "@navori/linux-x64": "1.2.3",
+      "navori-darwin-arm64": "1.2.3",
+      "navori-darwin-x64": "1.2.3",
+      "navori-linux-arm64": "1.2.3",
+      "navori-linux-x64": "1.2.3",
     });
     expect(main.bin).toEqual({
       navori: "bin/navori",
@@ -244,7 +244,7 @@ describe("ensamblado", () => {
     expect(main.scripts).toEqual({ postinstall: "node postinstall.js" });
     expect(main.files).toContain("legacy");
     expect(assemble.platformManifest("linux-arm64", "1.2.3", ts)).toMatchObject({
-      name: "@navori/linux-arm64",
+      name: "navori-linux-arm64",
       os: ["linux"],
       cpu: ["arm64"],
     });

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
  *   <out>/navori/                 `navori`: JS bins, postinstall, `optionalDependencies` on the four
  *                                 platform packages and `legacy/`, the last TS release verified
  *                                 against its pinned `integrity` (`packaging/legacy.json`)
- *   <out>/navori-<os>-<cpu>/      `@navori/<os>-<cpu>`: the binary as `bin/navori`, with `os`/`cpu`
+ *   <out>/navori-<os>-<cpu>/      `navori-<os>-<cpu>`: the binary as `bin/navori`, with `os`/`cpu`
  *
  *   node scripts/js/dist-assemble.mjs --out <dir> --binary linux-x64=<path> [--binary ...]
  *                                     [--legacy-tarball <tgz>] [--legacy-pin <json>] [--pack]
@@ -44,11 +44,11 @@ const PACKAGING = join(REPO_ROOT, "packaging");
 /** The binary platforms (R21), named as `process.platform`-`process.arch`. */
 export const PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
 
-/** The package scope of the platform packages (D51, Q24). */
-export const SCOPE = "@navori";
+/** The npm name of a platform package (D51; Plan B of Q24: unscoped, no `navori` org). */
+export const platformPackage = (platform) => `navori-${platform}`;
 
-/** The only place the legacy package's name lives. Plan B of Q24 is `navori-legacy`. */
-export const LEGACY_PACKAGE = "@navori/legacy";
+/** The only place the legacy package's name lives (Plan B of Q24). */
+export const LEGACY_PACKAGE = "navori-legacy";
 
 /** The entry the launcher and `delegate.rs` run (`<pkg>/legacy/dist/index.js`), onto the real one. */
 export const LEGACY_SHIM = `#!/usr/bin/env node
@@ -280,7 +280,7 @@ export function mainManifest(version, ts) {
     bin: { navori: "bin/navori", "navori-native-hook": "bin/navori-native-hook" },
     files: ["bin", "lib", "postinstall.js", "legacy", "README.md"],
     scripts: { postinstall: "node postinstall.js" },
-    optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [`${SCOPE}/${p}`, version])),
+    optionalDependencies: Object.fromEntries(PLATFORMS.map((p) => [platformPackage(p), version])),
     engines: ts.engines,
   };
 }
@@ -289,7 +289,7 @@ export function mainManifest(version, ts) {
 export function platformManifest(platform, version, ts) {
   const [os, cpu] = platform.split("-");
   return {
-    name: `${SCOPE}/${platform}`,
+    name: platformPackage(platform),
     version,
     description: `The navori binary for ${platform}.`,
     license: ts.license,
