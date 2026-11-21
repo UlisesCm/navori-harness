@@ -115,12 +115,19 @@ fn run_args(args: &[OsString]) -> Option<ExitCode> {
         return None;
     }
     let options = parse_leaf(rest, &["cwd"], &["strict"])?;
-    if !options.positionals.is_empty() || !plain_output() {
+    if !options.positionals.is_empty() {
         return None;
     }
     let process_cwd = std::env::current_dir().ok()?;
     let cwd = navori_core::posix::resolve(process_cwd.to_str()?, options.get("cwd").unwrap_or(""));
-    let Some(out) = doctor(&cwd, options.flag("strict"), &process_cwd) else {
+    // A terminal (colors, spinners) delegates too: one path, so the note covers every delegation
+    // of text `doctor` (`--json` and other argv shapes return above and never print it).
+    let native = if plain_output() {
+        doctor(&cwd, options.flag("strict"), &process_cwd)
+    } else {
+        None
+    };
+    let Some(out) = native else {
         // The frozen TS that answers instead has no such note; the binary is what knows the package.
         let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
         let note = js_launcher_note_before_delegating(&cwd, &env, &process_cwd);
