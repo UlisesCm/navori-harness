@@ -25,6 +25,7 @@ interface E2e {
     notes?: string[];
   }) => string;
   throwIfInterrupted: (signal: string | null, trappedStatus?: number | null) => void;
+  verifyGates: (mode: string) => boolean;
 }
 
 interface Registration {
@@ -148,6 +149,12 @@ describe("dist-e2e: gates", () => {
     expect(() => e2e.throwIfInterrupted(null, 130)).toThrow(/SIGINT \(exit 130\)/);
     expect(() => e2e.throwIfInterrupted(null, 143)).toThrow(/SIGTERM \(exit 143\)/);
     expect(() => e2e.throwIfInterrupted(null, 1)).not.toThrow();
+  });
+
+  it("activation-verify bloquea salvo con el guard en sombra", () => {
+    expect(e2e.verifyGates("shadow")).toBe(false);
+    expect(e2e.verifyGates("active")).toBe(true);
+    expect(e2e.verifyGates("missing")).toBe(true);
   });
 });
 

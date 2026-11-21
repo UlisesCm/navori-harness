@@ -167,6 +167,17 @@ export function throwIfInterrupted(signal, trappedStatus = null) {
   if (trappedStatus === 143) throw new Error("interrupted by SIGTERM (exit 143)");
 }
 
+/**
+ * Whether activation-verify gates the run for a guard in `mode` (from the package's ported.json):
+ * everything but `shadow` gates, so a guard missing from the manifest is red too.
+ *
+ * @param {string} mode
+ * @returns {boolean}
+ */
+export function verifyGates(mode) {
+  return mode !== "shadow";
+}
+
 // ---------------------------------------------------------------- inner mode (container)
 
 /**
@@ -291,16 +302,15 @@ function inner(scenario, { version, alias }) {
     false,
   );
 
-  // Gate unless the guard is still in shadow: a guard missing from the package manifest is red too.
-  const verifyGates = mode !== "shadow";
+  const gates = verifyGates(mode);
   // The project renders both engines (config.engines above): a guard absent from either fails.
   const verify = run(["node", "/e2e/scripts/js/activation-verify.mjs", "--root", project, "--manifest", manifestPath, "--hook", "guard-destructive", "--engine", "claude", "--engine", "pi", "--runs", "10", "--json"]);
   try {
     const report = JSON.parse(verify.stdout);
     facts.activationVerify = report.rows.map((r) => ({ engine: r.engine, ok: r.ok, p50Ms: r.p50Ms, problems: r.problems, notes: r.notes ?? [] }));
-    check(`activation-verify on guard-destructive (mode ${mode})`, report.rows.every((r) => r.ok), report.rows.map(verifyRowDetail).join(" | "), verifyGates);
+    check(`activation-verify on guard-destructive (mode ${mode})`, report.rows.every((r) => r.ok), report.rows.map(verifyRowDetail).join(" | "), gates);
   } catch {
-    check("activation-verify on guard-destructive", false, `${verify.stderr}`.trim().slice(-300), verifyGates);
+    check("activation-verify on guard-destructive", false, `${verify.stderr}`.trim().slice(-300), gates);
   }
 
   const doctor = run(["navori", "doctor"]);
