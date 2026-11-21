@@ -27,14 +27,20 @@
  *      binary itself (`bench-hooks --impl rust`).
  * Calls run in a scratch copy of the hook trees (bench-hooks sandbox), never in `<root>`.
  *
- * Usage: node scripts/js/activation-verify.mjs [--root DIR] [--hook ID ...] [--runs N] [--json]
+ * Registrations: Claude from `<root>/.claude/settings.json`; Pi from the rendered
+ * `<root>/.pi/navori.json`, else from `packages/cli/src/engines/pi/hook-bindings.ts` (this repo).
+ * `--manifest` points at another `ported.json` (an installed package ships it under
+ * `node_modules/navori/legacy/crates/ported.json`). Without `navori-rust` on PATH every hook
+ * fails with that cause, and the calls still run (dist-e2e documents that state).
+ *
+ * Usage: node scripts/js/activation-verify.mjs [--root DIR] [--manifest FILE] [--hook ID ...] [--runs N] [--json]
  * Exit: 0 all hooks pass, 1 a hook fails, 2 usage or setup error.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSandbox, readRegistrations, writePayload } from "./bench-hooks.mjs";
+import { createSandbox, parseClaudeRegistrations, parsePiRegistrations, writePayload } from "./bench-hooks.mjs";
 
 /** R17 p95 cap for a short command (decisiones-ulises/2026-11-19); informative here. */
 export const CAP_MS = 12;
@@ -46,7 +52,7 @@ const FAILED = /native runtime failed/;
  * @returns {{ root: string, hooks: string[], runs: number, json: boolean }}
  */
 export function parseArgs(argv) {
-  const out = { root: process.cwd(), hooks: /** @type {string[]} */ ([]), runs: 30, json: false };
+  const out = { root: process.cwd(), manifest: /** @type {string | undefined} */ (undefined), hooks: /** @type {string[]} */ ([]), runs: 30, json: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -56,6 +62,7 @@ export function parseArgs(argv) {
       return next;
     };
     if (arg === "--root") out.root = resolve(value());
+    else if (arg === "--manifest") out.manifest = resolve(value());
     else if (arg === "--hook") out.hooks.push(value().replace(/\.sh$/, ""));
     else if (arg === "--runs") {
       const n = Number(value());
@@ -90,6 +97,44 @@ export function wrapperProblems(text, label) {
   const block = text.slice(text.indexOf("navori:native-runtime start"), text.indexOf("navori:native-runtime end"));
   if (/--shadow\b/.test(block)) problems.push(`${label}: still passes --shadow (render --apply pending?)`);
   return problems;
+}
+
+/** Pi events of the rendered bindings (`.pi/navori.json`), as bench-hooks names them. */
+const PI_EVENTS = { tool_call: "PreToolUse", tool_result: "PostToolUse", session_shutdown: "SessionEnd" };
+const PI_TOOLS = { bash: "Bash", edit: "Edit", write: "Write" };
+
+/**
+ * Pi registrations of a rendered `.pi/navori.json`.
+ *
+ * @param {{ hooks?: Array<{ script?: string, path?: string, on?: string, tools?: string[] }> }} runtime
+ * @returns {import("./bench-hooks.mjs").Registration[]}
+ */
+export function piRuntimeRegistrations(runtime) {
+  return (runtime.hooks ?? []).flatMap((row) => {
+    const event = PI_EVENTS[/** @type {keyof typeof PI_EVENTS} */ (row.on ?? "")];
+    if (event === undefined || typeof row.path !== "string") return [];
+    const tools = (row.tools ?? []).map((t) => PI_TOOLS[/** @type {keyof typeof PI_TOOLS} */ (t)] ?? t);
+    return [{ engine: "pi", event, matcher: tools.length > 0 ? tools.join("|") : null, command: `bash "${row.path}"` }];
+  });
+}
+
+/**
+ * Claude and Pi registrations of a checkout or an installed project.
+ *
+ * @param {string} root
+ */
+export function registrationsOf(root) {
+  const settings = join(root, ".claude", "settings.json");
+  const runtime = join(root, ".pi", "navori.json");
+  const bindings = join(root, "packages", "cli", "src", "engines", "pi", "hook-bindings.ts");
+  return [
+    ...(existsSync(settings) ? parseClaudeRegistrations(JSON.parse(readFileSync(settings, "utf8"))) : []),
+    ...(existsSync(runtime)
+      ? piRuntimeRegistrations(JSON.parse(readFileSync(runtime, "utf8")))
+      : existsSync(bindings)
+        ? parsePiRegistrations(readFileSync(bindings, "utf8"), (script) => existsSync(join(root, ".pi", "navori", "hooks", `${script}.sh`)))
+        : []),
+  ];
 }
 
 /**
@@ -162,19 +207,19 @@ function timeOnce(command, payload, cwd, env) {
  * @param {ReturnType<typeof parseArgs>} args
  */
 export function verify(args) {
-  const manifestBytes = readFileSync(join(args.root, "crates", "ported.json"));
+  const manifestBytes = readFileSync(args.manifest ?? join(args.root, "crates", "ported.json"));
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   /** @type {Record<string, { mode?: string }>} */
   const ported = manifest.hooks ?? {};
   const hooks = args.hooks.length > 0 ? args.hooks : Object.keys(ported).filter((id) => ported[id].mode === "active");
-  if (hooks.length === 0) throw new Error("no active hook in crates/ported.json and no --hook given");
+  if (hooks.length === 0) throw new Error("no active hook in the manifest and no --hook given");
   const which = spawnSync("sh", ["-c", "command -v navori-rust"], { encoding: "utf8" });
-  const binary = (which.stdout ?? "").trim();
-  if (which.status !== 0 || binary === "") throw new Error("navori-rust is not on PATH: install it first");
-  const version = spawnSync(binary, ["--version"], { encoding: "utf8" }).stdout.trim();
-  const embedsManifest = readFileSync(binary).includes(manifestBytes);
+  const found = (which.stdout ?? "").trim();
+  const binary = which.status === 0 && found !== "" ? found : null;
+  const version = binary === null ? null : spawnSync(binary, ["--version"], { encoding: "utf8" }).stdout.trim();
+  const embedsManifest = binary !== null && readFileSync(binary).includes(manifestBytes);
 
-  const registrations = readRegistrations(args.root).filter((reg) => reg.engine !== "codex");
+  const registrations = registrationsOf(args.root);
   const sandbox = createSandbox(args.root);
   const rows = [];
   try {
@@ -187,7 +232,8 @@ export function verify(args) {
       for (const reg of regs) {
         const problems = [];
         if (ported[hook]?.mode !== "active") problems.push(`ported.json mode is ${ported[hook]?.mode ?? "missing"}, not active`);
-        if (!embedsManifest) problems.push("navori-rust does not embed this crates/ported.json: reinstall the binary");
+        if (binary === null) problems.push("navori-rust is not on PATH");
+        else if (!embedsManifest) problems.push("navori-rust does not embed this crates/ported.json: reinstall the binary");
         const script = reg.engine === "claude" ? `.claude/hooks/${hook}.sh` : `.pi/navori/hooks/${hook}.sh`;
         const scriptPath = join(args.root, script);
         if (!existsSync(scriptPath)) problems.push(`${script} missing`);
@@ -250,8 +296,8 @@ export function main(argv) {
   if (args.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   else {
     process.stdout.write(
-      `navori-rust: ${result.binary} (${result.version})\n` +
-        `embeds ${result.root}/crates/ported.json: ${result.embedsManifest ? "yes" : "NO (reinstall)"}\n`,
+      `navori-rust: ${result.binary === null ? "NOT ON PATH" : `${result.binary} (${result.version})`}\n` +
+        `embeds the manifest: ${result.embedsManifest ? "yes" : "NO"}\n`,
     );
     for (const row of result.rows) {
       const time = row.p50Ms === undefined ? "" : ` p50=${row.p50Ms} ms p95=${row.p95Ms} ms n=${row.runs}`;
