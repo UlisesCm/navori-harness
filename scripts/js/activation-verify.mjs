@@ -29,15 +29,22 @@
  *
  * Registrations: Claude from `<root>/.claude/settings.json`; Pi from the rendered
  * `<root>/.pi/navori.json`, else from `packages/cli/src/engines/pi/hook-bindings.ts` (this repo).
+ * A registration whose script is missing is kept, so the hook fails on it instead of skipping
+ * that engine. `--engine` (repeatable) makes a hook without a registration in that engine fail;
+ * without it, a hook missing from an engine is reported as a note.
+ * A call that does not finish (`--call-timeout`, default 30 s, or a signal) fails the hook: a hung
+ * native must not read as an empty "pass".
  * `--manifest` points at another `ported.json` (an installed package ships it under
  * `node_modules/navori/legacy/crates/ported.json`). Without `navori-rust` on PATH every hook
  * fails with that cause, and the calls still run (dist-e2e documents that state).
  *
- * Usage: node scripts/js/activation-verify.mjs [--root DIR] [--manifest FILE] [--hook ID ...] [--runs N] [--json]
+ * Usage: node scripts/js/activation-verify.mjs [--root DIR] [--manifest FILE] [--hook ID ...] [--engine claude|pi ...]
+ *        [--runs N] [--call-timeout MS] [--json]
  * Exit: 0 all hooks pass, 1 a hook fails, 2 usage or setup error.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSandbox, parseClaudeRegistrations, parsePiRegistrations, writePayload } from "./bench-hooks.mjs";
@@ -49,12 +56,23 @@ export const DEFERRED = /native runtime unavailable or deferred|^navori-rust: ho
 /** The wrapper's fail-closed `ask` after a native crash or an unknown exit (stdout, exit 0). */
 export const FAILED = /native runtime failed/;
 
+/** Engines a hook can be registered in. */
+export const ENGINES = ["claude", "pi"];
+
 /**
  * @param {string[]} argv
- * @returns {{ root: string, manifest: string | undefined, hooks: string[], runs: number, json: boolean }}
+ * @returns {{ root: string, manifest: string | undefined, hooks: string[], engines: string[], runs: number, callTimeoutMs: number, json: boolean }}
  */
 export function parseArgs(argv) {
-  const out = { root: process.cwd(), manifest: /** @type {string | undefined} */ (undefined), hooks: /** @type {string[]} */ ([]), runs: 30, json: false };
+  const out = {
+    root: process.cwd(),
+    manifest: /** @type {string | undefined} */ (undefined),
+    hooks: /** @type {string[]} */ ([]),
+    engines: /** @type {string[]} */ ([]),
+    runs: 30,
+    callTimeoutMs: 30_000,
+    json: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -66,7 +84,15 @@ export function parseArgs(argv) {
     if (arg === "--root") out.root = resolve(value());
     else if (arg === "--manifest") out.manifest = resolve(value());
     else if (arg === "--hook") out.hooks.push(value().replace(/\.sh$/, ""));
-    else if (arg === "--runs") {
+    else if (arg === "--engine") {
+      const engine = value();
+      if (!ENGINES.includes(engine)) throw new Error(`--engine must be one of: ${ENGINES.join(", ")}`);
+      if (!out.engines.includes(engine)) out.engines.push(engine);
+    } else if (arg === "--call-timeout") {
+      const n = Number(value());
+      if (!Number.isInteger(n) || n < 1) throw new Error("--call-timeout needs a positive integer (ms)");
+      out.callTimeoutMs = n;
+    } else if (arg === "--runs") {
       const n = Number(value());
       if (!Number.isInteger(n) || n < 1) throw new Error("--runs needs a positive integer");
       out.runs = n;
@@ -134,7 +160,7 @@ export function registrationsOf(root) {
     ...(existsSync(runtime)
       ? piRuntimeRegistrations(JSON.parse(readFileSync(runtime, "utf8")))
       : existsSync(bindings)
-        ? parsePiRegistrations(readFileSync(bindings, "utf8"), (script) => existsSync(join(root, ".pi", "navori", "hooks", `${script}.sh`)))
+        ? parsePiRegistrations(readFileSync(bindings, "utf8"))
         : []),
   ];
 }
@@ -166,19 +192,76 @@ function percentile(values, p) {
 }
 
 /**
+ * Why a call did not finish with an exit code, or null when it did.
+ *
+ * @param {{ status: number | null, signal: NodeJS.Signals | null, error?: Error }} run
+ * @param {number} timeoutMs
+ * @returns {string | null}
+ */
+export function unfinished(run, timeoutMs) {
+  if (run.status !== null) return null;
+  const code = /** @type {{ code?: string } | undefined} */ (run.error)?.code;
+  if (code === "ETIMEDOUT") return `did not finish within ${timeoutMs} ms`;
+  if (run.signal !== null) return `killed by ${run.signal}`;
+  return `did not run (${run.error?.message ?? "no exit code"})`;
+}
+
+/**
+ * `bash -c script` bounded by `timeoutMs`. The call runs in its own process group with its
+ * output in files, not pipes: a hung grandchild (the native under the wrapper's `$(...)`) would
+ * otherwise hold the pipe open and keep spawnSync waiting past the timeout. The whole group is
+ * killed afterwards, so nothing it started outlives the check.
+ *
+ * @param {string} script
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @param {number} timeoutMs
+ */
+function bashBounded(script, cwd, env, timeoutMs) {
+  const dir = mkdtempSync(join(tmpdir(), "activation-verify-"));
+  const outPath = join(dir, "stdout");
+  const errPath = join(dir, "stderr");
+  const out = openSync(outPath, "w");
+  const err = openSync(errPath, "w");
+  try {
+    const run = spawnSync("bash", ["-c", script], {
+      cwd,
+      env,
+      stdio: ["ignore", out, err],
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+      detached: true,
+    });
+    if (typeof run.pid === "number" && run.pid > 0) {
+      try {
+        process.kill(-run.pid, "SIGKILL");
+      } catch {
+        // ESRCH: the group already exited.
+      }
+    }
+    return {
+      status: run.status,
+      unfinished: unfinished(run, timeoutMs),
+      stdout: readFileSync(outPath, "utf8"),
+      stderr: readFileSync(errPath, "utf8"),
+    };
+  } finally {
+    closeSync(out);
+    closeSync(err);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * @param {string} command
  * @param {string} payload
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
+ * @param {number} timeoutMs
  */
-function runOnce(command, payload, cwd, env) {
-  const run = spawnSync("bash", ["-c", 'bash -c "$VERIFY_CMD" <"$VERIFY_PAYLOAD"'], {
-    cwd,
-    env: { ...env, VERIFY_CMD: command, VERIFY_PAYLOAD: payload },
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-  return { code: run.status, stdout: run.stdout ?? "", stderr: run.stderr ?? "" };
+function runOnce(command, payload, cwd, env, timeoutMs) {
+  const run = bashBounded('bash -c "$VERIFY_CMD" <"$VERIFY_PAYLOAD"', cwd, { ...env, VERIFY_CMD: command, VERIFY_PAYLOAD: payload }, timeoutMs);
+  return { code: run.status, unfinished: run.unfinished, stdout: run.stdout, stderr: run.stderr };
 }
 
 /**
@@ -188,19 +271,18 @@ function runOnce(command, payload, cwd, env) {
  * @param {string} payload
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
+ * @param {number} timeoutMs
  */
-function timeOnce(command, payload, cwd, env) {
+function timeOnce(command, payload, cwd, env, timeoutMs) {
   const { LC_ALL, ...rest } = env;
-  const run = spawnSync(
-    "bash",
-    ["-c", 'TIMEFORMAT="%3R"; time bash -c "$VERIFY_CMD" <"$VERIFY_PAYLOAD" >/dev/null 2>/dev/null'],
-    {
-      cwd,
-      env: { ...rest, ...(LC_ALL ? { LANG: LC_ALL } : {}), LC_NUMERIC: "C", VERIFY_CMD: command, VERIFY_PAYLOAD: payload },
-      encoding: "utf8",
-    },
+  const run = bashBounded(
+    'TIMEFORMAT="%3R"; time bash -c "$VERIFY_CMD" <"$VERIFY_PAYLOAD" >/dev/null 2>/dev/null',
+    cwd,
+    { ...rest, ...(LC_ALL ? { LANG: LC_ALL } : {}), LC_NUMERIC: "C", VERIFY_CMD: command, VERIFY_PAYLOAD: payload },
+    timeoutMs,
   );
-  const match = /(\d+\.\d+)\s*$/.exec(run.stderr ?? "");
+  if (run.unfinished !== null) throw new Error(`timed call ${run.unfinished}`);
+  const match = /(\d+\.\d+)\s*$/.exec(run.stderr);
   if (!match) throw new Error(`cannot read time output for: ${command}\n${run.stderr}`);
   return Number(match[1]) * 1000;
 }
@@ -218,7 +300,10 @@ export function verify(args) {
   const which = spawnSync("sh", ["-c", "command -v navori-rust"], { encoding: "utf8" });
   const found = (which.stdout ?? "").trim();
   const binary = which.status === 0 && found !== "" ? found : null;
-  const version = binary === null ? null : spawnSync(binary, ["--version"], { encoding: "utf8" }).stdout.trim();
+  const version =
+    binary === null
+      ? null
+      : bashBounded('"$VERIFY_BIN" --version', args.root, { ...process.env, VERIFY_BIN: binary }, args.callTimeoutMs).stdout.trim();
   const embedsManifest = binary !== null && readFileSync(binary).includes(manifestBytes);
 
   const registrations = registrationsOf(args.root);
@@ -230,6 +315,17 @@ export function verify(args) {
       if (regs.length === 0) {
         rows.push({ hook, engine: "-", ok: false, problems: ["not registered on PreToolUse in Claude or Pi"] });
         continue;
+      }
+      const absent = ENGINES.filter((engine) => !regs.some((reg) => reg.engine === engine));
+      for (const engine of absent) {
+        const required = args.engines.includes(engine);
+        rows.push({
+          hook,
+          engine,
+          ok: !required,
+          problems: required ? [`not registered on PreToolUse in ${engine} (--engine ${engine})`] : [],
+          notes: required ? [] : [`not registered on PreToolUse in ${engine}: not checked there`],
+        });
       }
       for (const reg of regs) {
         const problems = [];
@@ -244,27 +340,40 @@ export function verify(args) {
 
         const payload = writePayload(sandbox, "Bash", reg);
         const env = sandbox.env("absent");
-        const forced = runOnce(reg.command, payload, sandbox.project, { ...env, NAVORI_HOOK_IMPL: "rust" });
+        const forced = runOnce(reg.command, payload, sandbox.project, { ...env, NAVORI_HOOK_IMPL: "rust" }, args.callTimeoutMs);
+        if (forced.unfinished !== null) problems.push(`native call (NAVORI_HOOK_IMPL=rust) ${forced.unfinished}`);
         if (DEFERRED.test(forced.stderr)) problems.push("native deferred or unavailable (NAVORI_HOOK_IMPL=rust)");
         if (FAILED.test(forced.stdout)) problems.push("native runtime failed (fail-closed ask)");
-        const plain = runOnce(reg.command, payload, sandbox.project, env);
+        const plain = runOnce(reg.command, payload, sandbox.project, env, args.callTimeoutMs);
+        if (plain.unfinished !== null) problems.push(`default call ${plain.unfinished}`);
         if (DEFERRED.test(plain.stderr)) problems.push("native deferred on the default call");
         if (plain.code !== forced.code || plain.stdout !== forced.stdout) {
           problems.push(`default call differs from the native one (exit ${plain.code} vs ${forced.code})`);
         }
+        const decision = forced.unfinished === null ? decisionOf(forced.stdout, forced.code) : "unfinished";
+        if (forced.unfinished !== null || plain.unfinished !== null) {
+          // Timing a call that hangs would cost runs × the timeout and say nothing new.
+          rows.push({ hook, engine: reg.engine, ok: false, decision, problems, notes: [] });
+          continue;
+        }
         const times = [];
-        for (let i = 0; i < args.runs; i += 1) times.push(timeOnce(reg.command, payload, sandbox.project, env));
-        const p50 = percentile(times, 0.5);
-        const p95 = percentile(times, 0.95);
-        const notes = p95 > CAP_MS ? [`p95 through the wrapper over ${CAP_MS} ms (R17 measures the binary)`] : [];
+        const notes = [];
+        try {
+          for (let i = 0; i < args.runs; i += 1) times.push(timeOnce(reg.command, payload, sandbox.project, env, args.callTimeoutMs));
+        } catch (error) {
+          problems.push(error instanceof Error ? error.message : String(error));
+        }
+        const p50 = times.length > 0 ? percentile(times, 0.5) : undefined;
+        const p95 = times.length > 0 ? percentile(times, 0.95) : undefined;
+        if (p95 !== undefined && p95 > CAP_MS) notes.push(`p95 through the wrapper over ${CAP_MS} ms (R17 measures the binary)`);
         rows.push({
           hook,
           engine: reg.engine,
           ok: problems.length === 0,
-          decision: decisionOf(forced.stdout, forced.code),
-          p50Ms: Number(p50.toFixed(2)),
-          p95Ms: Number(p95.toFixed(2)),
-          runs: args.runs,
+          decision,
+          p50Ms: p50 === undefined ? undefined : Number(p50.toFixed(2)),
+          p95Ms: p95 === undefined ? undefined : Number(p95.toFixed(2)),
+          runs: times.length,
           problems,
           notes,
         });
