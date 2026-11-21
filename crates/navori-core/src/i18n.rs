@@ -3176,11 +3176,11 @@ impl Doctor {
     pub fn js_launcher_on_path(self, bins: &str) -> String {
         if self.es() {
             format!(
-                "'{bins}' en el PATH es el lanzador de Node del paquete, no el binario: cada hook paga ~30 ms de más por llamada (medido: 31,8 ms frente a 1,4 ms de '--version'). Arreglo — npm: 'npm rebuild navori' (o reinstala sin --ignore-scripts); bun: agrega 'navori' a 'trustedDependencies' y reinstala; pnpm: sus atajos siempre ejecutan 'node <bin>', así que 'pnpm approve-builds' no basta: instala con npm o pon en el PATH el binario de '@navori/<plataforma>'"
+                "'{bins}' en el PATH es el lanzador de Node del paquete, no el binario: cada hook paga ~30 ms de más por llamada (medido: 31,8 ms frente a 1,4 ms de '--version'). Arreglo — npm: 'npm rebuild navori' (o reinstala sin --ignore-scripts); bun: agrega 'navori' a 'trustedDependencies' y reinstala; pnpm: sus atajos siempre ejecutan 'node <bin>', así que 'pnpm approve-builds' no basta: instala con npm, o crea en el PATH un enlace simbólico por cada nombre ('{bins}') hacia el binario de '@navori/<plataforma>' (su 'bin/navori'): los hooks buscan 'navori-rust'"
             )
         } else {
             format!(
-                "'{bins}' on PATH is the package's Node launcher, not the binary: every hook pays ~30 ms extra per call (measured: 31.8 ms vs 1.4 ms for '--version'). Fix — npm: 'npm rebuild navori' (or reinstall without --ignore-scripts); bun: add 'navori' to 'trustedDependencies' and reinstall; pnpm: its shims always run 'node <bin>', so 'pnpm approve-builds' is not enough: install with npm or put the '@navori/<platform>' binary on PATH"
+                "'{bins}' on PATH is the package's Node launcher, not the binary: every hook pays ~30 ms extra per call (measured: 31.8 ms vs 1.4 ms for '--version'). Fix — npm: 'npm rebuild navori' (or reinstall without --ignore-scripts); bun: add 'navori' to 'trustedDependencies' and reinstall; pnpm: its shims always run 'node <bin>', so 'pnpm approve-builds' is not enough: install with npm, or create a symlink on PATH for each name ('{bins}') to the '@navori/<platform>' binary (its 'bin/navori'): the hooks look up 'navori-rust'"
             )
         }
     }

@@ -2360,6 +2360,13 @@ mod tests {
             es.js_launcher_on_path("navori")
                 .contains("pnpm: sus atajos siempre ejecutan 'node <bin>'")
         );
+        // pnpm's fix names the bins the hooks look up, never a bare "put it on PATH".
+        assert!(en.js_launcher_on_path("navori-rust").contains(
+            "create a symlink on PATH for each name ('navori-rust') to the '@navori/<platform>' binary (its 'bin/navori')"
+        ));
+        assert!(es.js_launcher_on_path("navori-rust").contains(
+            "crea en el PATH un enlace simbólico por cada nombre ('navori-rust') hacia el binario de '@navori/<plataforma>'"
+        ));
         assert_eq!(
             es.workspace_drift_sibling_row("branchBase", "main", "dev", 2, 3),
             "branchBase: main (2/3 repos usan dev)"
