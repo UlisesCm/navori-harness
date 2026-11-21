@@ -128,6 +128,45 @@ function kindOf(file) {
   }
 }
 
+/**
+ * Whether a guard call on `echo hi` allowed it: exit 0 and no `ask`/`deny`. The wrapper turns a
+ * native crash or an unknown exit into a fail-closed `ask` with exit 0, so the stdout is checked
+ * too (FAILED); a call killed by a signal or a timeout has no exit code and is not allowed.
+ *
+ * @param {{ status: number | null, stdout: string }} r
+ * @returns {boolean}
+ */
+export function allowed(r) {
+  return r.status === 0 && !FAILED.test(r.stdout) && ["pass (exit 0)", "allow"].includes(decisionOf(r.stdout, r.status));
+}
+
+/**
+ * One activation-verify row for the report: problems or OK, the notes (an engine the hook is not
+ * registered in), and the median when the calls were timed.
+ *
+ * @param {{ engine: string, ok: boolean, p50Ms?: number, problems: string[], notes?: string[] }} r
+ * @returns {string}
+ */
+export function verifyRowDetail(r) {
+  const parts = [r.ok ? "OK" : r.problems.join("; "), ...(r.notes ?? []).map((note) => `note: ${note}`)];
+  if (r.p50Ms !== undefined) parts.push(`p50=${r.p50Ms} ms`);
+  return `${r.engine}: ${parts.join(" ")}`;
+}
+
+/**
+ * A child killed by SIGINT/SIGTERM means the run was interrupted (Ctrl-C reaches the whole
+ * foreground group): stop here so the caller's `finally` cleans up. The docker client traps
+ * those signals and exits 130/143 instead, so a caller may pass that status too.
+ *
+ * @param {NodeJS.Signals | null} signal
+ * @param {number | null} [trappedStatus] exit status of a child that traps SIGINT/SIGTERM
+ */
+export function throwIfInterrupted(signal, trappedStatus = null) {
+  if (signal === "SIGINT" || signal === "SIGTERM") throw new Error(`interrupted by ${signal}`);
+  if (trappedStatus === 130) throw new Error("interrupted by SIGINT (exit 130)");
+  if (trappedStatus === 143) throw new Error("interrupted by SIGTERM (exit 143)");
+}
+
 // ---------------------------------------------------------------- inner mode (container)
 
 /**
@@ -231,10 +270,6 @@ function inner(scenario, { version, alias }) {
     times.push(Number(process.hrtime.bigint() - t) / 1e6);
   }
   facts.guardPiMs = Number(median(times).toFixed(1));
-  // `echo hi` is allowed: exit 0 and no `ask`/`deny`. The wrapper turns a native crash or an unknown
-  // exit into a fail-closed `ask` with exit 0, so the stdout is checked too (FAILED).
-  const allowed = (/** @type {{ status: number | null, stdout: string }} */ r) =>
-    r.status === 0 && !FAILED.test(r.stdout) && ["pass (exit 0)", "allow"].includes(decisionOf(r.stdout, r.status));
   check(
     'guard "echo hi" through the Pi script',
     last !== undefined && allowed(last),
@@ -256,18 +291,16 @@ function inner(scenario, { version, alias }) {
     false,
   );
 
-  const verify = run(["node", "/e2e/scripts/js/activation-verify.mjs", "--root", project, "--manifest", manifestPath, "--hook", "guard-destructive", "--runs", "10", "--json"]);
+  // Gate unless the guard is still in shadow: a guard missing from the package manifest is red too.
+  const verifyGates = mode !== "shadow";
+  // The project renders both engines (config.engines above): a guard absent from either fails.
+  const verify = run(["node", "/e2e/scripts/js/activation-verify.mjs", "--root", project, "--manifest", manifestPath, "--hook", "guard-destructive", "--engine", "claude", "--engine", "pi", "--runs", "10", "--json"]);
   try {
     const report = JSON.parse(verify.stdout);
-    facts.activationVerify = report.rows.map((r) => ({ engine: r.engine, ok: r.ok, p50Ms: r.p50Ms, problems: r.problems }));
-    check(
-      `activation-verify on guard-destructive (mode ${mode})`,
-      report.rows.every((r) => r.ok),
-      report.rows.map((r) => `${r.engine}: ${r.ok ? "OK" : r.problems.join("; ")} p50=${r.p50Ms} ms`).join(" | "),
-      mode === "active",
-    );
+    facts.activationVerify = report.rows.map((r) => ({ engine: r.engine, ok: r.ok, p50Ms: r.p50Ms, problems: r.problems, notes: r.notes ?? [] }));
+    check(`activation-verify on guard-destructive (mode ${mode})`, report.rows.every((r) => r.ok), report.rows.map(verifyRowDetail).join(" | "), verifyGates);
   } catch {
-    check("activation-verify on guard-destructive", false, `${verify.stderr}`.trim().slice(-300), mode === "active");
+    check("activation-verify on guard-destructive", false, `${verify.stderr}`.trim().slice(-300), verifyGates);
   }
 
   const doctor = run(["navori", "doctor"]);
@@ -347,7 +380,9 @@ export function imageTag(node, text) {
  * @param {string | Buffer} [input]
  */
 function docker(args, input) {
-  return spawnSync("docker", args, { encoding: input === undefined ? "utf8" : undefined, input, maxBuffer: 64 * 1024 * 1024 });
+  const result = spawnSync("docker", args, { encoding: input === undefined ? "utf8" : undefined, input, maxBuffer: 64 * 1024 * 1024 });
+  throwIfInterrupted(result.signal, result.status);
+  return result;
 }
 
 /**
@@ -364,10 +399,13 @@ async function host(options) {
   const image = imageTag(node, recipe);
   const container = `navori-dist-e2e-${process.pid}`;
   const cleanup = () => {
-    docker(["rm", "-f", container]);
+    // Plain spawnSync: a second Ctrl-C here must not throw before the temp dir is removed.
+    spawnSync("docker", ["rm", "-f", container], { stdio: "ignore" });
     rmSync(root, { recursive: true, force: true });
   };
-  // `finally` does not run on a signal: remove the container (`sleep infinity`) and the temp dir.
+  // A Ctrl-C reaches the foreground group: the docker call dies with SIGINT and `docker()` throws, so
+  // `finally` removes the container (`sleep infinity`) and the temp dir. spawnSync blocks the event
+  // loop, so these handlers only cover a signal that arrives between calls (or is sent to node alone).
   /** @type {Array<[NodeJS.Signals, number]>} */
   const signals = [
     ["SIGINT", 130],
@@ -404,6 +442,7 @@ async function host(options) {
     const start = docker(["run", "-d", "--rm", "--name", container, image, "sleep", "infinity"]);
     if (start.status !== 0) throw new Error(`docker run failed: ${start.stderr}`);
     const tar = spawnSync("tar", ["-cf", "-", "-C", stage, "."], { maxBuffer: 256 * 1024 * 1024 });
+    throwIfInterrupted(tar.signal);
     if (tar.status !== 0 || tar.error !== undefined) {
       throw new Error(`tar of ${stage} failed: ${tar.error?.message ?? String(tar.stderr).slice(-400)}`);
     }

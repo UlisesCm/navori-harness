@@ -35,17 +35,6 @@ function which(tool: string): string {
   return result.stdout.trim();
 }
 
-/**
- * The host PATH without the directories that hold a `navori-rust`: an installed binary would make
- * each hook's native-runtime prologue run it and add its own jq calls to the count.
- */
-function pathWithoutNativeHook(path = process.env.PATH ?? ""): string {
-  return path
-    .split(delimiter)
-    .filter((entry) => entry !== "" && !existsSync(join(entry, "navori-rust")))
-    .join(delimiter);
-}
-
 /** Make an isolated executable PATH, counting extraction separately from output jq. */
 function fixture(tools = ["jq", "node", "sed"]): { dir: string; bin: string; log: string } {
   const dir = mkdtempSync(join(tmpdir(), "navori-cache-"));
@@ -353,9 +342,7 @@ describe("payload declarations and rendered extraction", () => {
     "uses at most one extraction jq per hook and engine under %s",
     (shell) => {
       const { dir, bin, log } = fixture(["jq"]);
-      const path = `${bin}${delimiter}${pathWithoutNativeHook()}`;
-      const probe = spawnSync("sh", ["-c", "command -v navori-rust"], { env: { PATH: path } });
-      expect(probe.status, "navori-rust must not be reachable from the hooks").not.toBe(0);
+      const path = `${bin}${delimiter}${process.env.PATH ?? ""}`;
       const project = join(dir, "project");
       mkdirSync(project);
       // A CLI stub keeps hooks local to this private fixture and cannot write session state.
@@ -387,6 +374,9 @@ describe("payload declarations and rendered extraction", () => {
               HOME: dir,
               CLAUDE_PROJECT_DIR: project,
               NAVORI_AUDITS_ROOT: join(dir, "absent-audits"),
+              // The count is the shell path's: the prologue's own switch skips an installed
+              // navori-rust, which would otherwise decide first and add its jq calls.
+              NAVORI_HOOK_IMPL: "shell",
             },
             timeout: 10000,
           });
