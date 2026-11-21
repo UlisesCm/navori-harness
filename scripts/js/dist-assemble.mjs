@@ -29,11 +29,16 @@ import { fileURLToPath } from "node:url";
  *                                     [--pin-out <file>]
  *   node scripts/js/dist-assemble.mjs legacy --from-dir <built checkout> --out <dir> ...
  *   node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir> ...
+ *   node scripts/js/dist-assemble.mjs check-pin
  *
  * `--from-pin` is what the rehearsal runs: it builds the commit and version `packaging/legacy.json`
  * pins, so it keeps working after the cutover deletes the TS sources (T10 keeps only the artifact
  * suites under `packages/cli/src`); with an empty pin it builds `HEAD`, which only works while the
- * TS entry (`packages/cli/src/index.ts`) is still in the tree. It takes no `--version`.
+ * TS entry (`packages/cli/src/index.ts`) is still in the tree. It takes no `--version`. When the
+ * pin carries an integrity, the rebuilt tarball must match it (the build is reproducible), so the
+ * rehearsal checks what is published instead of trusting the pin it writes.
+ * `check-pin` is the step before publishing: it fails unless `packaging/legacy.json` has a 40-hex
+ * `commit`, a `sha512-` integrity and the `packages/cli/package.json` version.
  * `--from-dir` refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
  *
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
@@ -237,13 +242,50 @@ function capture(cmd, args, cwd) {
  * @returns {{ from: string, version: string | undefined }}
  */
 export function legacySource(pin, { hasTsSources }) {
-  if (typeof pin.commit === "string" && pin.commit !== "") return { from: pin.commit, version: pin.version };
+  if (typeof pin.commit === "string" && pin.commit !== "") {
+    assertCommitSha(pin.commit);
+    return { from: pin.commit, version: pin.version };
+  }
   if (!hasTsSources) {
     throw new Error(
       "the TS sources are gone (cutover: no packages/cli/src/index.ts) and packaging/legacy.json pins no commit: pin the legacy with `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin` first",
     );
   }
   return { from: "HEAD", version: undefined };
+}
+
+/** A pinned commit is a full SHA-1, never a ref or an option. */
+export function assertCommitSha(commit) {
+  if (typeof commit !== "string" || !/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error(`packaging/legacy.json pins commit ${JSON.stringify(commit)}, expected a 40-hex commit SHA`);
+  }
+}
+
+/**
+ * A rebuilt legacy must be byte-identical to the pinned one when the pin has an integrity.
+ * @param {{ integrity?: string | null }} pin
+ * @param {string} integrity the rebuilt tarball's
+ */
+export function assertRebuiltIntegrity(pin, integrity) {
+  if (typeof pin.integrity === "string" && pin.integrity !== "" && pin.integrity !== integrity) {
+    throw new Error(`the rebuilt legacy is ${integrity}, but packaging/legacy.json pins ${pin.integrity}`);
+  }
+}
+
+/**
+ * The check before publishing: the pin is complete (40-hex commit, sha512 integrity) and carries
+ * the version the binaries stamp. An empty pin is fine for rehearsals, never for a release.
+ * @param {{ version?: string, integrity?: string | null, commit?: string | null }} pin
+ * @param {string} stamp the `packages/cli/package.json` version
+ */
+export function assertPublishablePin(pin, stamp) {
+  assertCommitSha(pin.commit);
+  if (typeof pin.integrity !== "string" || !pin.integrity.startsWith("sha512-")) {
+    throw new Error(`packaging/legacy.json pins integrity ${JSON.stringify(pin.integrity)}, expected the sha512 of the published legacy`);
+  }
+  if (pin.version !== stamp) {
+    throw new Error(`packaging/legacy.json pins ${pin.version}, but packages/cli/package.json is ${stamp}`);
+  }
 }
 
 /**
@@ -289,10 +331,11 @@ function legacyCommand(argv) {
   if ([opts.from !== undefined, opts.fromDir !== undefined, opts.fromPin].filter(Boolean).length !== 1) {
     throw new Error("exactly one of --from <ref>, --from-dir <path> or --from-pin is required");
   }
-  if (opts.fromPin) {
+  const pinned = opts.fromPin ? legacyPin() : undefined;
+  if (pinned !== undefined) {
     if (opts.version !== undefined) throw new Error("--from-pin takes the pinned version; drop --version");
     // The tsdown entry: T10 deletes it but keeps the artifact suites under packages/cli/src.
-    const source = legacySource(legacyPin(), { hasTsSources: existsSync(join(REPO_ROOT, "packages", "cli", "src", "index.ts")) });
+    const source = legacySource(pinned, { hasTsSources: existsSync(join(REPO_ROOT, "packages", "cli", "src", "index.ts")) });
     opts.from = source.from;
     opts.version = source.version;
   }
@@ -304,7 +347,7 @@ function legacyCommand(argv) {
     commit = capture("git", ["rev-parse", "HEAD"], opts.fromDir);
     result = buildLegacy({ root: opts.fromDir, out: opts.out, version: opts.version });
   } else {
-    commit = capture("git", ["rev-parse", `${opts.from}^{commit}`], REPO_ROOT);
+    commit = capture("git", ["rev-parse", "--verify", "--end-of-options", `${opts.from}^{commit}`], REPO_ROOT);
     const tree = mkdtempSync(join(tmpdir(), "navori-legacy-src-"));
     rmSync(tree, { recursive: true, force: true });
     run("git", ["worktree", "add", "--detach", tree, commit], REPO_ROOT);
@@ -317,6 +360,7 @@ function legacyCommand(argv) {
       rmSync(tree, { recursive: true, force: true });
     }
   }
+  if (pinned !== undefined) assertRebuiltIntegrity(pinned, result.integrity);
   const report = { ...result, commit };
   const pin = `${JSON.stringify({ version: report.version, integrity: report.integrity, commit }, null, 2)}\n`;
   if (opts.writePin) writeFileSync(join(PACKAGING, "legacy.json"), pin);
@@ -442,6 +486,13 @@ export function parseArgs(argv) {
 
 async function main(argv) {
   if (argv[0] === "legacy") return legacyCommand(argv.slice(1));
+  if (argv[0] === "check-pin") {
+    if (argv.length > 1) throw new Error("check-pin takes no options");
+    const stamp = JSON.parse(readFileSync(join(REPO_ROOT, "packages", "cli", "package.json"), "utf8")).version;
+    assertPublishablePin(legacyPin(), stamp);
+    process.stdout.write("dist-assemble: packaging/legacy.json is complete\n");
+    return 0;
+  }
   const options = parseArgs(argv);
   const pin = legacyPin(options.legacyPin);
   mkdirSync(options.out, { recursive: true });

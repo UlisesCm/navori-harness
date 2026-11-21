@@ -110,9 +110,19 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   guardar, porque el pin registra su `HEAD`. El ensayo de `rust-release.yml` lo construye con
   `legacy --from-pin`: el commit y la versión que fija `packaging/legacy.json`, o `HEAD` mientras
   el pin esté vacío (después del corte, un pin vacío es un error, porque `HEAD` ya no tiene
-  `packages/cli/src/index.ts`); no acepta `--version`. `scripts/js/dist-legacy-cutover.mjs` (job
-  `legacy-cutover`) repite ese job en un árbol que, como T10, solo conserva las suites de artefacto
-  bajo `packages/cli/src`, y `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  `packages/cli/src/index.ts`); no acepta `--version`, exige que el commit fijado sea un SHA de 40
+  hex y, si el pin trae `integrity`, que el tarball reconstruido la reproduzca byte a byte (el build
+  del legacy es reproducible). `scripts/js/dist-legacy-cutover.mjs` (job `legacy-cutover`) lee el
+  comando de ese job del workflow y lo corre en un commit local que, como T10, borra el TS salvo las
+  suites de artefacto bajo `packages/cli/src` y fija el pin en el commit anterior: el job tiene que
+  construir el commit fijado, y el comando previo (`--from HEAD`) tiene que fallar en el build.
+  `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  **Antes de publicar,** `dist-assemble.mjs check-pin` falla si `packaging/legacy.json` no trae un
+  `commit` de 40 hex, una `integrity` sha512 y la versión de `packages/cli/package.json`; el ensayo
+  acepta el pin vacío, la publicación no.
+  Fuera de alcance: `doctor --json` (que sigue en el TS) reporta como `entrypointSha256` el hash del
+  shim `legacy/dist/index.js`, constante en cada release, no el del bundle; el `argv[1]` del shim y
+  el aviso de `update-notice` tampoco cambian. Son cosméticos.
   **`crates/ported.json` queda fijado al commit del legacy:** después del corte, cualquier cambio
   en `crates/ported.json` (una re-firma de hooks) obliga a publicar un legacy nuevo desde un commit
   con ese manifiesto, o el ensamblado lo rechaza.
