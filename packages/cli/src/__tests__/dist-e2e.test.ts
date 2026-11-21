@@ -14,6 +14,7 @@ interface E2e {
   unexpectedWarnings: (output: string, expected?: string[]) => string[];
   median: (values: number[]) => number;
   dockerfile: (node: string) => string;
+  imageTag: (node: string, text: string) => string;
   parseArgs: (argv: string[]) => { managers: string[]; alias: boolean; binary: string };
 }
 
@@ -67,6 +68,8 @@ describe("dist-e2e", () => {
     expect(text).toContain("FROM node:26.13.0-trixie-slim");
     expect(text).toMatch(/apt-get install .*\bjq\b/);
     expect(text).not.toMatch(/rustup|cargo/);
+    expect(e2e.imageTag("26.13.0", text)).toMatch(/^navori-e2e:node26\.13\.0-[0-9a-f]{12}$/);
+    expect(e2e.imageTag("26.13.0", `${text}#`)).not.toBe(e2e.imageTag("26.13.0", text));
   });
 
   it("exige binario, legacy y pin en el modo host", () => {

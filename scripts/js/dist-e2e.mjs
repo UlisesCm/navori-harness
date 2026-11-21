@@ -35,10 +35,16 @@
  * Exit: 0 every scenario green, 1 a check failed, 2 usage or setup error.
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFERRED, FAILED, decisionOf } from "./activation-verify.mjs";
+
+/** @typedef {{ name: string, ok: boolean, gate: boolean, detail: string }} Check */
+/** @typedef {{ scenario: string, alias: boolean, facts: Record<string, unknown>, checks: Check[] }} ScenarioResult */
+/** @typedef {{ managers: string[], alias: boolean, keep: boolean, binary: string, legacyTarball: string, legacyPin: string, json: string, inner: string, version: string }} Options */
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PNPM_VERSION = "12.16.1";
@@ -91,14 +97,24 @@ export function unexpectedWarnings(output, expected = EXPECTED_DOCTOR_WARNINGS) 
     .filter((heading) => !expected.some((prefix) => heading.startsWith(prefix)));
 }
 
-/** Median of a list of numbers. */
+/**
+ * Median of a list of numbers.
+ *
+ * @param {number[]} values
+ * @returns {number}
+ */
 export function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-/** First bytes of a file: `ELF` for the binary, `#!` for a launcher or shim. */
+/**
+ * First bytes of a file: `ELF` for the binary, `#!` for a launcher or shim.
+ *
+ * @param {string} file
+ * @returns {"binary" | "script" | "other" | "missing"}
+ */
 function kindOf(file) {
   if (!existsSync(file)) return "missing";
   const fd = openSync(file, "r");
@@ -117,13 +133,17 @@ function kindOf(file) {
 /**
  * @param {string} scenario
  * @param {{ version: string, alias: boolean }} options
+ * @returns {ScenarioResult}
  */
 function inner(scenario, { version, alias }) {
-  /** @type {Array<{ name: string, ok: boolean, gate: boolean, detail: string }>} */
+  /** @type {Check[]} */
   const checks = [];
   /** @type {Record<string, unknown>} */
   const facts = {};
-  const check = (name, ok, detail = "", gate = true) => checks.push({ name, ok, gate, detail });
+  /** @type {(name: string, ok: boolean, detail?: string, gate?: boolean) => void} */
+  const check = (name, ok, detail = "", gate = true) => {
+    checks.push({ name, ok, gate, detail });
+  };
   const name = `e2e-${scenario}`;
   const project = join("/e2e", scenario, name);
   mkdirSync(project, { recursive: true });
@@ -131,6 +151,7 @@ function inner(scenario, { version, alias }) {
   // The official node image exports NODE_VERSION; any NODE_* variable makes the native hook defer
   // (navori-hooks shell/prepare.rs), so the calls run as on a plain host and one check documents it.
   const env = Object.fromEntries(Object.entries({ ...process.env, PATH: `${bin}:${process.env.PATH}` }).filter(([k]) => !k.startsWith("NODE_")));
+  /** @type {(argv: string[], extra?: Record<string, string>, input?: string) => import("node:child_process").SpawnSyncReturns<string>} */
   const run = (argv, extra = {}, input) =>
     spawnSync(argv[0], argv.slice(1), { cwd: project, env: { ...env, ...extra }, encoding: "utf8", input, timeout: 600_000 });
   const done = () => ({ scenario, alias, facts, checks });
@@ -168,6 +189,7 @@ function inner(scenario, { version, alias }) {
   check("navori init --yes", init.status === 0, init.status === 0 ? "" : `${init.stderr}`.trim().slice(-300));
   if (init.status !== 0) return done();
   const configPath = join(project, "navori.config.json");
+  /** @type {(edit: (config: Record<string, unknown>) => void) => void} */
   const editConfig = (edit) => {
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     edit(config);
@@ -176,7 +198,7 @@ function inner(scenario, { version, alias }) {
   editConfig((config) => {
     config.name = name;
     config.engines = ["claude", "pi"];
-    config.qualityGate = { ...(config.qualityGate ?? {}), fast: "true", full: "true" };
+    config.qualityGate = { .../** @type {Record<string, unknown>} */ (config.qualityGate ?? {}), fast: "true", full: "true" };
   });
   const guardScripts = [".pi/navori/hooks/guard-destructive.sh", ".claude/hooks/guard-destructive.sh"];
   const nativeBlock = () => guardScripts.every((s) => existsSync(join(project, s)) && readFileSync(join(project, s), "utf8").includes("navori:native-runtime start"));
@@ -190,7 +212,7 @@ function inner(scenario, { version, alias }) {
     false,
   );
   editConfig((config) => {
-    config.plugins = { ...(config.plugins ?? {}), tgrep: { enabled: true } };
+    config.plugins = { .../** @type {Record<string, unknown>} */ (config.plugins ?? {}), tgrep: { enabled: true } };
   });
   const render2 = run(["navori", "render", "--apply"]);
   check("render --apply with plugins.tgrep", render2.status === 0 && nativeBlock(), nativeBlock() ? "" : "guard still without the native block");
@@ -209,19 +231,27 @@ function inner(scenario, { version, alias }) {
     times.push(Number(process.hrtime.bigint() - t) / 1e6);
   }
   facts.guardPiMs = Number(median(times).toFixed(1));
-  check('guard "echo hi" through the Pi script', last?.status === 0, `exit ${last?.status}, median ${facts.guardPiMs} ms`);
+  // `echo hi` is allowed: exit 0 and no `ask`/`deny`. The wrapper turns a native crash or an unknown
+  // exit into a fail-closed `ask` with exit 0, so the stdout is checked too (FAILED).
+  const allowed = (/** @type {{ status: number | null, stdout: string }} */ r) =>
+    r.status === 0 && !FAILED.test(r.stdout) && ["pass (exit 0)", "allow"].includes(decisionOf(r.stdout, r.status));
+  check(
+    'guard "echo hi" through the Pi script',
+    last !== undefined && allowed(last),
+    `exit ${last?.status}, ${last ? decisionOf(last.stdout, last.status) : "no run"}, median ${facts.guardPiMs} ms`,
+  );
   const forced = callGuard({ NAVORI_HOOK_IMPL: "rust" });
-  const deferred = /native runtime unavailable or deferred|^navori-rust: hook deferred: /m.test(forced.stderr);
+  const deferred = DEFERRED.test(forced.stderr);
   check(
     "the native runtime answers the guard (NAVORI_HOOK_IMPL=rust)",
-    !deferred && [0, 1, 2].includes(forced.status ?? -1),
-    deferred ? forced.stderr.trim().split("\n")[0] : `exit ${forced.status}`,
+    !deferred && allowed(forced),
+    deferred ? forced.stderr.trim().split("\n")[0] : `exit ${forced.status}, ${decisionOf(forced.stdout, forced.status)}`,
   );
 
   const withNodeVar = callGuard({ NODE_VERSION: process.versions.node, NAVORI_HOOK_IMPL: "rust" });
   check(
     "the native runtime answers with NODE_VERSION set (official node image, CI)",
-    !/native runtime unavailable or deferred|^navori-rust: hook deferred: /m.test(withNodeVar.stderr),
+    !DEFERRED.test(withNodeVar.stderr),
     withNodeVar.stderr.trim().split("\n")[0] ?? "",
     false,
   );
@@ -248,8 +278,12 @@ function inner(scenario, { version, alias }) {
 
 // ---------------------------------------------------------------- host mode
 
-/** @param {string[]} argv */
+/**
+ * @param {string[]} argv
+ * @returns {Options}
+ */
 export function parseArgs(argv) {
+  /** @type {Options} */
   const out = { managers: [...SCENARIOS], alias: false, keep: false, binary: "", legacyTarball: "", legacyPin: "", json: "", inner: "", version: "" };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -283,6 +317,9 @@ export function parseArgs(argv) {
  * The image the scenarios run in: Node of `.nvmrc`, git, jq and pnpm; no Rust. Debian 13 (trixie)
  * because its jq is 1.7.1: the native hooks accredit only jq 1.7/1.8 and defer when another jq is
  * on PATH (navori-hooks shell/prepare.rs), so bookworm's jq 1.6 would keep every hook on the shell.
+ *
+ * @param {string} node
+ * @returns {string}
  */
 export function dockerfile(node) {
   return [
@@ -294,18 +331,56 @@ export function dockerfile(node) {
   ].join("\n");
 }
 
+/**
+ * Image tag of a Dockerfile: its Node version plus a hash of the text, so a change rebuilds it.
+ *
+ * @param {string} node
+ * @param {string} text
+ * @returns {string}
+ */
+export function imageTag(node, text) {
+  return `navori-e2e:node${node}-${createHash("sha256").update(text).digest("hex").slice(0, 12)}`;
+}
+
+/**
+ * @param {string[]} args
+ * @param {string | Buffer} [input]
+ */
 function docker(args, input) {
   return spawnSync("docker", args, { encoding: input === undefined ? "utf8" : undefined, input, maxBuffer: 64 * 1024 * 1024 });
 }
 
+/**
+ * @param {Options} options
+ * @returns {Promise<number>} exit code
+ */
 async function host(options) {
   const { assemble, legacyPin, pack, workspaceVersion } = await import("./dist-assemble.mjs");
   if (spawnSync("docker", ["version"], { encoding: "utf8" }).status !== 0) throw new Error("docker is not available");
   const version = workspaceVersion();
   const root = mkdtempSync(join(tmpdir(), "navori-dist-e2e-"));
   const node = readFileSync(join(REPO_ROOT, ".nvmrc"), "utf8").trim();
-  const image = `navori-e2e:node${node}-trixie`;
+  const recipe = dockerfile(node);
+  const image = imageTag(node, recipe);
   const container = `navori-dist-e2e-${process.pid}`;
+  const cleanup = () => {
+    docker(["rm", "-f", container]);
+    rmSync(root, { recursive: true, force: true });
+  };
+  // `finally` does not run on a signal: remove the container (`sleep infinity`) and the temp dir.
+  /** @type {Array<[NodeJS.Signals, number]>} */
+  const signals = [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ];
+  const handlers = signals.map(([signal, code]) => {
+    const handler = () => {
+      if (!options.keep) cleanup();
+      process.exit(code);
+    };
+    process.once(signal, handler);
+    return /** @type {const} */ ([signal, handler]);
+  });
   try {
     const dist = join(root, "dist");
     const dirs = assemble({
@@ -323,15 +398,19 @@ async function host(options) {
     cpSync(join(REPO_ROOT, "scripts", "js"), join(stage, "scripts", "js"), { recursive: true });
 
     if (docker(["image", "inspect", image]).status !== 0) {
-      const build = docker(["build", "-q", "-t", image, "-"], dockerfile(node));
+      const build = docker(["build", "-q", "-t", image, "-"], recipe);
       if (build.status !== 0) throw new Error(`docker build failed: ${String(build.stderr).slice(-400)}`);
     }
     const start = docker(["run", "-d", "--rm", "--name", container, image, "sleep", "infinity"]);
     if (start.status !== 0) throw new Error(`docker run failed: ${start.stderr}`);
     const tar = spawnSync("tar", ["-cf", "-", "-C", stage, "."], { maxBuffer: 256 * 1024 * 1024 });
+    if (tar.status !== 0 || tar.error !== undefined) {
+      throw new Error(`tar of ${stage} failed: ${tar.error?.message ?? String(tar.stderr).slice(-400)}`);
+    }
     const copy = docker(["exec", "-i", container, "sh", "-c", "mkdir -p /e2e && tar -xf - -C /e2e"], tar.stdout);
     if (copy.status !== 0) throw new Error(`copy into the container failed: ${copy.stderr}`);
 
+    /** @type {ScenarioResult[]} */
     const results = [];
     for (const scenario of options.managers) {
       const out = docker(["exec", container, "node", "/e2e/scripts/js/dist-e2e.mjs", "--inner", scenario, "--version", version, ...(options.alias ? ["--alias"] : [])]);
@@ -351,10 +430,9 @@ async function host(options) {
     process.stdout.write(`dist-e2e: ${ok ? "green" : "red"} (${results.length} scenarios, ${version})\n`);
     return ok ? 0 : 1;
   } finally {
-    if (!options.keep) {
-      docker(["rm", "-f", container]);
-      rmSync(root, { recursive: true, force: true });
-    } else process.stdout.write(`kept: ${root} and container ${container}\n`);
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+    if (!options.keep) cleanup();
+    else process.stdout.write(`kept: ${root} and container ${container}\n`);
   }
 }
 

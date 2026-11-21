@@ -44,12 +44,14 @@ import { createSandbox, parseClaudeRegistrations, parsePiRegistrations, writePay
 
 /** R17 p95 cap for a short command (decisiones-ulises/2026-11-19); informative here. */
 export const CAP_MS = 12;
-const DEFERRED = /native runtime unavailable or deferred|^navori-rust: hook deferred: /m;
-const FAILED = /native runtime failed/;
+/** A wrapper or binary deferral: the native did not decide (stderr). */
+export const DEFERRED = /native runtime unavailable or deferred|^navori-rust: hook deferred: /m;
+/** The wrapper's fail-closed `ask` after a native crash or an unknown exit (stdout, exit 0). */
+export const FAILED = /native runtime failed/;
 
 /**
  * @param {string[]} argv
- * @returns {{ root: string, hooks: string[], runs: number, json: boolean }}
+ * @returns {{ root: string, manifest: string | undefined, hooks: string[], runs: number, json: boolean }}
  */
 export function parseArgs(argv) {
   const out = { root: process.cwd(), manifest: /** @type {string | undefined} */ (undefined), hooks: /** @type {string[]} */ ([]), runs: 30, json: false };
