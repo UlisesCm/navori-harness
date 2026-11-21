@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
@@ -33,6 +33,17 @@ function which(tool: string): string {
   const result = spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" });
   if (!result.stdout.trim()) throw new Error(`Missing ${tool}`);
   return result.stdout.trim();
+}
+
+/**
+ * The host PATH without the directories that hold a `navori-rust`: an installed binary would make
+ * each hook's native-runtime prologue run it and add its own jq calls to the count.
+ */
+function pathWithoutNativeHook(path = process.env.PATH ?? ""): string {
+  return path
+    .split(delimiter)
+    .filter((entry) => entry !== "" && !existsSync(join(entry, "navori-rust")))
+    .join(delimiter);
 }
 
 /** Make an isolated executable PATH, counting extraction separately from output jq. */
@@ -342,6 +353,9 @@ describe("payload declarations and rendered extraction", () => {
     "uses at most one extraction jq per hook and engine under %s",
     (shell) => {
       const { dir, bin, log } = fixture(["jq"]);
+      const path = `${bin}${delimiter}${pathWithoutNativeHook()}`;
+      const probe = spawnSync("sh", ["-c", "command -v navori-rust"], { env: { PATH: path } });
+      expect(probe.status, "navori-rust must not be reachable from the hooks").not.toBe(0);
       const project = join(dir, "project");
       mkdirSync(project);
       // A CLI stub keeps hooks local to this private fixture and cannot write session state.
@@ -369,7 +383,7 @@ describe("payload declarations and rendered extraction", () => {
               hook_event_name: "PreToolUse",
             }),
             env: {
-              PATH: `${bin}:${process.env.PATH}`,
+              PATH: path,
               HOME: dir,
               CLAUDE_PROJECT_DIR: project,
               NAVORI_AUDITS_ROOT: join(dir, "absent-audits"),
