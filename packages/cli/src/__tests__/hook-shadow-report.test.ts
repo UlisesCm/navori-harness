@@ -14,7 +14,8 @@ interface Row {
   firstMs: number | null;
   lastMs: number | null;
   closesMs: number | null;
-  status: "green" | "amber" | "red";
+  status: "green" | "amber" | "red" | "active";
+  mode: "active" | "shadow";
   warnings: string[];
   nativeFailed: number;
   shellFailed: number;
@@ -27,11 +28,11 @@ interface Row {
 }
 interface Report {
   ok: boolean;
-  status: "green" | "amber" | "red";
+  status: "green" | "amber" | "red" | "active";
   rows: Row[];
 }
 interface ReportInput {
-  hooks: Record<string, { gating: boolean; impl: string }>;
+  hooks: Record<string, { gating: boolean; impl: string; mode?: string }>;
   journals: Record<string, Uint8Array | Uint8Array[] | undefined>;
   engines: Record<string, string[]>;
   approved: Record<string, string[]>;
@@ -583,4 +584,62 @@ it("la línea de comandos: --help, flags sin valor o ilegibles salen con 2 y una
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+// Covers: R82 (#1763)
+it("un hook activo sin filas de sombra sale como activo y no pinta el lote", () => {
+  const report = shadow.buildReport({
+    hooks: {
+      on: { gating: true, impl: IMPL, mode: "active" },
+      off: { gating: true, impl: IMPL, mode: "shadow" },
+    },
+    journals: { on: undefined, off: undefined },
+    engines: { on: ["claude", "pi"], off: ["claude"] },
+    approved: { on: [], off: [] },
+    now: NOW,
+    windowDays: 7,
+    perRowClose: true,
+  });
+  const on = report.rows.filter((row) => row.hook === "on");
+  expect(on.map((row) => [row.engine, row.status, row.mode, row.ok, row.problems])).toEqual([
+    ["claude", "active", "active", true, []],
+    ["pi", "active", "active", true, []],
+  ]);
+  // The shadow hook keeps its criterion: no traffic and no approval is red (R82).
+  expect(report.rows.find((row) => row.hook === "off")).toMatchObject({
+    status: "red",
+    mode: "shadow",
+    problems: ["no shadow traffic and no no-shadow-traffic approval (R82)"],
+  });
+  const table = shadow.formatMarkdown(report, { Guard: ["on"], C: ["off"] });
+  expect(table).toContain("| on | claude | yes | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | active |");
+  expect(table).toContain("| Guard | on | active |");
+  expect(table).toContain("| C | off | red: off [claude] |");
+
+  const onlyActive = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: undefined },
+    engines: { on: ["pi"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(onlyActive).toMatchObject({ ok: true, status: "active" });
+});
+
+it("un hook activo con una divergencia en su journal sigue en rojo", () => {
+  const report = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: journal("on", "claude", [{ ageDays: 1, differs: true }]) },
+    engines: { on: ["claude"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(report.rows[0]).toMatchObject({
+    status: "red",
+    mode: "active",
+    problems: ["1 divergence(s)"],
+  });
+  expect(report.status).toBe("red");
 });
