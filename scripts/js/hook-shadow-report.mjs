@@ -84,8 +84,12 @@ export function approvedWithoutTraffic(historyText, hook) {
 }
 
 /**
+ * A hook whose `mode` is `active` is decided by the native without the shadow lane, so it writes
+ * no journal: its rows get the status `active` (no R82, window or pending check) and do not count
+ * for the report or batch verdict. A divergence still in its journal keeps it red.
+ *
  * @param {{
- *   hooks: Record<string, { gating: boolean, impl: string }>,
+ *   hooks: Record<string, { gating: boolean, impl: string, mode?: string }>,
  *   journals: Record<string, Uint8Array | Uint8Array[] | undefined>,
  *   engines: Record<string, string[]>,
  *   approved: Record<string, string[]>,
@@ -118,6 +122,7 @@ export function buildReport({
   const cancelledBySibling = siblingCancel ? siblingCancellations(decodedByHook) : () => false;
   for (const [hook, descriptor] of Object.entries(hooks)) {
     const decoded = decodedByHook[hook];
+    const active = descriptor.mode === "active";
     const valid = decoded.every((part) => part !== null);
     const records = valid ? decoded.flatMap((part) => part.records) : null;
     // Journals written before the payload was dropped: informational, the file is safe to delete.
@@ -137,6 +142,7 @@ export function buildReport({
         hook,
         engine,
         gating: descriptor.gating,
+        mode: active ? "active" : "shadow",
         invocations: 0,
         divergences: 0,
         pending: 0,
@@ -202,6 +208,14 @@ export function buildReport({
       }
       row.spanDays = first === Infinity ? 0 : (closeAt - first) / DAY_MS;
       if (row.divergences > 0) row.problems.push(`${row.divergences} divergence(s)`);
+      if (active) {
+        // Window and pending notes judge shadow traffic; an active hook has none to judge.
+        row.warnings = [];
+        row.status = row.problems.length ? "red" : "active";
+        row.ok = row.status === "active";
+        rows.push(row);
+        continue;
+      }
       if (descriptor.gating) {
         if (row.pending > 0) {
           const closed = perRowClose && row.closesMs !== null && row.closesMs <= now;
@@ -228,6 +242,7 @@ export function buildReport({
         hook,
         engine: "-",
         gating: true,
+        mode: active ? "active" : "shadow",
         invocations: 0,
         divergences: 0,
         pending: 0,
@@ -284,10 +299,14 @@ function siblingCancellations(decodedByHook) {
     );
 }
 
-/** The worst status of some rows: red over amber over green. */
+/**
+ * The worst status of some rows: red over amber over green. `active` rows (an active hook without
+ * a problem) do not count; rows that are all `active` give `active`.
+ */
 function worst(rows) {
   if (rows.some((row) => row.status === "red")) return "red";
-  return rows.some((row) => row.status === "amber") ? "amber" : "green";
+  if (rows.some((row) => row.status === "amber")) return "amber";
+  return rows.length > 0 && rows.every((row) => row.status === "active") ? "active" : "green";
 }
 
 /** The conditions a row's lost observations still miss to count as green at its close. */
@@ -353,7 +372,7 @@ function format(report) {
   const lines = [`hook shadow report (window ${report.windowDays} d)`];
   if (report.siblingCancel) lines.push(`cancelled = ${CANCELLED_MEANING}`);
   for (const row of report.rows) {
-    const status = { green: "ok ", amber: "AMB", red: "RED" }[row.status];
+    const status = { green: "ok ", amber: "AMB", red: "RED", active: "ACT" }[row.status];
     const notes = [...row.problems, ...row.warnings];
     lines.push(
       `${status} ${row.hook} [${row.engine}] ${row.gating ? "gating" : "advisory"} ` +
@@ -405,7 +424,7 @@ export function formatMarkdown(report, batches = {}) {
         `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
         (cancelled ? `${cancelledCell(row)} | ` : "") +
         `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ${iso(row.closesMs)} | ` +
-        `${row.status === "green" ? "green" : `${row.status}: ${[...row.problems, ...row.warnings].join("; ")}`} |`,
+        `${row.status === "green" || row.status === "active" ? row.status : `${row.status}: ${[...row.problems, ...row.warnings].join("; ")}`} |`,
     );
   }
   const names = Object.keys(batches);
@@ -424,8 +443,8 @@ export function formatMarkdown(report, batches = {}) {
       const verdict =
         missing.length > 0
           ? `red: no rows for ${missing.join(", ")} (unknown hook or no engine registered)`
-          : status === "green"
-            ? "green"
+          : status === "green" || status === "active"
+            ? status
             : `${status}: ${named.join(", ")}`;
       lines.push(`| ${name} | ${hooks.join(", ")} | ${verdict} |`);
     }
@@ -448,7 +467,7 @@ const USAGE = `usage: node scripts/js/hook-shadow-report.mjs [options]
                       sibling of the same call completed: compatible with a sibling's block,
                       INFERRED (the journal keeps no verdicts), so check each one listed
   --json | --markdown output format (default: text)
-exit: 0 green, 1 red, 2 error, 3 amber`;
+exit: 0 green or every row active, 1 red, 2 error, 3 amber`;
 
 /** Parse `--batches`: an object of batch name to a list of hook names, or an error. */
 export function parseBatches(text) {
@@ -517,7 +536,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           : format(report),
     );
     // 0 green, 1 red, 3 amber (2 is an error).
-    process.exitCode = { green: 0, red: 1, amber: 3 }[report.status];
+    process.exitCode = { green: 0, active: 0, red: 1, amber: 3 }[report.status];
   } catch (error) {
     console.error(`hook-shadow-report: ${error.message}`);
     process.exitCode = 2;
