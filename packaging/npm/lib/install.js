@@ -1,6 +1,6 @@
 "use strict";
-// Spec 0062 T6 (R22; D17 of 0057, D53): the postinstall puts the platform binary in place of both
-// JS bins, so `navori` and the native hook start without Node. It only does so when the binary
+// Spec 0062 T6 (R22; D17 of 0057, D53): the postinstall puts the platform binary in place of the
+// JS bins, so `navori`, `navori-native-hook` and `navori-rust` (the name the hook prologue looks up) start without Node. It only does so when the binary
 // answers `--version` with this package's version; otherwise the JS bins stay and run it through
 // Node (F43). It never fails the install.
 
@@ -9,7 +9,7 @@ const { chmodSync, copyFileSync, readFileSync, renameSync, rmSync } = require("n
 const { join } = require("node:path");
 const { findBinary } = require("./launcher.js");
 
-const BINS = ["navori", "navori-native-hook"];
+const BINS = ["navori", "navori-native-hook", "navori-rust"];
 
 /**
  * pnpm links bins through a shell shim that runs `node <bin>`, so a native file there would be

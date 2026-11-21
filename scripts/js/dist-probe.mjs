@@ -133,6 +133,37 @@ export function afterWarmUp(run) {
   return run();
 }
 
+/**
+ * Runs the RENDERED hook script (its native-runtime prologue looks up `navori-rust` on PATH) with
+ * `node_modules/.bin` first, `NAVORI_HOOK_IMPL=rust`, and checks that the native runtime answered:
+ * the block verdict, and not the "unavailable or deferred" message. Times the second (warm) run.
+ * @returns {{ failures: string[], ms: number }}
+ */
+export function hookPrologue({ bins, script, input }) {
+  const cwd = mkdtempSync(join(tmpdir(), "navori-probe-prologue-"));
+  try {
+    const run = () => {
+      const started = performance.now();
+      const result = spawnSync("bash", [script], {
+        cwd,
+        input,
+        encoding: "utf8",
+        env: { PATH: [bins, hookPath()].join(delimiter), NAVORI_HOOK_IMPL: "rust", NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+        timeout: 60_000,
+      });
+      return { result, ms: performance.now() - started };
+    };
+    const { result, ms } = afterWarmUp(run);
+    const failures = [];
+    if (result.stderr.includes("native runtime unavailable or deferred") || result.status !== 2) {
+      failures.push(`the rendered hook prologue did not reach the native runtime (exit ${result.status}): ${result.stderr.trim().slice(0, 300)}`);
+    }
+    return { failures, ms };
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 /** The program and leading arguments for a manager, with pnpm through npx when not installed. */
 function managerCommand(argv) {
   const [name, ...rest] = argv;
@@ -154,7 +185,7 @@ function onPath(name) {
  * Checks one installed project. Returns the failures (empty when it answers as expected).
  * @param {{ project: string, version: string, legacyVersion: string, native: boolean, linked: boolean, hooks: string }} s
  */
-export function checkInstall({ project, version, legacyVersion, native, linked, hooks }) {
+export function checkInstall({ project, version, legacyVersion, native, linked, hooks, timings = [] }) {
   const failures = [];
   const bins = join(project, "node_modules", ".bin");
   // The installed package alone decides where delegation goes.
@@ -170,9 +201,12 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
   if (own.status !== 0 || own.stdout.trim().split(/\s+/).at(-1) !== expected) {
     failures.push(`navori --version answered ${JSON.stringify(own.stdout.trim())} (exit ${own.status}), expected ${expected}`);
   }
-  const launcher = join(project, "node_modules", "navori", "bin", "navori");
-  if (native && isScript(launcher) === linked) {
-    failures.push(linked ? "the postinstall did not link the binary" : "the bin is not the JS launcher");
+  // Linked (npm/bun with scripts): every bin, `navori-rust` included, IS the binary, not a script.
+  for (const name of ["navori", "navori-native-hook", "navori-rust"]) {
+    const launcher = join(project, "node_modules", "navori", "bin", name);
+    if (native && isScript(launcher) === linked) {
+      failures.push(linked ? `the postinstall did not link the binary into ${name}` : `${name} is not the JS launcher`);
+    }
   }
 
   const hook = join(project, "node_modules", ".bin", "navori-native-hook");
@@ -204,14 +238,19 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+    const prologue = hookPrologue({ bins, script: join(hooks, ".claude", "hooks", c.hook), input: c.input });
+    failures.push(...prologue.failures);
+    timings.push(`${prologue.ms.toFixed(1)} ms per rendered hook`);
     const delegated = run("navori", delegationProbe());
     const text = `${delegated.stdout}${delegated.stderr}`;
     if ([69, 70].includes(delegated.status ?? -1) || !text.includes(`v${legacyVersion}`)) {
       failures.push(`a delegated subcommand did not reach the frozen TS v${legacyVersion} (exit ${delegated.status})`);
     }
   } else {
-    const result = spawnSync(hook, ["hook"], { cwd: project, input: "", encoding: "utf8" });
-    if (result.status !== 127) failures.push(`navori-native-hook without a binary exited ${result.status}, expected 127`);
+    for (const name of ["navori-native-hook", "navori-rust"]) {
+      const result = spawnSync(join(bins, name), ["hook"], { cwd: project, input: "", encoding: "utf8" });
+      if (result.status !== 127) failures.push(`${name} without a binary exited ${result.status}, expected 127`);
+    }
   }
   return failures;
 }
@@ -260,6 +299,7 @@ function main(argv) {
 
     /** @type {Array<{ name: string, failures: string[] }>} */
     const results = [];
+    const timingsBy = {};
     const scenario = (name, argv, manifest, check, extraEnv = {}) => {
       const project = join(root, name);
       mkdirSync(project);
@@ -276,7 +316,7 @@ function main(argv) {
           `${manager}-${scripts ? "scripts" : "no-scripts"}`,
           plan.argv,
           plan.manifest,
-          (project) => checkInstall({ project, version, legacyVersion: pin.version, native: true, linked: plan.linked, hooks }),
+          (project) => checkInstall({ project, version, legacyVersion: pin.version, native: true, linked: plan.linked, hooks, timings: (timingsBy[`${manager}-${scripts ? "scripts" : "no-scripts"}`] ??= []) }),
           plan.env,
         );
       }
@@ -288,6 +328,7 @@ function main(argv) {
     for (const r of results) {
       process.stdout.write(`  ${r.failures.length === 0 ? "ok  " : "FAIL"} ${r.name}\n`);
       for (const f of r.failures) process.stdout.write(`       ${f}\n`);
+      for (const t of timingsBy[r.name] ?? []) process.stdout.write(`       ${t}\n`);
     }
     // assemble() already refuses a mismatch; the report states it.
     results.push({
