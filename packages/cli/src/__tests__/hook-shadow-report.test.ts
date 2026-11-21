@@ -14,7 +14,8 @@ interface Row {
   firstMs: number | null;
   lastMs: number | null;
   closesMs: number | null;
-  status: "green" | "amber" | "red";
+  status: "green" | "amber" | "red" | "active";
+  mode: "active" | "shadow";
   warnings: string[];
   nativeFailed: number;
   shellFailed: number;
@@ -27,11 +28,11 @@ interface Row {
 }
 interface Report {
   ok: boolean;
-  status: "green" | "amber" | "red";
+  status: "green" | "amber" | "red" | "active";
   rows: Row[];
 }
 interface ReportInput {
-  hooks: Record<string, { gating: boolean; impl: string }>;
+  hooks: Record<string, { gating: boolean; impl: string; mode?: string }>;
   journals: Record<string, Uint8Array | Uint8Array[] | undefined>;
   engines: Record<string, string[]>;
   approved: Record<string, string[]>;
@@ -580,6 +581,174 @@ it("la línea de comandos: --help, flags sin valor o ilegibles salen con 2 y una
       expect({ flags, status: failed.status }).toEqual({ flags, status: 2 });
       expect(failed.stderr).toContain("hook-shadow-report:");
     }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+// Covers: R82 (#1763)
+it("un hook activo sin filas de sombra sale como activo y no pinta el lote", () => {
+  const report = shadow.buildReport({
+    hooks: {
+      on: { gating: true, impl: IMPL, mode: "active" },
+      off: { gating: true, impl: IMPL, mode: "shadow" },
+    },
+    journals: { on: undefined, off: undefined },
+    engines: { on: ["claude", "pi"], off: ["claude"] },
+    approved: { on: [], off: [] },
+    now: NOW,
+    windowDays: 7,
+    perRowClose: true,
+  });
+  const on = report.rows.filter((row) => row.hook === "on");
+  expect(on.map((row) => [row.engine, row.status, row.mode, row.ok, row.problems])).toEqual([
+    ["claude", "active", "active", true, []],
+    ["pi", "active", "active", true, []],
+  ]);
+  // The shadow hook keeps its criterion: no traffic and no approval is red (R82).
+  expect(report.rows.find((row) => row.hook === "off")).toMatchObject({
+    status: "red",
+    mode: "shadow",
+    problems: ["no shadow traffic and no no-shadow-traffic approval (R82)"],
+  });
+  const table = shadow.formatMarkdown(report, { Guard: ["on"], C: ["off"] });
+  expect(table).toContain("| on | claude | yes | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - | active |");
+  expect(table).toContain("| Guard | on | active |");
+  expect(table).toContain("| C | off | red: off [claude] |");
+
+  const onlyActive = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: undefined },
+    engines: { on: ["pi"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(onlyActive).toMatchObject({ ok: true, status: "active" });
+});
+
+it("un hook activo con una divergencia en su journal sigue en rojo", () => {
+  const report = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: journal("on", "claude", [{ ageDays: 1, differs: true }]) },
+    engines: { on: ["claude"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+  });
+  const pendingOnly = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: journal("on", "claude", [{ ageDays: 1 }, { ageDays: 1, complete: false }]) },
+    engines: { on: ["claude"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+    perRowClose: true,
+  });
+  expect(pendingOnly.rows[0]).toMatchObject({ status: "active", problems: [], warnings: [] });
+  expect(report.rows[0]).toMatchObject({
+    status: "red",
+    mode: "active",
+    problems: ["1 divergence(s)"],
+  });
+  expect(report.status).toBe("red");
+});
+
+it("un lote con un hook activo y uno en ámbar sale en ámbar por el de sombra", () => {
+  const report = shadow.buildReport({
+    hooks: {
+      on: { gating: true, impl: IMPL, mode: "active" },
+      off: { gating: true, impl: IMPL, mode: "shadow" },
+    },
+    journals: { on: undefined, off: journal("off", "claude", [{ ageDays: 1 }]) },
+    engines: { on: ["claude"], off: ["claude"] },
+    approved: { on: [], off: [] },
+    now: NOW,
+    windowDays: 7,
+    perRowClose: true,
+  });
+  expect(report.status).toBe("amber");
+  expect(shadow.formatMarkdown(report, { Guard: ["on", "off"] })).toContain(
+    "| Guard | on, off | amber: off [claude] |",
+  );
+});
+
+it("solo el modo active exacto se juzga como activo; otro valor sigue el criterio de sombra", () => {
+  for (const mode of ["Active", "", "unknown", undefined]) {
+    const report = shadow.buildReport({
+      hooks: { on: { gating: true, impl: IMPL, mode } },
+      journals: { on: undefined },
+      engines: { on: ["claude"] },
+      approved: { on: [] },
+      now: NOW,
+      windowDays: 7,
+    });
+    expect({ mode, row: report.rows[0] }).toMatchObject({
+      mode,
+      row: { mode: "shadow", status: "red" },
+    });
+  }
+});
+
+it("un hook activo: una falla de su impl es roja y un pendiente de la ventana de sombra se cuenta sin pintarlo", () => {
+  // An active hook writes no rows (its wrapper calls the native without --shadow): rows of its impl
+  // are the shadow window's history. A failure counts as a divergence; a pending row was judged at
+  // that window's close, so the table counts it and the verdict stays active.
+  const active = (calls: Parameters<typeof journal>[2]): Report =>
+    shadow.buildReport({
+      hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+      journals: { on: journal("on", "claude", calls) },
+      engines: { on: ["claude"] },
+      approved: { on: [] },
+      now: NOW,
+      windowDays: 7,
+      perRowClose: true,
+    });
+  for (const failed of ["native", "shell"] as const) {
+    expect(active([{ ageDays: 2, failed }]).rows[0]).toMatchObject({
+      status: "red",
+      problems: ["1 divergence(s)"],
+    });
+  }
+  const pending = active([{ ageDays: 2 }, { ageDays: 1, complete: false }]);
+  expect(pending.rows[0]).toMatchObject({ status: "active", pending: 1, warnings: [] });
+  expect(shadow.formatMarkdown(pending)).toContain("| on | claude | yes | 1 | 0 | 0 | 0 | 1 | 0 |");
+});
+
+it("un hook activo con compuerta sin engine que lo renderice sigue en rojo", () => {
+  const report = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: undefined },
+    engines: { on: [] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+  });
+  expect(report.rows[0]).toMatchObject({
+    engine: "-",
+    mode: "active",
+    status: "red",
+    problems: ["no engine renders the native block for this hook"],
+  });
+});
+
+it("por línea de comandos un reporte todo activo sale con 0 y ACT", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "shadow-report-active-"));
+  try {
+    mkdirSync(join(scratch, "crates"), { recursive: true });
+    writeFileSync(
+      join(scratch, "crates/ported.json"),
+      JSON.stringify({ hooks: { example: { gating: true, impl: IMPL, mode: "active" } } }),
+    );
+    mkdirSync(join(scratch, ".claude/hooks"), { recursive: true });
+    writeFileSync(join(scratch, ".claude/hooks/example.sh"), "# navori:native-runtime start\n");
+    const result = spawnSync(
+      process.execPath,
+      [SCRIPT, "--root", scratch, "--now", new Date(NOW).toISOString()],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("ACT example [claude]");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
