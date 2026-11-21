@@ -12,6 +12,7 @@ interface E2e {
     tarballs: string[],
   ) => { argv: string[]; env: Record<string, string> };
   unexpectedWarnings: (output: string, expected?: string[]) => string[];
+  launcherNote: (output: string) => string | undefined;
   median: (values: number[]) => number;
   dockerfile: (node: string) => string;
   imageTag: (node: string, text: string) => string;
@@ -71,6 +72,15 @@ describe("dist-e2e", () => {
       "Restos de interpolación en el árbol renderizado (22)",
     ]);
     expect(e2e.unexpectedWarnings("▲  algo nuevo", [])).toEqual(["algo nuevo"]);
+  });
+
+  it("reconoce el aviso de doctor del lanzador de Node con uno o dos bins", () => {
+    const both =
+      "▲  'navori', 'navori-rust' en el PATH es el lanzador de Node del paquete, no el binario: …";
+    const one = "▲  'navori' en el PATH es el lanzador de Node del paquete, no el binario: …";
+    expect(e2e.launcherNote(`│\n${both}\n▲  Otra cosa`)).toBe(both.slice(3));
+    expect(e2e.launcherNote(one)).toBe(one.slice(3));
+    expect(e2e.launcherNote("▲  Herramientas opcionales no instaladas (1)")).toBeUndefined();
   });
 
   it("la imagen trae jq acreditado (Debian 13) y no trae Rust", () => {

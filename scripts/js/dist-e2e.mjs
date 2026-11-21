@@ -314,9 +314,34 @@ function inner(scenario, { version, alias }) {
   }
 
   const doctor = run(["navori", "doctor"]);
-  const unexpected = unexpectedWarnings(`${doctor.stdout}${doctor.stderr}`);
+  const doctorOutput = `${doctor.stdout}${doctor.stderr}`;
+  // Without the postinstall (pnpm, --ignore-scripts) the bins are the Node launcher, and doctor
+  // has to say so with the fix for each manager; with it, the note must not appear.
+  const launcherOnPath = kindOf(join(bin, "navori-rust")) === "script" || kindOf(join(bin, "navori")) === "script";
+  const note = launcherNote(doctorOutput);
+  check(
+    launcherOnPath ? "doctor warns that the bins on PATH are the Node launcher" : "doctor gives no Node-launcher note",
+    launcherOnPath ? note !== undefined && note.includes("los hooks buscan 'navori-rust'") : note === undefined,
+    note ?? "no note",
+  );
+  const unexpected = unexpectedWarnings(doctorOutput, launcherOnPath ? [...EXPECTED_DOCTOR_WARNINGS, note ?? ""].filter(Boolean) : undefined);
   check("navori doctor", doctor.status === 0 && unexpected.length === 0, [`exit ${doctor.status}`, ...unexpected.map((w) => `unexpected: ${w.slice(0, 160)}`)].join("; "));
   return done();
+}
+
+/**
+ * The `▲` heading of doctor's Node-launcher note (Spanish), if any: `'navori', 'navori-rust' en
+ * el PATH es el lanzador de Node del paquete ...`.
+ *
+ * @param {string} output
+ * @returns {string | undefined}
+ */
+export function launcherNote(output) {
+  return output
+    .split("\n")
+    .filter((line) => line.startsWith("▲"))
+    .map((line) => line.replace(/^▲\s*/, "").trim())
+    .find((heading) => /^'[^']+'(?:, '[^']+')* en el PATH es el lanzador de Node del paquete/.test(heading));
 }
 
 // ---------------------------------------------------------------- host mode
