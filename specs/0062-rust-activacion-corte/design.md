@@ -110,11 +110,15 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   guardar, porque el pin registra su `HEAD`. El ensayo de `rust-release.yml` lo construye con
   `legacy --from-pin`: el commit y la versión que fija `packaging/legacy.json`, o `HEAD` mientras
   el pin esté vacío (después del corte, un pin vacío es un error, porque `HEAD` ya no tiene
-  `packages/cli/src`). `scripts/js/dist-legacy-cutover.mjs` (job `legacy-cutover`) repite ese job
-  en un árbol sin `packages/cli/src`, y `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  `packages/cli/src/index.ts`); no acepta `--version`. `scripts/js/dist-legacy-cutover.mjs` (job
+  `legacy-cutover`) repite ese job en un árbol que, como T10, solo conserva las suites de artefacto
+  bajo `packages/cli/src`, y `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
   **`crates/ported.json` queda fijado al commit del legacy:** después del corte, cualquier cambio
   en `crates/ported.json` (una re-firma de hooks) obliga a publicar un legacy nuevo desde un commit
   con ese manifiesto, o el ensamblado lo rechaza.
+  **Orden en el release:** como el pin debe llevar la versión que estampan los binarios, la versión
+  de `packages/cli/package.json` sube a la del release en el mismo PR que llena el pin (o antes);
+  si el pin entra antes, el job `package` del ensayo queda en rojo hasta el bump.
 - **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
   127, así el prólogo del hook corre su cuerpo shell.
 - **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS

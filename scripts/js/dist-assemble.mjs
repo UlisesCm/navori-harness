@@ -31,9 +31,10 @@ import { fileURLToPath } from "node:url";
  *   node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir> ...
  *
  * `--from-pin` is what the rehearsal runs: it builds the commit and version `packaging/legacy.json`
- * pins, so it keeps working after the cutover deletes `packages/cli/src`; with an empty pin it
- * builds `HEAD`, which only works while the TS sources are still in the tree. `--from-dir`
- * refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
+ * pins, so it keeps working after the cutover deletes the TS sources (T10 keeps only the artifact
+ * suites under `packages/cli/src`); with an empty pin it builds `HEAD`, which only works while the
+ * TS entry (`packages/cli/src/index.ts`) is still in the tree. It takes no `--version`.
+ * `--from-dir` refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
  *
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
  * `{ version, integrity, commit }` in `packaging/legacy.json`. A pin with `null` integrity/commit
@@ -229,8 +230,8 @@ function capture(cmd, args, cwd) {
 
 /**
  * What `legacy --from-pin` builds: the pinned commit at the pinned version, or `HEAD` at its own
- * version while the pin is empty. After the cutover (`packages/cli/src` gone) an empty pin is an
- * error: `HEAD` has no TS to build.
+ * version while the pin is empty. After the cutover (no `packages/cli/src/index.ts`) an empty pin
+ * is an error: `HEAD` has no TS to build.
  * @param {{ version: string, commit?: string | null }} pin
  * @param {{ hasTsSources: boolean }} tree
  * @returns {{ from: string, version: string | undefined }}
@@ -239,7 +240,7 @@ export function legacySource(pin, { hasTsSources }) {
   if (typeof pin.commit === "string" && pin.commit !== "") return { from: pin.commit, version: pin.version };
   if (!hasTsSources) {
     throw new Error(
-      "packages/cli/src is gone (cutover) and packaging/legacy.json pins no commit: pin the legacy with `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin` first",
+      "the TS sources are gone (cutover: no packages/cli/src/index.ts) and packaging/legacy.json pins no commit: pin the legacy with `dist-assemble legacy --from <commit before the cutover> --version <release> --write-pin` first",
     );
   }
   return { from: "HEAD", version: undefined };
@@ -289,9 +290,11 @@ function legacyCommand(argv) {
     throw new Error("exactly one of --from <ref>, --from-dir <path> or --from-pin is required");
   }
   if (opts.fromPin) {
-    const source = legacySource(legacyPin(), { hasTsSources: existsSync(join(REPO_ROOT, "packages", "cli", "src")) });
+    if (opts.version !== undefined) throw new Error("--from-pin takes the pinned version; drop --version");
+    // The tsdown entry: T10 deletes it but keeps the artifact suites under packages/cli/src.
+    const source = legacySource(legacyPin(), { hasTsSources: existsSync(join(REPO_ROOT, "packages", "cli", "src", "index.ts")) });
     opts.from = source.from;
-    opts.version ??= source.version;
+    opts.version = source.version;
   }
 
   let result;

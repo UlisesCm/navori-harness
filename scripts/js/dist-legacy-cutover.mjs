@@ -1,12 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ARTIFACT_SUITES } from "./post-cutover-check.mjs";
 
 /**
  * Rehearses the `legacy` job of rust-release.yml on the tree the cutover leaves (spec 0062 T10
- * deletes `packages/cli/src`): a detached worktree of `HEAD` without `packages/cli/src`, whose
+ * deletes `packages/cli/src` except the artifact suites): a detached worktree of `HEAD` with only
+ * `ARTIFACT_SUITES` left under `packages/cli/src`, whose
  * `packaging/legacy.json` pins `HEAD` (the commit before the cutover, as the release does). From
  * that tree it runs the job's exact command, then assembles the `navori` package with the result,
  * and checks that an empty pin there fails with its own message instead of a broken build.
@@ -31,9 +33,32 @@ function node(args, cwd) {
   return spawnSync(process.execPath, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
+/**
+ * Deletes what T10 deletes: every file under `<cli>/src` outside the artifact suites (paths
+ * relative to `packages/cli`, matched as prefixes). Returns how many files it kept.
+ * @param {string} cli the `packages/cli` directory of the tree
+ */
+export function deleteTsSources(cli, suites = ARTIFACT_SUITES) {
+  let kept = 0;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (suites.some((s) => relative(cli, path).startsWith(s))) kept += 1;
+      else rmSync(path);
+    }
+  };
+  walk(join(cli, "src"));
+  return kept;
+}
+
 function main(argv) {
   const outFlag = argv.indexOf("--out");
-  const out = outFlag >= 0 ? resolve(argv[outFlag + 1]) : mkdtempSync(join(tmpdir(), "navori-cutover-out-"));
+  if (outFlag >= 0 && (argv[outFlag + 1] === undefined || argv[outFlag + 1].startsWith("--"))) {
+    throw new Error("--out needs a directory");
+  }
+  const ownOut = outFlag < 0;
+  const out = ownOut ? mkdtempSync(join(tmpdir(), "navori-cutover-out-")) : resolve(argv[outFlag + 1]);
   const sha = git(["rev-parse", "HEAD"]);
   const version = JSON.parse(readFileSync(join(REPO_ROOT, "packages", "cli", "package.json"), "utf8")).version;
   const tree = mkdtempSync(join(tmpdir(), "navori-cutover-tree-"));
@@ -41,7 +66,10 @@ function main(argv) {
   git(["worktree", "add", "--detach", tree, sha]);
   const failures = [];
   try {
-    rmSync(join(tree, "packages", "cli", "src"), { recursive: true, force: true });
+    const cli = join(tree, "packages", "cli");
+    const kept = deleteTsSources(cli);
+    if (kept === 0) failures.push("no artifact suite survived the simulated cutover: ARTIFACT_SUITES does not match the tree");
+    if (existsSync(join(cli, "src", "index.ts"))) failures.push("the simulated cutover left packages/cli/src/index.ts");
     const pinFile = join(tree, "packaging", "legacy.json");
 
     // 1. An empty pin after the cutover is refused up front.
@@ -75,6 +103,7 @@ function main(argv) {
   } finally {
     spawnSync("git", ["worktree", "remove", "--force", tree], { cwd: REPO_ROOT });
     rmSync(tree, { recursive: true, force: true });
+    if (ownOut) rmSync(out, { recursive: true, force: true });
   }
   for (const f of failures) process.stderr.write(`dist-legacy-cutover: ${f}\n`);
   process.stdout.write(`dist-legacy-cutover: ${failures.length === 0 ? "green" : "FAILED"} (pinned ${sha.slice(0, 8)}, ${version})\n`);
@@ -87,5 +116,10 @@ function emptyPinArgs(out) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = main(process.argv.slice(2));
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`dist-legacy-cutover: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }
