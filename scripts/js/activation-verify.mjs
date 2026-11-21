@@ -300,10 +300,8 @@ export function verify(args) {
   const which = spawnSync("sh", ["-c", "command -v navori-rust"], { encoding: "utf8" });
   const found = (which.stdout ?? "").trim();
   const binary = which.status === 0 && found !== "" ? found : null;
-  const version =
-    binary === null
-      ? null
-      : bashBounded('"$VERIFY_BIN" --version', args.root, { ...process.env, VERIFY_BIN: binary }, args.callTimeoutMs).stdout.trim();
+  const probe = binary === null ? null : bashBounded('"$VERIFY_BIN" --version', args.root, { ...process.env, VERIFY_BIN: binary }, args.callTimeoutMs);
+  const version = probe === null ? null : probe.unfinished === null ? probe.stdout.trim() : `unknown: --version ${probe.unfinished}`;
   const embedsManifest = binary !== null && readFileSync(binary).includes(manifestBytes);
 
   const registrations = registrationsOf(args.root);

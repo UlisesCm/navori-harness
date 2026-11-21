@@ -16,6 +16,15 @@ interface E2e {
   dockerfile: (node: string) => string;
   imageTag: (node: string, text: string) => string;
   parseArgs: (argv: string[]) => { managers: string[]; alias: boolean; binary: string };
+  allowed: (r: { status: number | null; stdout: string }) => boolean;
+  verifyRowDetail: (r: {
+    engine: string;
+    ok: boolean;
+    p50Ms?: number;
+    problems: string[];
+    notes?: string[];
+  }) => string;
+  throwIfInterrupted: (signal: string | null) => void;
 }
 
 interface Registration {
@@ -101,6 +110,41 @@ describe("dist-e2e", () => {
     ).toThrow(/unknown scenario/);
     expect(e2e.median([3, 1, 2])).toBe(2);
     expect(e2e.median([4, 1, 2, 3])).toBe(2.5);
+  });
+});
+
+describe("dist-e2e: gates", () => {
+  it("el guard solo permite con exit 0, sin el ask de falla y con pass o allow", () => {
+    const ask = '{"hookSpecificOutput":{"permissionDecision":"ask"}}';
+    const failed =
+      '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"navori: guard-destructive could not evaluate this call (native runtime failed); confirm it manually"}}';
+    expect(e2e.allowed({ status: 0, stdout: "" })).toBe(true);
+    expect(
+      e2e.allowed({ status: 0, stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }),
+    ).toBe(true);
+    expect(e2e.allowed({ status: null, stdout: "" })).toBe(false);
+    expect(e2e.allowed({ status: 0, stdout: failed })).toBe(false);
+    expect(e2e.allowed({ status: 0, stdout: ask })).toBe(false);
+    expect(e2e.allowed({ status: 2, stdout: "" })).toBe(false);
+  });
+
+  it("el detalle de activation-verify muestra notas y omite la mediana sin tiempos", () => {
+    expect(e2e.verifyRowDetail({ engine: "claude", ok: true, p50Ms: 4.2, problems: [] })).toBe(
+      "claude: OK p50=4.2 ms",
+    );
+    expect(
+      e2e.verifyRowDetail({ engine: "pi", ok: true, problems: [], notes: ["not registered"] }),
+    ).toBe("pi: OK note: not registered");
+    expect(
+      e2e.verifyRowDetail({ engine: "pi", ok: false, problems: ["did not finish within 1000 ms"] }),
+    ).toBe("pi: did not finish within 1000 ms");
+  });
+
+  it("una señal de interrupción corta la corrida", () => {
+    expect(() => e2e.throwIfInterrupted("SIGINT")).toThrow(/interrupted by SIGINT/);
+    expect(() => e2e.throwIfInterrupted("SIGTERM")).toThrow(/interrupted by SIGTERM/);
+    expect(() => e2e.throwIfInterrupted(null)).not.toThrow();
+    expect(() => e2e.throwIfInterrupted("SIGKILL")).not.toThrow();
   });
 });
 

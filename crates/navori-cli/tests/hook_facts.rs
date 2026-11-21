@@ -109,6 +109,12 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
         let mut env = env();
         env[1].1 = locale.into();
         if !locale_available(&env)? {
+            // libtest hides a passing test's stderr: in CI a missing locale must fail, or the
+            // case would be skipped forever without anyone seeing the warning.
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "real_facts needs the {locale} locale in CI (install it, e.g. `sudo locale-gen {locale}`)"
+            );
             eprintln!(
                 "warning: real_facts skips the {locale} case: the host has no {locale} locale \
                  (install it, e.g. `sudo locale-gen {locale}`)"
