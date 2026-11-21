@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 /// What a discard destroys, as `_dsc_dirty` measures it.
@@ -145,25 +146,58 @@ fn stopped() -> bool {
     CHILDREN.with_borrow(|children| children.as_ref().is_some_and(|c| c.running().stopped))
 }
 
-/// `command.output()`, recorded in this thread's [`Children`]. The caller sets every stream.
-fn finish(command: &mut Command) -> io::Result<Output> {
+/// The output of a `git` command (from [`git_in`] or [`git_from`]), recorded in this thread's
+/// [`Children`]: stdin and stderr null, stdout piped when `piped` and null otherwise.
+///
+/// [`git`]'s search reads permission bits, not the caller's access (another user's executable, a
+/// `noexec` mount). When the resolved path cannot be executed, the call runs again with the bare
+/// name, so `execvp` skips that entry as it would have, and the process keeps the bare name.
+fn finish(command: &mut Command, piped: bool) -> io::Result<Output> {
     if stopped() {
         return Err(io::Error::other("the evaluation was abandoned"));
     }
-    let mut child = command.spawn()?;
+    let mut child = match quiet(command, piped).spawn() {
+        Err(error)
+            if error.kind() == io::ErrorKind::PermissionDenied
+                && command.get_program() != OsStr::new(BARE_GIT) =>
+        {
+            GIT_DENIED.store(true, Ordering::Relaxed);
+            quiet(&mut bare(command), piped).spawn()?
+        }
+        spawned => spawned?,
+    };
     let _tracked = Tracked::new(&mut child)?;
     child.wait_with_output()
 }
 
+/// `command` with [`finish`]'s streams.
+fn quiet(command: &mut Command, piped: bool) -> &mut Command {
+    command
+        .stdin(Stdio::null())
+        .stdout(if piped { Stdio::piped() } else { Stdio::null() })
+        .stderr(Stdio::null())
+}
+
+/// `command` again, with the bare `git` as its program: same arguments, environment changes and
+/// working directory (the streams are [`finish`]'s).
+fn bare(command: &Command) -> Command {
+    let mut again = Command::new(BARE_GIT);
+    again.args(command.get_args());
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => again.env(key, value),
+            None => again.env_remove(key),
+        };
+    }
+    if let Some(dir) = command.get_current_dir() {
+        again.current_dir(dir);
+    }
+    again
+}
+
 /// `$(…)`: stdout with every trailing newline dropped, `None` when the command fails.
 fn capture(command: &mut Command) -> Option<String> {
-    let output = finish(
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null()),
-    )
-    .ok()?;
+    let output = finish(command, true).ok()?;
     if !output.status.success() {
         return None;
     }
@@ -178,8 +212,16 @@ fn capture(command: &mut Command) -> Option<String> {
 /// child's working directory). Anything else keeps the bare name.
 fn git() -> &'static OsStr {
     static GIT: OnceLock<OsString> = OnceLock::new();
+    if GIT_DENIED.load(Ordering::Relaxed) {
+        return OsStr::new(BARE_GIT);
+    }
     GIT.get_or_init(|| resolve_git(std::env::var_os("PATH").as_deref()))
 }
+
+const BARE_GIT: &str = "git";
+
+/// Set once the resolved `git` could not be executed (see [`finish`]): from then on, the bare name.
+static GIT_DENIED: AtomicBool = AtomicBool::new(false);
 
 /// [`git`]'s search over `path`: the first absolute entry holding an executable regular file
 /// named `git`, or the bare name when the search cannot match `execvp` exactly.
@@ -280,14 +322,8 @@ impl Repo for System {
     }
 
     fn holds(&self, dir: &str, loss: Loss) -> bool {
-        let inside = finish(
-            git_in(dir)
-                .args(["rev-parse", "--git-dir"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null()),
-        )
-        .is_ok_and(|out| out.status.success());
+        let inside = finish(git_in(dir).args(["rev-parse", "--git-dir"]), false)
+            .is_ok_and(|out| out.status.success());
         if !inside {
             return false;
         }
@@ -302,13 +338,7 @@ impl Repo for System {
             Loss::All => command.args(["ls-files", "--others"]),
         };
         // `[ -n "$(…)" ]` and `head -n 1` ignore git's exit status.
-        finish(
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null()),
-        )
-        .is_ok_and(|out| out.stdout.iter().any(|b| *b != b'\n'))
+        finish(&mut command, true).is_ok_and(|out| out.stdout.iter().any(|b| *b != b'\n'))
     }
 
     fn toplevel(&self, dir: &str) -> Option<String> {
@@ -333,11 +363,8 @@ impl Repo for System {
 
     fn ignored(&self, root: &str, path: &str) -> bool {
         finish(
-            git_from(root)
-                .args(["check-ignore", "-q", "--", path])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null()),
+            git_from(root).args(["check-ignore", "-q", "--", path]),
+            false,
         )
         .is_ok_and(|out| out.status.success())
     }
@@ -458,6 +485,35 @@ mod tests {
             OsString::from("git")
         );
         assert_eq!(resolve_git(None), OsString::from("git"));
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_resolved_git_the_caller_cannot_execute_falls_back_to_the_bare_name() -> TestResult {
+        let root = std::env::temp_dir().join(format!("navori-git-denied-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (denied, usable) = (root.join("a"), root.join("b"));
+        for (dir, mode, word) in [(&denied, 0o010, "denied"), (&usable, 0o755, "usable")] {
+            std::fs::create_dir_all(dir)?;
+            let git = dir.join("git");
+            std::fs::write(&git, format!("#!/bin/sh\necho {word}\n"))?;
+            std::fs::set_permissions(&git, std::fs::Permissions::from_mode(mode))?;
+        }
+        let path = OsString::from(format!("{}:{}", denied.display(), usable.display()));
+        // Mode 0o010 passes `resolve_git`'s bit test, but only the group may execute it.
+        let resolved = resolve_git(Some(&path));
+        assert_eq!(resolved, denied.join("git").into_os_string());
+        if Command::new(&resolved).output().is_ok() {
+            // Root executes any file with an execute bit: nothing to fall back from.
+            std::fs::remove_dir_all(root)?;
+            return Ok(());
+        }
+        let mut command = Command::new(&resolved);
+        command.env("PATH", &path).arg("--version");
+        let output = finish(&mut command, true)?;
+        assert_eq!(output.stdout, b"usable\n");
+        assert_eq!(git(), OsStr::new(BARE_GIT));
         std::fs::remove_dir_all(root)?;
         Ok(())
     }

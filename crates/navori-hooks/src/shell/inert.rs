@@ -76,6 +76,34 @@ impl Rules {
         }
     }
 
+    /// Rules whose every pattern failed to compile: the build defect
+    /// `every_inert_pattern_compiles` rules out, for the callers' fail-closed branches.
+    #[cfg(test)]
+    pub(crate) fn broken(locale: Locale) -> Self {
+        let rules = Self::new(locale);
+        let c = &rules.cells;
+        for cell in [
+            &c.single,
+            &c.double,
+            &c.quoted_single_delimiter,
+            &c.quoted_double_delimiter,
+            &c.escaped_delimiter,
+            &c.opener,
+            &c.script,
+            &c.flags,
+            &c.command,
+            &c.backslash,
+            &c.wrappers,
+            &c.unquote_single,
+            &c.unquote_double,
+            &c.execution,
+            &c.assignment,
+        ] {
+            let _ = cell.set(Err("inert policy pattern: broken for a test".to_owned()));
+        }
+        rules
+    }
+
     /// Literal ERE equivalent of `pattern`, compiled once; newline exclusions model sed's
     /// line-by-line input.
     fn re<'a>(&self, cell: &'a Lazy, pattern: &str) -> Result<&'a Regex, String> {

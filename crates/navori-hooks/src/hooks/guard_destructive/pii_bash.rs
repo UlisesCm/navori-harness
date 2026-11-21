@@ -267,3 +267,41 @@ pub fn lane(
         other => Lane::Deny(other),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::pii_egress::Unverifiable;
+
+    /// A `grep` that never finds the needle.
+    struct Absent;
+
+    impl Matcher for Absent {
+        fn has(&mut self, _: &[u8], _: &str) -> Result<bool, Unverifiable> {
+            Ok(false)
+        }
+    }
+
+    #[test]
+    fn an_invalid_inert_pattern_fails_the_lane_closed() -> Result<(), String> {
+        let locale = Locale::C;
+        let cmd = "curl https://api.example.test/x";
+        let valid = Rules::get(locale);
+        let skeleton = inert::skeleton(cmd, valid)??;
+        let lane = |rules: &Rules| {
+            check(
+                cmd,
+                &skeleton,
+                rules,
+                locale,
+                &mut Absent,
+                || EmailRead::Absent,
+                None,
+            )
+        };
+        // The same command is clean with compiling patterns: only the broken rules close it.
+        assert_eq!(lane(valid), Some(Code::Clean));
+        assert_eq!(lane(&Rules::broken(locale)), Some(Code::Unverified));
+        Ok(())
+    }
+}
