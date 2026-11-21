@@ -26,7 +26,7 @@ interface Launcher {
   platformPackage: (platform?: string, arch?: string) => string | undefined;
   callerEnv: (env: Env) => Env;
   plan: (
-    name: "navori" | "navori-native-hook",
+    name: "navori" | "navori-native-hook" | "navori-rust",
     options: { root: string; binary?: string; argv: string[]; env: Env },
   ) => Step;
 }
@@ -183,6 +183,10 @@ describe("lanzador del paquete navori", () => {
     expect(launcher.plan("navori-native-hook", { root: "/pkg", argv: [], env })).toEqual({
       exit: 127,
     });
+    expect(launcher.plan("navori-rust", { root: "/pkg", argv: [], env })).toEqual({ exit: 127 });
+    expect(
+      launcher.plan("navori-rust", { root: "/pkg", binary: "/b/navori", argv: ["hook"], env }),
+    ).toMatchObject({ program: "/b/navori", args: ["hook"] });
     expect(launcher.callerEnv({ NODE_PATH: "/a/.pnpm/b:/a/.pnpm" })).toEqual({});
     expect(launcher.platformPackage("linux", "x64")).toBe("@navori/linux-x64");
     expect(launcher.platformPackage("win32", "x64")).toBeUndefined();
@@ -198,6 +202,7 @@ describe("lanzador del paquete navori", () => {
       expect(run.status).toBe(7);
       expect(run.stdout).toBe(`binary x y ts=${join(withBinary, "legacy", "dist", "index.js")}\n`);
       expect(bin(withBinary, "navori-native-hook", ["hook"]).stdout).toMatch(/^binary hook /);
+      expect(bin(withBinary, "navori-rust", ["hook"]).stdout).toMatch(/^binary hook /);
 
       const killed = installed("kill -TERM $$");
       expect(bin(killed, "navori").signal).toBe("SIGTERM");
@@ -207,6 +212,7 @@ describe("lanzador del paquete navori", () => {
       expect(legacy.stdout).toBe("legacy --version\n");
       expect(legacy.status).toBe(3);
       expect(bin(without, "navori-native-hook", ["hook"]).status).toBe(launcher.NO_NATIVE_HOOK);
+      expect(bin(without, "navori-rust", ["hook"]).status).toBe(launcher.NO_NATIVE_HOOK);
     },
   );
 });
@@ -231,7 +237,7 @@ describe("postinstall", () => {
     expect(readFileSync(join(root, "bin", "navori"), "utf8")).toBe(original);
 
     expect(install.linkBinary({ root, binary, env: npmAgent })).toBe(`linked ${binary}`);
-    for (const name of ["navori", "navori-native-hook"])
+    for (const name of ["navori", "navori-native-hook", "navori-rust"])
       expect(readFileSync(join(root, "bin", name), "utf8")).toBe(readFileSync(binary, "utf8"));
 
     // the entry point reports and never fails the install
@@ -255,6 +261,7 @@ describe("ensamblado", () => {
     expect(main.bin).toEqual({
       navori: "bin/navori",
       "navori-native-hook": "bin/navori-native-hook",
+      "navori-rust": "bin/navori-rust",
     });
     expect(main.scripts).toEqual({ postinstall: "node postinstall.js" });
     expect(main.files).toContain("legacy");

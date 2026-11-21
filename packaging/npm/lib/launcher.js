@@ -9,7 +9,7 @@ const { join } = require("node:path");
 /** The platforms with a binary package (R21); anything else runs the frozen TS. */
 const PLATFORMS = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"];
 
-/** Exit code of `navori-native-hook` without a binary: the hook prologue runs its shell body. */
+/** Exit code of `navori-native-hook` and `navori-rust` without a binary: the hook prologue runs its shell body. */
 const NO_NATIVE_HOOK = 127;
 
 /**
@@ -60,8 +60,8 @@ function callerEnv(env) {
 }
 
 /**
- * What a bin runs: the binary through Node, the frozen TS, or nothing for the native hook.
- * @param {"navori" | "navori-native-hook"} name
+ * What a bin runs: the binary through Node, the frozen TS, or nothing for the native hook and `navori-rust`.
+ * @param {"navori" | "navori-native-hook" | "navori-rust"} name
  * @param {{ root: string, binary?: string, argv: string[], env: NodeJS.ProcessEnv }} options
  * @returns {{ program: string, args: string[], env: NodeJS.ProcessEnv } | { exit: number }}
  */
@@ -72,13 +72,14 @@ function plan(name, { root, binary, argv, env }) {
     const caller = callerEnv(env);
     return { program: binary, args: argv, env: { ...caller, NAVORI_TS_CLI: caller.NAVORI_TS_CLI || legacy } };
   }
-  if (name === "navori-native-hook") return { exit: NO_NATIVE_HOOK };
+  // `navori-rust` is the name the hook prologue looks up: it behaves as `navori-native-hook`.
+  if (name !== "navori") return { exit: NO_NATIVE_HOOK };
   return { program: process.execPath, args: [legacy, ...argv], env };
 }
 
 /**
  * Runs a bin and ends this process the way the child ended (exit code or signal).
- * @param {"navori" | "navori-native-hook"} name
+ * @param {"navori" | "navori-native-hook" | "navori-rust"} name
  * @param {string} root
  */
 function launch(name, root) {
