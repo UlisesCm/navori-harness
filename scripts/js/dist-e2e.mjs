@@ -155,12 +155,16 @@ export function verifyRowDetail(r) {
 
 /**
  * A child killed by SIGINT/SIGTERM means the run was interrupted (Ctrl-C reaches the whole
- * foreground group): stop here so the caller's `finally` cleans up.
+ * foreground group): stop here so the caller's `finally` cleans up. The docker client traps
+ * those signals and exits 130/143 instead, so a caller may pass that status too.
  *
  * @param {NodeJS.Signals | null} signal
+ * @param {number | null} [trappedStatus] exit status of a child that traps SIGINT/SIGTERM
  */
-export function throwIfInterrupted(signal) {
+export function throwIfInterrupted(signal, trappedStatus = null) {
   if (signal === "SIGINT" || signal === "SIGTERM") throw new Error(`interrupted by ${signal}`);
+  if (trappedStatus === 130) throw new Error("interrupted by SIGINT (exit 130)");
+  if (trappedStatus === 143) throw new Error("interrupted by SIGTERM (exit 143)");
 }
 
 // ---------------------------------------------------------------- inner mode (container)
@@ -377,7 +381,7 @@ export function imageTag(node, text) {
  */
 function docker(args, input) {
   const result = spawnSync("docker", args, { encoding: input === undefined ? "utf8" : undefined, input, maxBuffer: 64 * 1024 * 1024 });
-  throwIfInterrupted(result.signal);
+  throwIfInterrupted(result.signal, result.status);
   return result;
 }
 
@@ -395,7 +399,8 @@ async function host(options) {
   const image = imageTag(node, recipe);
   const container = `navori-dist-e2e-${process.pid}`;
   const cleanup = () => {
-    docker(["rm", "-f", container]);
+    // Plain spawnSync: a second Ctrl-C here must not throw before the temp dir is removed.
+    spawnSync("docker", ["rm", "-f", container], { stdio: "ignore" });
     rmSync(root, { recursive: true, force: true });
   };
   // A Ctrl-C reaches the foreground group: the docker call dies with SIGINT and `docker()` throws, so

@@ -24,7 +24,7 @@ interface E2e {
     problems: string[];
     notes?: string[];
   }) => string;
-  throwIfInterrupted: (signal: string | null) => void;
+  throwIfInterrupted: (signal: string | null, trappedStatus?: number | null) => void;
 }
 
 interface Registration {
@@ -145,6 +145,9 @@ describe("dist-e2e: gates", () => {
     expect(() => e2e.throwIfInterrupted("SIGTERM")).toThrow(/interrupted by SIGTERM/);
     expect(() => e2e.throwIfInterrupted(null)).not.toThrow();
     expect(() => e2e.throwIfInterrupted("SIGKILL")).not.toThrow();
+    expect(() => e2e.throwIfInterrupted(null, 130)).toThrow(/SIGINT \(exit 130\)/);
+    expect(() => e2e.throwIfInterrupted(null, 143)).toThrow(/SIGTERM \(exit 143\)/);
+    expect(() => e2e.throwIfInterrupted(null, 1)).not.toThrow();
   });
 });
 
