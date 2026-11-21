@@ -1375,8 +1375,9 @@ pub fn scan_stale_global_cli(
 
 /// The bins a hook can run: `navori` and `navori-rust` (the name the native-runtime prologue looks up).
 const LAUNCHER_BINS: [&str; 2] = ["navori", "navori-rust"];
-/// How much of a bin `doctor` reads to tell the package's JS launcher from anything else.
-const LAUNCHER_HEAD_BYTES: u64 = 2048;
+/// How much of a bin `doctor` reads to tell the package's JS launcher from anything else. pnpm 12's
+/// shell shim is ~4 KiB and names its target at the end; 16 KiB leaves room for deeper paths.
+const LAUNCHER_HEAD_BYTES: u64 = 16 * 1024;
 
 /// Whether the first bytes of a bin are the 0.13 `navori` package's Node launcher: a script that
 /// requires `lib/launcher.js`, carries the "Replaced by the platform binary" marker, or is pnpm's
@@ -1547,6 +1548,11 @@ mod tests {
     fn js_launcher_on_path_only_flags_the_package_launcher() {
         let launcher = "#!/usr/bin/env node\n\"use strict\";\n// Replaced by the platform binary when the postinstall runs.\nrequire(\"../lib/launcher.js\").launch(\"navori\", \"/p\");\n";
         let pnpm_shim = "#!/bin/sh\nbasedir=$(dirname \"$0\")\nexec node \"$basedir/../navori/bin/navori\" \"$@\"\n";
+        // pnpm 12: ~4 KiB of path resolution before the `exec node .../navori/bin/navori-rust`.
+        let pnpm12_shim = format!(
+            "#!/bin/sh\n{}exec node \"$basedir_abs/../.pnpm/navori@1/node_modules/navori/bin/navori-rust\" \"$@\"\n",
+            "# resolve $0 through symlinks\n".repeat(150)
+        );
         let old_ts = "#!/usr/bin/env node\nimport(\"../dist/index.js\");\n";
         let fake = Fake::none();
         let scan = |t: &Temp, path: &str| {
@@ -1561,6 +1567,7 @@ mod tests {
         t.write("js/navori", launcher);
         t.write("js/navori-rust", launcher);
         t.write("shim/navori", pnpm_shim);
+        t.write("shim/navori-rust", &pnpm12_shim);
         t.write("old/navori", old_ts);
         for name in ["navori", "navori-rust"] {
             for dir in ["native", "js", "shim", "old"] {
@@ -1573,7 +1580,8 @@ mod tests {
         }
         assert!(scan(&t, "native").is_empty());
         assert_eq!(scan(&t, "js"), ["navori", "navori-rust"]);
-        assert_eq!(scan(&t, "shim"), ["navori"]);
+        assert!(pnpm12_shim.len() > 4096);
+        assert_eq!(scan(&t, "shim"), ["navori", "navori-rust"]);
         assert!(scan(&t, "old").is_empty());
         assert!(scan(&t, "missing").is_empty());
         // Only the first match on PATH counts: a binary ahead of the launcher hides it.

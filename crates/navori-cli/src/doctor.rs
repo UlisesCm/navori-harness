@@ -120,7 +120,46 @@ fn run_args(args: &[OsString]) -> Option<ExitCode> {
     }
     let process_cwd = std::env::current_dir().ok()?;
     let cwd = navori_core::posix::resolve(process_cwd.to_str()?, options.get("cwd").unwrap_or(""));
-    Some(doctor(&cwd, options.flag("strict"), &process_cwd)?.emit())
+    let Some(out) = doctor(&cwd, options.flag("strict"), &process_cwd) else {
+        // The frozen TS that answers instead has no such note; the binary is what knows the package.
+        let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let note = js_launcher_note_before_delegating(&cwd, &env, &process_cwd);
+        if !note.is_empty() {
+            let mut stderr = std::io::stderr().lock();
+            // A closed stderr must not stop the delegation.
+            let _ = std::io::Write::write_all(&mut stderr, note.as_bytes());
+        }
+        return None;
+    };
+    Some(out.emit())
+}
+
+/// The js-launcher note, as `doctor` logs it, for a run that delegates to the frozen TS (a project
+/// with `pi`, `tgrep`, `engram` or `codegraph`, the common case): empty when no bin on `PATH` is
+/// the package's Node launcher. Language from the config, Spanish without one, as the TS does.
+fn js_launcher_note_before_delegating(
+    cwd: &str,
+    env: &[(OsString, OsString)],
+    process_cwd: &Path,
+) -> String {
+    let host = Host {
+        env,
+        process_cwd,
+        runner: &RealRunner,
+    };
+    let bins = scan_js_launcher_on_path(&host);
+    if bins.is_empty() {
+        return String::new();
+    }
+    let lang = read_config(cwd)
+        .flatten()
+        .map_or(Lang::Es, |config| config.lang());
+    let mut clack = Clack::default();
+    clack.log(
+        Symbol::Warn,
+        &Doctor(lang).js_launcher_on_path(&bins.join("', '")),
+    );
+    clack.out.stdout
 }
 
 /// `sym.fail`, `sym.update` and `sym.bullet` of a non-TTY run.
@@ -2047,6 +2086,50 @@ fn drift_row(d: &DriftReport, td: Doctor, update: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Covers: R76
+    #[test]
+    fn the_js_launcher_note_survives_a_delegated_doctor() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir =
+            std::env::temp_dir().join(format!("navori-doctor-launcher-{}", std::process::id()));
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).ok();
+        let launcher = bin.join("navori-rust");
+        std::fs::write(
+            &launcher,
+            "#!/usr/bin/env node\nrequire(\"../lib/launcher.js\").launch(\"navori-rust\", \"/p\");\n",
+        )
+        .ok();
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).ok();
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).ok();
+        let cwd = project.to_str().unwrap_or_default();
+        let env = |path: &Path| vec![(OsString::from("PATH"), path.as_os_str().to_owned())];
+
+        // No config: Spanish, as the TS.
+        let es = js_launcher_note_before_delegating(cwd, &env(&bin), &dir);
+        assert!(
+            es.starts_with("│\n▲  'navori-rust' en el PATH es el lanzador de Node del paquete")
+        );
+        // The config's language.
+        std::fs::write(
+            project.join("navori.config.json"),
+            r#"{"name":"p","engines":["claude","pi"],"preset":"custom","language":"en"}"#,
+        )
+        .ok();
+        let en = js_launcher_note_before_delegating(cwd, &env(&bin), &dir);
+        assert!(
+            en.contains("'navori-rust' on PATH is the package's Node launcher"),
+            "{en}"
+        );
+        // Nothing when no bin on PATH is the launcher.
+        assert_eq!(
+            js_launcher_note_before_delegating(cwd, &env(&project), &dir),
+            ""
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     fn drift(kind: DriftKind) -> DriftReport {
         DriftReport {
