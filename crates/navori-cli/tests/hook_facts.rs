@@ -62,6 +62,18 @@ fn env() -> Vec<(OsString, OsString)> {
         ("LC_ALL".into(), "C".into()),
     ]
 }
+/// Whether bash can switch to `locale` under exactly `env` (the cleared environment the oracle
+/// runs in): a missing locale makes bash warn `setlocale` on stderr and keeps it in C, so the
+/// shell oracle would not be the one the locale case means to compare.
+fn locale_available(env: &[(OsString, OsString)]) -> Result<bool, Box<dyn Error>> {
+    let probe = Command::new("bash")
+        .args(["-c", "true"])
+        .env_clear()
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::null())
+        .output()?;
+    Ok(!String::from_utf8_lossy(&probe.stderr).contains("setlocale"))
+}
 fn request<'a>(env: &'a [(OsString, OsString)], script: &'a Path, source: &'a [u8]) -> Request<'a> {
     Request {
         engine: Engine::Claude,
@@ -96,6 +108,13 @@ fn real_facts_prepare_the_same_policy_capture_bytes_as_the_real_shell() -> TestR
     for locale in ["C", "en_US.UTF-8"] {
         let mut env = env();
         env[1].1 = locale.into();
+        if !locale_available(&env)? {
+            eprintln!(
+                "warning: real_facts skips the {locale} case: the host has no {locale} locale \
+                 (install it, e.g. `sudo locale-gen {locale}`)"
+            );
+            continue;
+        }
         env.push((
             "NAVORI_AUDITS_ROOT".into(),
             temp.0.join("audit-off").into_os_string(),
