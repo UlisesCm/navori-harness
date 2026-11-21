@@ -209,6 +209,8 @@ export function buildReport({
       row.spanDays = first === Infinity ? 0 : (closeAt - first) / DAY_MS;
       if (row.divergences > 0) row.problems.push(`${row.divergences} divergence(s)`);
       if (active) {
+        // Window and pending notes judge shadow traffic; an active hook has none to judge.
+        row.warnings = [];
         row.status = row.problems.length ? "red" : "active";
         row.ok = row.status === "active";
         rows.push(row);

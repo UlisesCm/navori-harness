@@ -636,6 +636,16 @@ it("un hook activo con una divergencia en su journal sigue en rojo", () => {
     now: NOW,
     windowDays: 7,
   });
+  const pendingOnly = shadow.buildReport({
+    hooks: { on: { gating: true, impl: IMPL, mode: "active" } },
+    journals: { on: journal("on", "claude", [{ ageDays: 1 }, { ageDays: 1, complete: false }]) },
+    engines: { on: ["claude"] },
+    approved: { on: [] },
+    now: NOW,
+    windowDays: 7,
+    perRowClose: true,
+  });
+  expect(pendingOnly.rows[0]).toMatchObject({ status: "active", problems: [], warnings: [] });
   expect(report.rows[0]).toMatchObject({
     status: "red",
     mode: "active",
