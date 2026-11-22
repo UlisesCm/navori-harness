@@ -193,7 +193,8 @@ fn signal_exit_codes_and_names_follow_node() {
     assert_eq!(signal_name(9), Some("SIGKILL"));
     assert_eq!(signal_name(2), Some("SIGINT"));
     assert_eq!(signal_name(15), Some("SIGTERM"));
-    // No name in Node's table: the signal is still a signal, with an empty name.
+    // No name in Node's table: the signal is still a signal, with an empty name (DV8: Node
+    // itself reports such a child as `close(0, null)`; Rust fails closed instead).
     assert_eq!(signal_name(40), None);
     assert_eq!(signal_name(0), None);
 }

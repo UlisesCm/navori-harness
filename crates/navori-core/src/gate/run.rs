@@ -188,12 +188,16 @@ pub struct ChainResult {
     /// Status of the last step that ran (1 for a step ended by a signal).
     pub code: i32,
     /// The signal that ended a step: its Node name, `""` when Node has no name for the number.
+    /// Known divergence (DV8): Node reports a step ended by an unnamed signal (Linux realtime
+    /// 34-64) as `close(0, null)`, so the TS takes it as success; here it stays a signal and
+    /// exits 129 (fail-closed).
     pub signal: Option<&'static str>,
 }
 
 impl ChainResult {
     /// Exit code navori reports: `128 + n` for SIGINT (2) and SIGTERM (15), 129 for any other
-    /// signal (the TS `SIGNAL_NUMBER[sig] ?? 1`), else the last status.
+    /// named signal (the TS `SIGNAL_NUMBER[sig] ?? 1`) and for an unnamed one (DV8: the TS
+    /// sees status 0 there), else the last status.
     #[must_use]
     pub fn exit_code(&self) -> i32 {
         match self.signal {

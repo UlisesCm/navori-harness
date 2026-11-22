@@ -70,8 +70,9 @@ fn run_args(args: &[OsString]) -> Option<ExitCode> {
             top,
             log,
         } => {
-            for line in warnings {
-                eprintln!("{line}");
+            if !warnings.is_empty() {
+                let text: String = warnings.iter().map(|line| format!("{line}\n")).collect();
+                let _ = std::io::stderr().write_all(text.as_bytes());
             }
             let verdict = run_foreign(&gate, &top, log, &env);
             let mut stdout = std::io::stdout().lock();
