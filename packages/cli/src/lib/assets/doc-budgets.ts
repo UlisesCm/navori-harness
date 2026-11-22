@@ -95,7 +95,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   "packages/core/core-assets/managed/claude-apendice.md": 153,
   "packages/core/core-assets/managed/code-discovery-routing.md": 159, // 151 → ×1.05 (#1520: markers no longer counted)
   "packages/core/core-assets/managed/codex-cross-review.md": 146, // 139 → ×1.05 (#1520: markers no longer counted)
-  "packages/core/core-assets/managed/formato-respuesta.md": 150,
+  "packages/core/core-assets/managed/formato-respuesta.md": 164, // 156 → ×1.05 (fixed Verificado / Supuesto fields)
   "packages/core/core-assets/managed/idioma-rol.md": 134, // 127 → ×1.05 (#1520: markers no longer counted)
   // #1273: the source carries both forms (Claude pointer + full text for the
   // prose engines), so it measures more than any single render (268 measured).
@@ -107,7 +107,7 @@ export const DOC_BUDGETS: Readonly<Record<string, number>> = {
   // Spec 0052 E1 M15 (R41): Codex note names the denying gate and one-at-a-time dispatch
   // (1124 measured → ceil(1124 × 1.05) = 1181).
   // #1331: Codex dispatch sessionId + residuals (1169 measured → ceil(1169 × 1.05) = 1228).
-  "packages/core/core-assets/managed/orquestacion.md": 554, // 527 → ×1.05 (#1520: markers no longer counted)
+  "packages/core/core-assets/managed/orquestacion.md": 611, // 581 → ×1.05 (evidence rule for recommendations)
   "packages/core/core-assets/managed/plan-maestro.md": 87, // 82 → ×1.05 (#1520: markers no longer counted)
   // Spec 0032 (#1011): own small ceiling (design.md "Components" targets
   // ~250 words) — the level table and the gate rule only, condition

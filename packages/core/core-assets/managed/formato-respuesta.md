@@ -6,7 +6,7 @@
 
 ### Resumen de decisión en el chat
 
-Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue. Campos fijos: **Verificado** (`file:line` o comando) y **Supuesto / sin verificar** (motivo, o «ninguno»).
 
 ## Formato de respuesta
 

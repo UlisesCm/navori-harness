@@ -11,6 +11,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. <!-- navori:if-not onCodex -->`{{gateRun.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->`{{qualityGate.full}}`<!-- /navori:if --> green once per PR.
 - At close: `verify-before-done`'s Session close.
