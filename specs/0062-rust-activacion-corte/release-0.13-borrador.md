@@ -31,7 +31,7 @@ Un solo commit `chore(release): navori v0.13.0` sobre `dev`, después del corte:
 | `packages/cli/package.json` | `0.12.5` → `0.13.0` | El TS congelado del repo; `release-tag.yml` crea el tag al llegar a main. |
 | `Cargo.toml` (`[workspace.package]`) | `0.13.0-rust.1` → `0.13.0` | `workspaceVersion()` de `dist-assemble.mjs` toma de aquí la versión de `navori` y de los paquetes de plataforma. |
 | `Cargo.lock` | `cargo update --workspace` (con `--locked`, el build falla hasta actualizarlo) | Solo cambian las versiones de los crates del workspace. |
-| `packaging/legacy.json` | según la decisión pendiente | 0.12.5 descartado por la prueba rápida; ver decisiones-ulises/2026-11-20-legacy-json. |
+| `packaging/legacy.json` | lo escribe `dist-assemble legacy --write-pin` antes del corte | Ver "Antes del PR de corte: el legacy" en el paso g. No se edita a mano. |
 | `crates/navori-cli/src/notices.rs` | `ENABLED: bool = false` → `true` | T11/R85. **Va en este PR del bump, no en el del corte** (Ulises, 20 nov 11:25). |
 | `navori.config.json` (`harnessVersion`) y `.claude/settings.json` (`$navori.version`) | los escribe el render | No editar a mano. |
 
@@ -182,6 +182,11 @@ legacy cuyo `crates/ported.json` difiera del del commit que compila los binarios
 Sin `latest` hasta el final: cada paquete se publica con `--tag next` y se promueve al cierre, así
 que un `npm i -g navori` no recibe nada a medias.
 
+0. **Pin completo antes de publicar** (D53; pendiente de #1764 señalado por S3): sobre el commit del
+   release, `node scripts/js/dist-assemble.mjs check-pin` tiene que imprimir
+   `dist-assemble: packaging/legacy.json is complete`. Falla si `commit` no es hex de 40, si
+   `integrity` no es `sha512-` o si `version` no es la de `packages/cli/package.json`. Hoy ningún
+   workflow lo corre: cuando exista un job de publicación, este paso va primero en él.
 1. **Legacy primero:** `npm publish /tmp/legacy-0.13/<tarball> --tag next --access public`.
    Comprobar que npm sirva los mismos bytes que fija el pin:
 
