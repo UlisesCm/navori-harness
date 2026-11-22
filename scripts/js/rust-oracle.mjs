@@ -11,6 +11,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  symlinkSync,
   rmSync,
   truncateSync,
   utimesSync,
@@ -136,6 +137,18 @@ export const RULES = [
     token: "@MS@",
     // `navori bench` summary rows: `min|p50|p95|max <n>.<d>ms`
     apply: (t) => t.replace(/\b(min|p50|p95|max)(\s+)\d+(?:\.\d+)?ms\b/g, "$1$2@MS@"),
+  },
+  {
+    name: "FOREIGN_LOG",
+    token: "@RAND@",
+    // `gate foreign` private log: `<tmpdir>/navori-gate-foreign-<mkdtemp suffix>/fast-<timestamp()>.log`.
+    // Only the random suffix and the stamp are replaced; the base directory, the prefix and the
+    // file name around them stay visible.
+    apply: (t) =>
+      t.replace(
+        /(?<=navori-gate-foreign-)[A-Za-z0-9]{6}(?=\/fast-\d{8}T\d{9}Z\.log(?![\dA-Za-z]))/g,
+        "@RAND@",
+      ).replace(/(?<=navori-gate-foreign-@RAND@\/fast-)\d{8}T\d{9}Z(?=\.log)/g, "@STAMP@"),
   },
 ];
 
@@ -280,7 +293,9 @@ export function relativeTime(relative, now) {
  * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
  * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
  * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
- * Called on every copy, so the TS and the Rust run see the same ages.
+ * Called on every copy, so the TS and the Rust run see the same ages. `symlinks` maps a path in
+ * the repo copy to its link target: created here because a committed symlink is not a regular git
+ * entry and the review receipt refuses it.
  *
  * @param {string} fixtureDir
  * @param {string} work
@@ -289,8 +304,12 @@ export function relativeTime(relative, now) {
 export function applyFixtureManifest(fixtureDir, work, now) {
   const path = join(fixtureDir, FIXTURE_MANIFEST);
   if (!existsSync(path)) return;
-  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }> }} */
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }>, symlinks?: Record<string, string> }} */
   const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const [rel, target] of Object.entries(manifest.symlinks ?? {})) {
+    mkdirSync(dirname(join(work, "repo", rel)), { recursive: true });
+    symlinkSync(target, join(work, "repo", rel));
+  }
   for (const backup of manifest.backups ?? []) {
     const dir = join(work, "backups", backup.name);
     mkdirSync(dir, { recursive: true });
