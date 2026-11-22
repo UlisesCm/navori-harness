@@ -34,6 +34,12 @@ pub const FOREIGN_LOG_PREFIX: &str = "navori-gate-foreign-";
 pub const FOREIGN_LOG_KEEP: usize = 20;
 const KIND: &str = "foreign";
 
+/// The current instant, for [`prepare_foreign`]'s log name.
+#[must_use]
+pub fn now() -> jiff::Timestamp {
+    jiff::Timestamp::now()
+}
+
 /// `timestamp(now)`: `toISOString()` without `-`, `:` and `.` (`20260102T030405678Z`).
 #[must_use]
 pub fn timestamp(now: jiff::Timestamp) -> String {
