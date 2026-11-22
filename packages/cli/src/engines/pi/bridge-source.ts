@@ -1,7 +1,7 @@
 /**
  * Spec 0048 D1/D2/D10: the hook bridge that lets Pi run the shared hook scripts, as a fragment of
- * `PI_EXTENSION_SOURCE`. It relies on the extension scope (`spawn`, `readFileSync`, `join`, `isRecord`,
- * `getShellConfig`, `PI_EXTENSION_DENIALS`) and declares nothing that collides with it. The fragment contains no backtick and no
+ * `PI_EXTENSION_SOURCE`. It relies on the extension scope (`spawn`, `readFileSync`, `statSync`, `realpathSync`,
+ * `join`, `resolve`, `isRecord`, `getShellConfig`, `PI_EXTENSION_DENIALS`) and declares nothing that collides with it. The fragment contains no backtick and no
  * placeholder so it can be spliced into the extension template as-is.
  *
  * Verdict contract (design.md "Contracts", F4/F5):
@@ -21,6 +21,13 @@
  * Stderr is kept as head + tail. Bash is resolved with `getShellConfig()` and no `shellPath`, so the project
  * can never choose the shell that evaluates the model's own commands; a missing bash, or the `sh` fallback,
  * blocks every `enforced` script with the action to take.
+ *
+ * Direct native call: a script whose native block is exactly the one the renderer writes for Pi
+ * (lib/render/native-hook.ts `nativeRunnerShell`) runs `navori-rust hook --via-script <script>` without the bash
+ * wrapper, and the bridge plays the wrapper's part: exit 0/1/2 is the answer, a binary that cannot start or exits
+ * 3/126/127 falls back to the script under bash (the wrapper then decides as it always did), and any other end is the
+ * wrapper's fixed failure line. NAVORI_HOOK_IMPL=shell or rust, BASH_ENV, Windows, or any other script keeps the
+ * bash path.
  */
 export const PI_BRIDGE_SOURCE = String.raw`
 // ---- Navori hook bridge (spec 0048): runs the shared hook scripts under bash with a Claude-shaped payload.
@@ -29,7 +36,7 @@ type BridgeHook = { script: string; path: string; on: string; tools?: string[]; 
   interactive: boolean; timeoutMs: number; skipOnError?: boolean };
 type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
-  json: Record<string, unknown> | undefined; stderr: string };
+  json: Record<string, unknown> | undefined; stderr: string; rawStderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; isError?: boolean; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
@@ -37,6 +44,11 @@ const BRIDGE_STDOUT_CAP = 65_536;
 const BRIDGE_STDERR_HALF = 2_048;
 const BRIDGE_ADVISORY_CAP = 1_024;
 const BRIDGE_KILL_GRACE_MS = 2_000;
+// After a block the call returns at once, but the siblings still running get this long before they are
+// stopped: a hook in shadow writes its observation after its verdict is computed, and killing it at the
+// block left that observation without its completion (R81, 19 Nov). A slow sibling (a gate run) is still
+// stopped, only later; the blocked call never waits for it.
+const BRIDGE_SIBLING_GRACE_MS = 2_000;
 const BRIDGE_DRAIN_MS = 250;
 const BRIDGE_RENDER_ACTION = "run navori render --apply with the current Navori CLI";
 const BRIDGE_TOOL_NAMES: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write", navori_subagent: "Agent" };
@@ -45,6 +57,16 @@ const BRIDGE_GUARDED_TOOLS = new Set(["bash", "edit", "write"]);
 const BRIDGE_JSON_KEYS = ["hookSpecificOutput", "systemMessage", "continue"];
 const BRIDGE_BODY_FILES_MAX = 8;
 const BRIDGE_BODY_FILE_CHARS = 4_096;
+const BRIDGE_NATIVE_BIN = "navori-rust";
+// The lines of the native block the direct call reproduces, as nativeRunnerShell writes them for Pi.
+const BRIDGE_NATIVE_START = "# navori:native-runtime start\n";
+const BRIDGE_NATIVE_END = "\n# navori:native-runtime end";
+const BRIDGE_NATIVE_IMPL = /^if \[ "\$\{NAVORI_HOOK_IMPL:-\}" != shell \]; then$/m;
+const BRIDGE_NATIVE_CALL = /^    nv_out=\$\(if "\$nv_native" hook --via-script "\$0"( --shadow)? "\$@"; then nv_status=0; else nv_status=\$\?; fi; printf '\.%s' "\$nv_status"\)$/m;
+const BRIDGE_NATIVE_ANSWER = /^      0\|1\|2\) printf '%s' "\$nv_out" >&1 \|\| exit [12]; exit "\$nv_rc" ;;$/m;
+const BRIDGE_NATIVE_DEFER = /^      3\|126\|127\) if \[ "\$\{NAVORI_HOOK_IMPL:-\}" = rust \]; then /m;
+const BRIDGE_NATIVE_FAILURE = /^      \*\) printf '%s\\n' '([^'\n]*)' >&2 \|\| :; exit ([12]) ;;$/m;
+type BridgeNative = { shadow: boolean; failure: string; exit: number };
 
 /** First half and last half of text when it exceeds max, so a long diagnostic keeps both its cause and its end. */
 function bridgeCap(text: string, max: number): string {
@@ -142,17 +164,91 @@ function bridgeJson(text: string): Record<string, unknown> | undefined {
   return undefined;
 }
 
+/** The process environment minus Pi's IPC descriptor, which a hook must never inherit (spec 0048 D6). */
+function bridgeEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.NODE_CHANNEL_FD;
+  delete env.NODE_CHANNEL_SERIALIZATION_MODE;
+  return env;
+}
+
+/**
+ * What bash exports to the binary it runs: PWD kept when it names the working directory (normalized) and the
+ * physical directory otherwise, SHLVL one above (an unset or invalid one counts as 0, a negative result is 0, past
+ * 999 is 1), OLDPWD only when it is a directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
+ */
+function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  const sameDir = (path: string | undefined): boolean => {
+    try {
+      if (!path || !path.startsWith("/")) return false;
+      const a = statSync(path);
+      const b = statSync(cwd);
+      return a.dev === b.dev && a.ino === b.ino;
+    } catch { return false; }
+  };
+  try { out.PWD = sameDir(env.PWD) ? resolve(env.PWD!) : realpathSync(cwd); } catch { delete out.PWD; }
+  const level = /^[ \t]*[+-]?[0-9]+[ \t]*$/.test(env.SHLVL ?? "") ? Number.parseInt(env.SHLVL!, 10) : 0;
+  const next = level + 1;
+  out.SHLVL = String(next < 0 ? 0 : next >= 1000 ? 1 : next);
+  let oldDir = false;
+  try { oldDir = !!env.OLDPWD && statSync(env.OLDPWD).isDirectory(); } catch { oldDir = false; }
+  if (!oldDir) delete out.OLDPWD;
+  return out;
+}
+
+/** The script's native block when it is exactly the renderer's Pi wrapper; anything else keeps the bash path. */
+function bridgeNative(scriptPath: string): BridgeNative | undefined {
+  let text: string;
+  try { text = readFileSync(scriptPath, "utf8"); } catch { return undefined; }
+  const start = text.indexOf(BRIDGE_NATIVE_START);
+  const end = start < 0 ? -1 : text.indexOf(BRIDGE_NATIVE_END, start);
+  if (end < 0) return undefined;
+  const block = text.slice(start, end);
+  const call = BRIDGE_NATIVE_CALL.exec(block);
+  const failure = BRIDGE_NATIVE_FAILURE.exec(block);
+  if (!call || !failure || !BRIDGE_NATIVE_IMPL.test(block) || !BRIDGE_NATIVE_ANSWER.test(block) || !BRIDGE_NATIVE_DEFER.test(block)) return undefined;
+  return { shadow: call[1] !== undefined, failure: failure[1]!, exit: Number(failure[2]) };
+}
+
 /** Run one script under bash in its own process group; always resolves, never rejects. */
-function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: string, signal: AbortSignal): Promise<BridgeOutcome> {
+function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: string, signal: AbortSignal, timeoutMs = hook.timeoutMs): Promise<BridgeOutcome> {
+  return runBridgeProcess(shell, [join(cwd, hook.path).replace(/\\/g, "/")], cwd, bridgeEnv(), payload, signal, timeoutMs);
+}
+
+/**
+ * One hook, direct to the native binary when its script carries the Pi native block (see the module doc), else
+ * under bash. The fallback gets what is left of the hook's timeout.
+ */
+async function runBridgeHook(shell: string, cwd: string, hook: BridgeHook, payload: string, signal: AbortSignal): Promise<BridgeOutcome> {
+  const impl = process.env.NAVORI_HOOK_IMPL;
+  const script = join(cwd, hook.path).replace(/\\/g, "/");
+  // BASH_ENV runs before the wrapper's native block and may change PATH or NAVORI_HOOK_IMPL: only bash can honor it.
+  const native = process.platform === "win32" || impl === "shell" || impl === "rust" || process.env.BASH_ENV
+    ? undefined : bridgeNative(script);
+  if (!native) return runBridgeScript(shell, cwd, hook, payload, signal);
+  const started = Date.now();
+  const args = ["hook", "--via-script", script, ...(native.shadow ? ["--shadow"] : [])];
+  // The wrapper reads the answer through $(...), which drops NUL bytes.
+  const outcome = await runBridgeProcess(BRIDGE_NATIVE_BIN, args, cwd, bridgeNativeEnv(bridgeEnv(), cwd), payload, signal, hook.timeoutMs, true);
+  if (outcome.aborted || outcome.timedOut) return outcome;
+  if (outcome.failed || outcome.code === 3 || outcome.code === 126 || outcome.code === 127) {
+    return runBridgeScript(shell, cwd, hook, payload, signal, Math.max(1, hook.timeoutMs - (Date.now() - started)));
+  }
+  if (outcome.code === 0 || outcome.code === 1 || outcome.code === 2) return outcome;
+  // The wrapper's last branch: its fixed line on stderr right after whatever the binary wrote there, and its exit.
+  const rawStderr = outcome.rawStderr + native.failure + "\n";
+  return { ...outcome, code: native.exit, signal: null, json: undefined, stderr: rawStderr.trim(), rawStderr };
+}
+
+/** Run one process in its own process group with the payload on stdin; always resolves, never rejects. */
+function runBridgeProcess(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, payload: string, signal: AbortSignal,
+    timeoutMs: number, dropNul = false): Promise<BridgeOutcome> {
   return new Promise((resolve) => {
-    const base = { code: null, signal: null, timedOut: false, failed: false, aborted: false, json: undefined, stderr: "" };
-    // The model-visible bash must never inherit Pi's IPC descriptor (spec 0048 D6).
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    delete env.NODE_CHANNEL_FD;
-    delete env.NODE_CHANNEL_SERIALIZATION_MODE;
+    const base = { code: null, signal: null, timedOut: false, failed: false, aborted: false, json: undefined, stderr: "", rawStderr: "" };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(shell, [join(cwd, hook.path).replace(/\\/g, "/")], { cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
+      child = spawn(command, args, { cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
     } catch { resolve({ ...base, failed: true }); return; }
     let out = Buffer.alloc(0);
     let errHead = Buffer.alloc(0);
@@ -173,7 +269,7 @@ function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: 
       kill("SIGTERM");
       setTimeout(() => kill("SIGKILL"), BRIDGE_KILL_GRACE_MS).unref();
     };
-    const timer = setTimeout(() => { timedOut = true; stop(); }, hook.timeoutMs);
+    const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
     const onAbort = (): void => { aborted = true; stop(); };
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) onAbort();
@@ -186,8 +282,9 @@ function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: 
       const stderr = errTotal <= BRIDGE_STDERR_HALF ? errHead.toString("utf8")
         : errTotal <= 2 * BRIDGE_STDERR_HALF ? errHead.toString("utf8") + errTail.subarray(errTail.length - (errTotal - BRIDGE_STDERR_HALF)).toString("utf8")
         : errHead.toString("utf8") + "\n...[truncated]...\n" + errTail.toString("utf8");
+      const stdout = out.toString("utf8");
       resolve({ code: exit?.code ?? null, signal: exit?.signal ?? null, timedOut, failed, aborted,
-        json: bridgeJson(out.toString("utf8")), stderr: stderr.trim() });
+        json: bridgeJson(dropNul ? stdout.replace(/\0/g, "") : stdout), stderr: stderr.trim(), rawStderr: stderr });
     };
     child.stdin!.on("error", () => {});
     child.stdin!.end(payload);
@@ -252,8 +349,10 @@ function bridgeVerdict(hook: BridgeHook, outcome: BridgeOutcome): BridgeVerdict 
 }
 
 /**
- * Run every matching script concurrently; the first enforced block wins and kills the rest. Asks are collected
- * so the caller resolves them with ONE confirmation; advisory warnings are returned, never thrown.
+ * Run every matching script concurrently; the first enforced block wins and the call returns at once. The rest
+ * are stopped after BRIDGE_SIBLING_GRACE_MS (at once when the call itself is aborted) and nothing they answer
+ * later changes the result. Asks are collected so the caller resolves them with ONE confirmation; advisory
+ * warnings are returned, never thrown.
  */
 async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSignal | undefined): Promise<BridgeResult> {
   const child = process.env.NAVORI_PI_CHILD_DEPTH ? true : false;
@@ -271,14 +370,22 @@ async function runBridge(hooks: BridgeHook[], call: BridgeCall, signal: AbortSig
   signal?.addEventListener("abort", outer, { once: true });
   if (signal?.aborted) outer();
   const payload = bridgePayload(call);
+  let settled = false;
+  let blocked = (): void => {};
+  const firstBlock = new Promise<void>((resolve) => { blocked = resolve; });
   try {
-    await Promise.all(selected.map(async (hook) => {
-      const verdict = bridgeVerdict(hook, await runBridgeScript(shell.shell, call.cwd, hook, payload, stop.signal));
-      if (verdict.kind === "block" && result.block === undefined) { result.block = verdict.reason; stop.abort(); }
+    await Promise.race([firstBlock, Promise.all(selected.map(async (hook) => {
+      const verdict = bridgeVerdict(hook, await runBridgeHook(shell.shell, call.cwd, hook, payload, stop.signal));
+      if (settled) return;
+      if (verdict.kind === "block" && result.block === undefined) {
+        result.block = verdict.reason;
+        blocked();
+        setTimeout(() => stop.abort(), BRIDGE_SIBLING_GRACE_MS).unref();
+      }
       else if (verdict.kind === "ask") { result.asks.push(verdict.reason); result.bodyFiles.push(...verdict.bodyFiles); }
       else if (verdict.kind === "warn") result.warnings.push(verdict.text);
-    }));
-  } finally { signal?.removeEventListener("abort", outer); }
+    }))]);
+  } finally { settled = true; signal?.removeEventListener("abort", outer); }
   return result;
 }
 

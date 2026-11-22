@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +18,7 @@ import { PI_HOOK_BINDINGS, type PiHookBinding } from "../hook-bindings.ts";
 import { renderPiEngine } from "../index.ts";
 import { serializePiManifest, type PiManifestHook } from "../owned-file.ts";
 import { emptyRepo, type RepoTemplate } from "../../../__tests__/helpers/repo-template.ts";
+import { nativeRunnerShell } from "../../../lib/render/native-hook.ts";
 
 /** Repos built once per file and copied per case (spec 0055 D7). */
 let repoTplMaster: RepoTemplate;
@@ -82,6 +92,15 @@ const bash = (command: string): Record<string, unknown> => ({
   input: { command },
 });
 const reasonOf = (result: unknown): string => (result as { reason: string }).reason;
+/** Whether a process still exists (signal 0 only probes it). */
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** Decide one bash call against a single enforced script. */
 async function decide(
@@ -393,6 +412,13 @@ describe("hook bridge verdict contract", () => {
     const result = await load().get("tool_call")!(bash("ls"), ctxFor(killed));
     expect(reasonOf(result)).toBe("stop");
     expect(Date.now() - started).toBeLessThan(8_000);
+    // The slow sibling is still stopped, after the sibling grace plus the kill grace.
+    const pidFile = join(killed, "slow.pid");
+    await vi.waitFor(() => expect(readFileSync(pidFile, "utf8")).toMatch(/^\d+\n$/), {
+      timeout: 5_000,
+    });
+    const slowPid = Number(readFileSync(pidFile, "utf8"));
+    await vi.waitFor(() => expect(alive(slowPid)).toBe(false), { timeout: 8_000 });
     // Scope and tool filters: a parent-only script never runs in a child, a bash script never runs for edit.
     const scoped = project([
       { script: "parent-only", scope: "parent", body: `touch "$PWD/parent.ran"\n` },
@@ -408,6 +434,22 @@ describe("hook bridge verdict contract", () => {
       ctxFor(scoped),
     );
     expect(existsSync(join(scoped, "parent.ran"))).toBe(false);
+  });
+
+  // Covers: R15 — reproduction of the R81 loss (19 Nov): a block killed a sibling in shadow before it
+  // wrote its completion. The blocked call still returns at once; the sibling now finishes its work.
+  it("a block returns at once and lets a sibling that is about to finish complete", async () => {
+    const cwd = project([
+      { script: "blocker", body: "echo stop >&2\nexit 2\n" },
+      { script: "sibling", body: `sleep 1\ntouch "$PWD/sibling.completed"\n` },
+    ]);
+    const result = await load().get("tool_call")!(bash("ls"), ctxFor(cwd));
+    expect(reasonOf(result)).toBe("stop");
+    // Returned before the sibling finished: the block does not wait for it.
+    expect(existsSync(join(cwd, "sibling.completed"))).toBe(false);
+    await vi.waitFor(() => expect(existsSync(join(cwd, "sibling.completed"))).toBe(true), {
+      timeout: 5_000,
+    });
   });
 
   // Covers: R5, R15
@@ -658,5 +700,191 @@ describe("hook bridge: routing-watch", () => {
     }
     console.info(`routing-watch tool_result ms per call: ${timings.join(", ")}`);
     for (const ms of timings) expect(ms).toBeLessThan(binding[0]!.timeoutMs);
+  });
+});
+
+describe("hook bridge: direct native call", () => {
+  interface Native {
+    code?: number;
+    signal?: NodeJS.Signals;
+    stdout?: string;
+    stderr?: string;
+  }
+  interface Call {
+    args: string[];
+    pwd?: string;
+    shlvl?: string;
+    cwd: string;
+    stdin: string;
+  }
+  const SHELL_BODY = 'touch "$PWD/shell.ran"\necho "shell said no" >&2\nexit 2\n';
+
+  /** A fake navori-rust in its own bin directory: records each call, then ends as `spec` says. */
+  function fakeNative(spec: Native): string {
+    const bin = mkdtempSync(join(tmpdir(), "navori-pi-native-"));
+    dirs.push(bin);
+    writeFileSync(join(bin, "spec.json"), JSON.stringify(spec));
+    const fake = join(bin, "navori-rust");
+    writeFileSync(
+      fake,
+      [
+        `#!${process.execPath}`,
+        'const fs = require("node:fs"); const dir = __dirname;',
+        "const spec = JSON.parse(fs.readFileSync(dir + '/spec.json', 'utf8'));",
+        "fs.appendFileSync(dir + '/calls', JSON.stringify({ args: process.argv.slice(2), pwd: process.env.PWD,",
+        "  shlvl: process.env.SHLVL, cwd: process.cwd(), stdin: fs.readFileSync(0, 'utf8') }) + '\\n');",
+        "if (spec.stdout) process.stdout.write(spec.stdout);",
+        "if (spec.stderr) process.stderr.write(spec.stderr);",
+        "if (spec.signal) process.kill(process.pid, spec.signal); else process.exitCode = spec.code;",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(fake, 0o755);
+    return bin;
+  }
+  const callsOf = (bin: string): Call[] =>
+    existsSync(join(bin, "calls"))
+      ? readFileSync(join(bin, "calls"), "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as Call)
+      : [];
+  /** A hook script with the renderer's Pi native block; `twin` breaks one space so the bridge keeps bash. */
+  function wrapped(mode: "shadow" | "active", gating = true, twin = false): string {
+    const block = nativeRunnerShell({
+      engine: "pi",
+      hook: "probe",
+      descriptor: { mode, gating, blocks: {}, deps: {}, impl: `sha256:${"0".repeat(64)}` },
+      invocation: '--via-script "$0"',
+      args: '"$@"',
+    });
+    return `#!/usr/bin/env bash\n${twin ? block.replace("      0|1|2) ", "      0|1|2)  ") : block}\n${SHELL_BODY}`;
+  }
+  async function decideWith(
+    body: string,
+    bin: string,
+    env: Record<string, string> = {},
+  ): Promise<{ result: unknown; cwd: string }> {
+    const cwd = project([{ script: "probe", body }]);
+    const result = await load({ env: { PATH: `${bin}:/usr/bin:/bin`, ...env } }).get("tool_call")!(
+      bash("git status"),
+      ctxFor(cwd),
+    );
+    return { result, cwd };
+  }
+
+  it("calls the binary without bash, with the script, the shadow flag, the payload and bash's PWD and SHLVL", async () => {
+    const bin = fakeNative({ code: 2, stderr: "native says stop" });
+    const { result, cwd } = await decideWith(wrapped("shadow"), bin, { SHLVL: "4", PWD: "/" });
+    expect(reasonOf(result)).toBe("native says stop");
+    expect(existsSync(join(cwd, "shell.ran"))).toBe(false);
+    const calls = callsOf(bin);
+    expect(calls).toHaveLength(1);
+    const script = join(cwd, ".pi/navori/hooks/probe.sh");
+    expect(calls[0]!.args).toEqual(["hook", "--via-script", script, "--shadow"]);
+    expect(JSON.parse(calls[0]!.stdin)).toMatchObject({ tool_input: { command: "git status" } });
+    // PWD named another directory: bash, and so the bridge, hands over the physical one.
+    expect(calls[0]!.pwd).toBe(realpathSync(cwd));
+    expect(calls[0]!.shlvl).toBe("5");
+    // bash floors a negative level at 0.
+    const negative = fakeNative({ code: 0 });
+    await decideWith(wrapped("shadow"), negative, { SHLVL: "-5" });
+    expect(callsOf(negative)[0]!.shlvl).toBe("0");
+
+    const active = fakeNative({ code: 0 });
+    const allowed = await decideWith(wrapped("active"), active);
+    expect(allowed.result).toBeUndefined();
+    expect(callsOf(active)[0]!.args).toEqual([
+      "hook",
+      "--via-script",
+      join(allowed.cwd, ".pi/navori/hooks/probe.sh"),
+    ]);
+  });
+
+  it("falls back to the script under bash on exit 3, 126 and 127 and without the binary", async () => {
+    for (const code of [3, 126, 127]) {
+      const bin = fakeNative({ code });
+      const { result, cwd } = await decideWith(wrapped("shadow"), bin);
+      expect({ code, reason: reasonOf(result) }).toEqual({ code, reason: "shell said no" });
+      expect(existsSync(join(cwd, "shell.ran"))).toBe(true);
+      // The direct call, then the wrapper's own call before it defers to its shell body.
+      expect(callsOf(bin)).toHaveLength(2);
+    }
+    const empty = mkdtempSync(join(tmpdir(), "navori-pi-native-none-"));
+    dirs.push(empty);
+    const { result, cwd } = await decideWith(wrapped("shadow"), empty);
+    expect(reasonOf(result)).toBe("shell said no");
+    expect(existsSync(join(cwd, "shell.ran"))).toBe(true);
+  });
+
+  it("answers every end of the binary as the wrapper does", async () => {
+    const ends: Native[] = [
+      {
+        code: 0,
+        stdout:
+          '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"why"}}',
+      },
+      { code: 0 },
+      { code: 1, stderr: "broken" },
+      { code: 2, stderr: "stop" },
+      { code: 3 },
+      // A line, as a panic writes it: the wrapper's failure line follows on its own line.
+      { code: 101, stderr: "panicked\n" },
+      // No newline: the wrapper glues its failure line to it.
+      { code: 101, stderr: "panicked" },
+      // $(...) drops the NUL, so the deny next to it is read.
+      {
+        code: 0,
+        stdout:
+          '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"no"}}\u0000',
+      },
+      { code: 126 },
+      { code: 127 },
+      { signal: "SIGKILL" },
+    ];
+    for (const gating of [true, false]) {
+      for (const end of ends) {
+        const direct = fakeNative(end);
+        const viaBash = fakeNative(end);
+        const a = await decideWith(wrapped("shadow", gating), direct);
+        const b = await decideWith(wrapped("shadow", gating, true), viaBash);
+        expect({ gating, end, verdict: a.result }).toEqual({ gating, end, verdict: b.result });
+        // Only the direct call skipped bash: one call for an answer or a failure, two for a deferral.
+        const deferred = end.code === 3 || end.code === 126 || end.code === 127;
+        expect(callsOf(direct)).toHaveLength(deferred ? 2 : 1);
+      }
+    }
+  });
+
+  it("keeps bash under NAVORI_HOOK_IMPL=shell or rust, with BASH_ENV and for a script without the exact block", async () => {
+    const shell = fakeNative({ code: 0 });
+    const { result, cwd } = await decideWith(wrapped("shadow"), shell, {
+      NAVORI_HOOK_IMPL: "shell",
+    });
+    expect(reasonOf(result)).toBe("shell said no");
+    expect(existsSync(join(cwd, "shell.ran"))).toBe(true);
+    expect(callsOf(shell)).toEqual([]);
+
+    // Forced Rust: the wrapper runs the binary and refuses to fall back, as before.
+    const rust = fakeNative({ code: 3 });
+    const forced = await decideWith(wrapped("shadow"), rust, { NAVORI_HOOK_IMPL: "rust" });
+    expect(reasonOf(forced.result)).toContain(
+      "navori: probe native runtime unavailable or deferred",
+    );
+    expect(callsOf(rust)).toHaveLength(1);
+
+    // BASH_ENV runs before the native block: the call goes through bash, which calls the binary once.
+    const bashEnv = fakeNative({ code: 3 });
+    const rcFile = join(mkdtempSync(join(tmpdir(), "navori-pi-bashenv-")), "rc");
+    dirs.push(join(rcFile, ".."));
+    writeFileSync(rcFile, "");
+    const sourced = await decideWith(wrapped("shadow"), bashEnv, { BASH_ENV: rcFile });
+    expect(reasonOf(sourced.result)).toBe("shell said no");
+    expect(callsOf(bashEnv)).toHaveLength(1);
+
+    const plain = fakeNative({ code: 0 });
+    const other = await decideWith(SHELL_BODY, plain);
+    expect(reasonOf(other.result)).toBe("shell said no");
+    expect(callsOf(plain)).toEqual([]);
   });
 });
