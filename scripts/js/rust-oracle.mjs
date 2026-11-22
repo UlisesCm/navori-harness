@@ -11,6 +11,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  symlinkSync,
   rmSync,
   truncateSync,
   utimesSync,
@@ -136,6 +137,18 @@ export const RULES = [
     token: "@MS@",
     // `navori bench` summary rows: `min|p50|p95|max <n>.<d>ms`
     apply: (t) => t.replace(/\b(min|p50|p95|max)(\s+)\d+(?:\.\d+)?ms\b/g, "$1$2@MS@"),
+  },
+  {
+    name: "FOREIGN_LOG",
+    token: "@RAND@",
+    // `gate foreign` private log: `<tmpdir>/navori-gate-foreign-<mkdtemp suffix>/fast-<timestamp()>.log`.
+    // Only the random suffix and the stamp are replaced; the base directory, the prefix and the
+    // file name around them stay visible.
+    apply: (t) =>
+      t.replace(
+        /(?<=navori-gate-foreign-)[A-Za-z0-9]{6}(?=\/fast-\d{8}T\d{9}Z\.log(?![\dA-Za-z]))/g,
+        "@RAND@",
+      ).replace(/(?<=navori-gate-foreign-@RAND@\/fast-)\d{8}T\d{9}Z(?=\.log)/g, "@STAMP@"),
   },
 ];
 
@@ -568,7 +581,8 @@ export function copyFixture(from, to) {
     if (entry.name === FIXTURE_MANIFEST) continue;
     const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
     const target = join(to, name);
-    if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
+    if (entry.isSymbolicLink()) symlinkSync(readlinkSync(join(from, entry.name)), target);
+    else if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
     else cpSync(join(from, entry.name), target, { verbatimSymlinks: true });
   }
 }
