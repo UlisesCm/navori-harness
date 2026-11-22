@@ -106,6 +106,9 @@ esac"#,
             .env("TMPDIR", self.tmp())
             .env("LC_ALL", "C")
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            // CARGO_TARGET_TMPDIR sits under target/, inside the repo checkout in CI: without a
+            // ceiling, a directory of this world outside its own repos resolves to that checkout.
+            .env("GIT_CEILING_DIRECTORIES", &self.root)
             .env(
                 "PATH",
                 format!("{}:/usr/bin:/bin", self.root.join("bin").display()),
