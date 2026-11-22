@@ -786,6 +786,10 @@ describe("hook bridge: direct native call", () => {
     // PWD named another directory: bash, and so the bridge, hands over the physical one.
     expect(calls[0]!.pwd).toBe(realpathSync(cwd));
     expect(calls[0]!.shlvl).toBe("5");
+    // bash floors a negative level at 0.
+    const negative = fakeNative({ code: 0 });
+    await decideWith(wrapped("shadow"), negative, { SHLVL: "-5" });
+    expect(callsOf(negative)[0]!.shlvl).toBe("0");
 
     const active = fakeNative({ code: 0 });
     const allowed = await decideWith(wrapped("active"), active);
@@ -826,6 +830,14 @@ describe("hook bridge: direct native call", () => {
       { code: 3 },
       // A line, as a panic writes it: the wrapper's failure line follows on its own line.
       { code: 101, stderr: "panicked\n" },
+      // No newline: the wrapper glues its failure line to it.
+      { code: 101, stderr: "panicked" },
+      // $(...) drops the NUL, so the deny next to it is read.
+      {
+        code: 0,
+        stdout:
+          '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"no"}}\u0000',
+      },
       { code: 126 },
       { code: 127 },
       { signal: "SIGKILL" },
@@ -844,7 +856,7 @@ describe("hook bridge: direct native call", () => {
     }
   });
 
-  it("keeps bash under NAVORI_HOOK_IMPL=shell or rust and for a script without the exact block", async () => {
+  it("keeps bash under NAVORI_HOOK_IMPL=shell or rust, with BASH_ENV and for a script without the exact block", async () => {
     const shell = fakeNative({ code: 0 });
     const { result, cwd } = await decideWith(wrapped("shadow"), shell, {
       NAVORI_HOOK_IMPL: "shell",
@@ -860,6 +872,15 @@ describe("hook bridge: direct native call", () => {
       "navori: probe native runtime unavailable or deferred",
     );
     expect(callsOf(rust)).toHaveLength(1);
+
+    // BASH_ENV runs before the native block: the call goes through bash, which calls the binary once.
+    const bashEnv = fakeNative({ code: 3 });
+    const rcFile = join(mkdtempSync(join(tmpdir(), "navori-pi-bashenv-")), "rc");
+    dirs.push(join(rcFile, ".."));
+    writeFileSync(rcFile, "");
+    const sourced = await decideWith(wrapped("shadow"), bashEnv, { BASH_ENV: rcFile });
+    expect(reasonOf(sourced.result)).toBe("shell said no");
+    expect(callsOf(bashEnv)).toHaveLength(1);
 
     const plain = fakeNative({ code: 0 });
     const other = await decideWith(SHELL_BODY, plain);

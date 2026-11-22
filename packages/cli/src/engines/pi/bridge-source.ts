@@ -26,7 +26,8 @@
  * (lib/render/native-hook.ts `nativeRunnerShell`) runs `navori-rust hook --via-script <script>` without the bash
  * wrapper, and the bridge plays the wrapper's part: exit 0/1/2 is the answer, a binary that cannot start or exits
  * 3/126/127 falls back to the script under bash (the wrapper then decides as it always did), and any other end is the
- * wrapper's fixed failure line. NAVORI_HOOK_IMPL=shell or rust, Windows, or any other script keeps the bash path.
+ * wrapper's fixed failure line. NAVORI_HOOK_IMPL=shell or rust, BASH_ENV, Windows, or any other script keeps the
+ * bash path.
  */
 export const PI_BRIDGE_SOURCE = String.raw`
 // ---- Navori hook bridge (spec 0048): runs the shared hook scripts under bash with a Claude-shaped payload.
@@ -35,7 +36,7 @@ type BridgeHook = { script: string; path: string; on: string; tools?: string[]; 
   interactive: boolean; timeoutMs: number; skipOnError?: boolean };
 type BridgeVerdict = { kind: "allow" } | { kind: "block"; reason: string } | { kind: "ask"; reason: string; bodyFiles: string[] } | { kind: "warn"; text: string };
 type BridgeOutcome = { code: number | null; signal: string | null; timedOut: boolean; failed: boolean; aborted: boolean;
-  json: Record<string, unknown> | undefined; stderr: string };
+  json: Record<string, unknown> | undefined; stderr: string; rawStderr: string };
 type BridgeCall = { event: string; hookEvent: string; toolName?: string; isError?: boolean; toolCallId?: string; input?: unknown; cwd: string;
   sessionId: string; hasUI: boolean; reason?: string };
 type BridgeResult = { block?: string; asks: string[]; bodyFiles: string[]; warnings: string[] };
@@ -173,8 +174,8 @@ function bridgeEnv(): NodeJS.ProcessEnv {
 
 /**
  * What bash exports to the binary it runs: PWD kept when it names the working directory (normalized) and the
- * physical directory otherwise, SHLVL one above (1 when unset, invalid or past 999), OLDPWD only when it is a
- * directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
+ * physical directory otherwise, SHLVL one above (an unset or invalid one counts as 0, a negative result is 0, past
+ * 999 is 1), OLDPWD only when it is a directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
  */
 function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env };
@@ -188,8 +189,8 @@ function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv
   };
   try { out.PWD = sameDir(env.PWD) ? resolve(env.PWD!) : realpathSync(cwd); } catch { delete out.PWD; }
   const level = /^[ \t]*[+-]?[0-9]+[ \t]*$/.test(env.SHLVL ?? "") ? Number.parseInt(env.SHLVL!, 10) : 0;
-  const next = Math.max(level, 0) + 1;
-  out.SHLVL = String(next >= 1000 ? 1 : next);
+  const next = level + 1;
+  out.SHLVL = String(next < 0 ? 0 : next >= 1000 ? 1 : next);
   let oldDir = false;
   try { oldDir = !!env.OLDPWD && statSync(env.OLDPWD).isDirectory(); } catch { oldDir = false; }
   if (!oldDir) delete out.OLDPWD;
@@ -222,26 +223,29 @@ function runBridgeScript(shell: string, cwd: string, hook: BridgeHook, payload: 
 async function runBridgeHook(shell: string, cwd: string, hook: BridgeHook, payload: string, signal: AbortSignal): Promise<BridgeOutcome> {
   const impl = process.env.NAVORI_HOOK_IMPL;
   const script = join(cwd, hook.path).replace(/\\/g, "/");
-  const native = process.platform === "win32" || impl === "shell" || impl === "rust" ? undefined : bridgeNative(script);
+  // BASH_ENV runs before the wrapper's native block and may change PATH or NAVORI_HOOK_IMPL: only bash can honor it.
+  const native = process.platform === "win32" || impl === "shell" || impl === "rust" || process.env.BASH_ENV
+    ? undefined : bridgeNative(script);
   if (!native) return runBridgeScript(shell, cwd, hook, payload, signal);
   const started = Date.now();
   const args = ["hook", "--via-script", script, ...(native.shadow ? ["--shadow"] : [])];
-  const outcome = await runBridgeProcess(BRIDGE_NATIVE_BIN, args, cwd, bridgeNativeEnv(bridgeEnv(), cwd), payload, signal, hook.timeoutMs);
+  // The wrapper reads the answer through $(...), which drops NUL bytes.
+  const outcome = await runBridgeProcess(BRIDGE_NATIVE_BIN, args, cwd, bridgeNativeEnv(bridgeEnv(), cwd), payload, signal, hook.timeoutMs, true);
   if (outcome.aborted || outcome.timedOut) return outcome;
   if (outcome.failed || outcome.code === 3 || outcome.code === 126 || outcome.code === 127) {
     return runBridgeScript(shell, cwd, hook, payload, signal, Math.max(1, hook.timeoutMs - (Date.now() - started)));
   }
   if (outcome.code === 0 || outcome.code === 1 || outcome.code === 2) return outcome;
-  // The wrapper's last branch: its fixed line on stderr after whatever the binary wrote there, and its exit.
-  return { ...outcome, code: native.exit, signal: null, json: undefined,
-    stderr: outcome.stderr ? outcome.stderr + "\n" + native.failure : native.failure };
+  // The wrapper's last branch: its fixed line on stderr right after whatever the binary wrote there, and its exit.
+  const rawStderr = outcome.rawStderr + native.failure + "\n";
+  return { ...outcome, code: native.exit, signal: null, json: undefined, stderr: rawStderr.trim(), rawStderr };
 }
 
 /** Run one process in its own process group with the payload on stdin; always resolves, never rejects. */
 function runBridgeProcess(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, payload: string, signal: AbortSignal,
-    timeoutMs: number): Promise<BridgeOutcome> {
+    timeoutMs: number, dropNul = false): Promise<BridgeOutcome> {
   return new Promise((resolve) => {
-    const base = { code: null, signal: null, timedOut: false, failed: false, aborted: false, json: undefined, stderr: "" };
+    const base = { code: null, signal: null, timedOut: false, failed: false, aborted: false, json: undefined, stderr: "", rawStderr: "" };
     let child: ReturnType<typeof spawn>;
     try {
       child = spawn(command, args, { cwd, env, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
@@ -278,8 +282,9 @@ function runBridgeProcess(command: string, args: string[], cwd: string, env: Nod
       const stderr = errTotal <= BRIDGE_STDERR_HALF ? errHead.toString("utf8")
         : errTotal <= 2 * BRIDGE_STDERR_HALF ? errHead.toString("utf8") + errTail.subarray(errTail.length - (errTotal - BRIDGE_STDERR_HALF)).toString("utf8")
         : errHead.toString("utf8") + "\n...[truncated]...\n" + errTail.toString("utf8");
+      const stdout = out.toString("utf8");
       resolve({ code: exit?.code ?? null, signal: exit?.signal ?? null, timedOut, failed, aborted,
-        json: bridgeJson(out.toString("utf8")), stderr: stderr.trim() });
+        json: bridgeJson(dropNul ? stdout.replace(/\0/g, "") : stdout), stderr: stderr.trim(), rawStderr: stderr });
     };
     child.stdin!.on("error", () => {});
     child.stdin!.end(payload);
