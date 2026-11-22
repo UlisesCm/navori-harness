@@ -1161,4 +1161,28 @@ describe("rust oracle", () => {
     expect(oracle.selectsNative(manifest, ["spec", "check", "--cwd=x"])).toBe(false);
     expect(oracle.selectsNative(manifest, ["spec", "classify"])).toBe(false);
   });
+
+  // Covers: R7
+  it("selectsNative respeta requires como Manifest::select, entrada por entrada", () => {
+    const manifest = {
+      commands: [
+        { path: ["sync"], flags: ["cwd", "apply", "json"], requires: [["apply"], ["json"]] },
+        { path: ["remove"], flags: ["cwd", "yes"], requires: [["yes"]] },
+        { path: ["audit"], flags: ["arm", "cwd", "host"], requires: [["arm"]] },
+        { path: ["audit"], flags: ["disarm", "cwd"], requires: [["disarm"]] },
+      ],
+    };
+    expect(oracle.selectsNative(manifest, ["sync"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--cwd", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--apply"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["remove", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["remove", "x", "--yes"])).toBe(true);
+    // Two entries of one path: each one is checked on its own, flags and requires together.
+    expect(oracle.selectsNative(manifest, ["audit"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--host", "pi"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm", "--host", "pi"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--disarm"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--start", "s"])).toBe(false);
+  });
 });

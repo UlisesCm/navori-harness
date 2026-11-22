@@ -898,7 +898,7 @@ function decoyCli(base) {
  * `Manifest::select` read them: the leading positionals as the path and the option names, without
  * dashes, value or `no-` prefix, as the flags.
  *
- * @param {{ commands: Array<{ path: string[], flags?: string[] }> }} manifest
+ * @param {{ commands: Array<{ path: string[], flags?: string[], requires?: string[][] }> }} manifest
  * @param {string[]} args
  */
 export function selectsNative(manifest, args) {
@@ -912,9 +912,13 @@ export function selectsNative(manifest, args) {
     .flatMap((a) =>
       a.startsWith("--") ? [a.slice(2).split("=")[0].replace(/^no-/, "")] : [...a.slice(1)],
     );
+  // `Manifest::select` (manifest.rs:145): with `requires`, the invocation also carries every flag
+  // of at least one alternative; entries of one path are tried in turn.
   return manifest.commands.some(
     (c) =>
-      c.path.every((token, i) => path[i] === token) && flags.every((f) => (c.flags ?? []).includes(f)),
+      c.path.every((token, i) => path[i] === token) &&
+      flags.every((f) => (c.flags ?? []).includes(f)) &&
+      (c.requires === undefined || c.requires.some((needed) => needed.every((f) => flags.includes(f)))),
   );
 }
 

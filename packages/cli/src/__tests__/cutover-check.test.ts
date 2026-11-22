@@ -21,7 +21,7 @@ interface ShellHook {
 }
 interface Input {
   manifest: {
-    commands: Array<{ path: string[]; flags?: string[] }>;
+    commands: Array<{ path: string[]; flags?: string[]; requires?: string[][] }>;
     hooks: Record<string, { mode?: string }>;
   };
   commands: Array<{ path: string[]; flags: string[] }>;
@@ -132,6 +132,68 @@ describe("cutover-check (spec 0062 T8)", () => {
     const stray = ready();
     stray.commands.push({ path: ["nuevo"], flags: [] });
     expect(() => cutover.cutoverFindings(stray)).toThrow(/no area/);
+  });
+
+  // Covers: R20
+  it("las entradas de un path suman banderas y un requires deja pendiente lo que no lo cumple, salvo un unless igual", () => {
+    const gated = ready();
+    gated.manifest.commands.push(
+      { path: ["audit"], flags: ["arm", "cwd"], requires: [["arm"]] },
+      { path: ["audit"], flags: ["disarm", "cwd"], requires: [["disarm"]] },
+    );
+    gated.commands.push({ path: ["audit"], flags: ["arm", "disarm", "cwd", "start"] });
+    // The second entry does not hide the first one's flags; the flag-less audit stays pending.
+    expect(cutover.cutoverFindings(gated)).toEqual([
+      { check: "requires", detail: "audit (sin --arm | --disarm)" },
+      { check: "flag", detail: "audit --start" },
+    ]);
+    // One entry without requires makes the flag-less invocation native: nothing pending there.
+    const open = ready();
+    open.manifest.commands.push(
+      { path: ["audit"], flags: ["cwd"] },
+      { path: ["audit"], flags: ["arm", "cwd"], requires: [["arm"]] },
+    );
+    open.commands.push({ path: ["audit"], flags: ["arm", "cwd"] });
+    expect(cutover.cutoverFindings(open)).toEqual([]);
+
+    // A prompt delegated at runtime (`unless`) excuses the requires finding only with the same flags.
+    const prompt = ready();
+    prompt.manifest.commands.push({
+      path: ["sync"],
+      flags: ["apply", "yes"],
+      requires: [["apply"], ["yes"]],
+    });
+    prompt.commands.push({ path: ["sync"], flags: ["apply", "yes"] });
+    prompt.delegation = [{ path: ["sync"], unless: ["yes"], reason: "r" }];
+    expect(cutover.cutoverFindings(prompt)).toEqual([
+      { check: "requires", detail: "sync (sin --apply | --yes)" },
+    ]);
+    prompt.delegation = [{ path: ["sync"], unless: ["yes", "apply"], reason: "r" }];
+    expect(cutover.cutoverFindings(prompt)).toEqual([]);
+    // A multi-flag alternative is never excused by `unless` (it is an any-of list).
+    prompt.manifest.commands[2] = {
+      path: ["sync"],
+      flags: ["apply", "yes"],
+      requires: [["apply", "yes"]],
+    };
+    expect(cutover.cutoverFindings(prompt)).toEqual([
+      { check: "requires", detail: "sync (sin --apply --yes)" },
+    ]);
+  });
+
+  // Covers: R20
+  it("sync y remove sin sus banderas quedan excusados como prompt interactivo, con los flags exactos del manifiesto", async () => {
+    const { readFileSync } = await import("node:fs");
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8")) as {
+      commands: Array<{ path: string[]; requires?: string[][] }>;
+    };
+    for (const path of ["sync", "remove"]) {
+      const entry = areas.PERMANENT_DELEGATION.find((e) => e.path.join(" ") === path);
+      const gated = manifest.commands.find((c) => c.path.join(" ") === path);
+      expect(entry?.reason).toContain("prompt interactivo de clack");
+      expect([...(entry?.unless ?? [])].sort()).toEqual((gated?.requires ?? []).flat().sort());
+      expect(areas.permanentlyDelegated(path.split(" "))).toBe(false);
+    }
   });
 
   // Covers: R20 (enmienda: hooks shell permanentes)
@@ -293,6 +355,8 @@ describe("cutover-check (spec 0062 T8)", () => {
       "doctor",
       "backup restore",
       "migrations restore",
+      "sync",
+      "remove",
     ]);
     for (const entry of areas.PERMANENT_DELEGATION.slice(0, 5)) expect(entry.subtree).toBe(true);
     expect(areas.PERMANENT_DELEGATION[5]?.flags).toEqual(["json"]);
