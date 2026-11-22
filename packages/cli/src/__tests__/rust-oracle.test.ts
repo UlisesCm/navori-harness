@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -573,6 +574,7 @@ describe("rust oracle", () => {
           { name: "old", mtime: "-40d", files: { "a/b.txt": "old" } },
           { name: "big", mtime: "-2d", sparse: { "big.bin": 3 * 1024 * 1024 * 1024 } },
         ],
+        symlinks: { "sub/link": "../file.txt" },
       }),
     );
     const work = tmp();
@@ -584,6 +586,9 @@ describe("rust oracle", () => {
     expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
     expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
     expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
+    // symlinks are created in the repo copy, verbatim, not committed in the fixture
+    expect(readlinkSync(join(work, "repo", "sub", "link"))).toBe("../file.txt");
+    expect(readFileSync(join(work, "repo", "sub", "link"), "utf8")).toBe("x");
   });
 
   // Covers: R76

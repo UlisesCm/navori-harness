@@ -293,7 +293,9 @@ export function relativeTime(relative, now) {
  * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
  * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
  * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
- * Called on every copy, so the TS and the Rust run see the same ages.
+ * Called on every copy, so the TS and the Rust run see the same ages. `symlinks` maps a path in
+ * the repo copy to its link target: created here because a committed symlink is not a regular git
+ * entry and the review receipt refuses it.
  *
  * @param {string} fixtureDir
  * @param {string} work
@@ -302,8 +304,12 @@ export function relativeTime(relative, now) {
 export function applyFixtureManifest(fixtureDir, work, now) {
   const path = join(fixtureDir, FIXTURE_MANIFEST);
   if (!existsSync(path)) return;
-  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }> }} */
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }>, symlinks?: Record<string, string> }} */
   const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const [rel, target] of Object.entries(manifest.symlinks ?? {})) {
+    mkdirSync(dirname(join(work, "repo", rel)), { recursive: true });
+    symlinkSync(target, join(work, "repo", rel));
+  }
   for (const backup of manifest.backups ?? []) {
     const dir = join(work, "backups", backup.name);
     mkdirSync(dir, { recursive: true });
@@ -581,8 +587,7 @@ export function copyFixture(from, to) {
     if (entry.name === FIXTURE_MANIFEST) continue;
     const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
     const target = join(to, name);
-    if (entry.isSymbolicLink()) symlinkSync(readlinkSync(join(from, entry.name)), target);
-    else if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
+    if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
     else cpSync(join(from, entry.name), target, { verbatimSymlinks: true });
   }
 }
