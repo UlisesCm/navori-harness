@@ -37,7 +37,9 @@ import { fileURLToPath } from "node:url";
  * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
  * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
  * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
- * `HOME` (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
+ * `HOME` (path, type, mode, bytes). The audits root is isolated per case; a case may write it (`audit --arm`),
+ * chmod it in `setup`, and name it in `args` as `@AUDITS@`; the `ts` of an `.armed` is `@ISO@` like any
+ * other `toISOString()`. Normalization is the closed table in {@link RULES}, each rule
  * matching only the exact format the TS CLI emits.
  */
 
@@ -72,7 +74,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { chmod: string, mode: number, in?: "home" | "audits" } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
  * @typedef {{ issue: string, kinds: string[], why: string }} KnownDifference  see {@link applyKnown}
  * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string, known?: KnownDifference }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
@@ -535,7 +537,8 @@ function gitInit(repo, env) {
 /**
  * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
  * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
- * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * failure aborts the case. `chmod` sets `mode` on a path under the repo, `HOME` (`in: "home"`) or the
+ * case's isolated audits root (`in: "audits"`, path `"."` for the root itself). In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
  * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
  * time-bound file (a dispatch marker) is identical and fresh for both.
  *
@@ -555,6 +558,9 @@ function applySetup(repo, env, ts, steps) {
       const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env: stepEnv, input: "" });
       if (run.status !== 0)
         throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("chmod" in step) {
+      const base = step.in === "home" ? env.HOME : step.in === "audits" ? env.NAVORI_AUDITS_ROOT : repo;
+      chmodSync(join(base, step.chmod), step.mode);
     } else if ("write" in step) {
       const base = step.in === "home" ? env.HOME : repo;
       const path = join(base, step.write);
@@ -680,7 +686,9 @@ function runOnce(work, runner, testCase, opts) {
   // A write-failure case: these directories are read-only during the run, then restored so the
   // snapshot and the cleanup can walk them.
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
-  const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
+  // `@AUDITS@` in an argument is the case's isolated audits root (`NAVORI_AUDITS_ROOT`).
+  const args = testCase.args.map((arg) => arg.replaceAll("@AUDITS@", env.NAVORI_AUDITS_ROOT));
+  const run = spawnSync(runner.cmd, [...runner.args, ...args], {
     cwd: repo,
     env,
     input: testCase.stdin ?? "",

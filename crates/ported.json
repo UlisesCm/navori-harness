@@ -24,6 +24,8 @@
       "requires": [["yes"]],
       "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
     },
+    { "path": ["audit"], "flags": ["arm", "cwd", "host", "json"], "requires": [["arm"]] },
+    { "path": ["audit"], "flags": ["disarm", "cwd", "json"], "requires": [["disarm"]] },
     { "path": ["gate", "foreign"], "flags": ["cwd"] },
     { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
     { "path": ["plan", "gate"] },

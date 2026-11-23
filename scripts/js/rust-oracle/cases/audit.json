@@ -1,0 +1,555 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "audit-arm:es:arm",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:arm-host-pi",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "pi"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:arm-twice",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:es:arm-json",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:disarm",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:es:disarm-json",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--disarm",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:es:disarm-nothing",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:host-invalid",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "gemini"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:host-invalid-json",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "gemini",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:unsafe-root",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 493,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:unsafe-root-disarm",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 493,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:es:cwd-worktree",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--arm",
+        "--cwd",
+        ".claude/worktrees/wt"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        {
+          "write": ".claude/worktrees/wt/.keep",
+          "content": ""
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:arm",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:arm-host-pi",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "pi"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:arm-twice",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:en:arm-json",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:disarm",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:en:disarm-json",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--disarm",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        [
+          "audit",
+          "--arm"
+        ]
+      ]
+    },
+    {
+      "id": "audit-arm:en:disarm-nothing",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:host-invalid",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "gemini"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:host-invalid-json",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm",
+        "--host",
+        "gemini",
+        "--json"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:unsafe-root",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 493,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:unsafe-root-disarm",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--disarm"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 493,
+          "in": "audits"
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:en:cwd-worktree",
+      "fixture": "claude-en",
+      "args": [
+        "audit",
+        "--arm",
+        "--cwd",
+        ".claude/worktrees/wt"
+      ],
+      "native": true,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        },
+        {
+          "write": ".claude/worktrees/wt/.keep",
+          "content": ""
+        }
+      ]
+    },
+    {
+      "id": "audit-arm:delegated:record-metadata",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--record-metadata",
+        "--host",
+        "claude",
+        "--root-session",
+        "sess-1",
+        "--repo",
+        "my-repo",
+        "--root",
+        "@AUDITS@"
+      ],
+      "native": false,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ],
+      "note": "hook mode: delegated to the TS until the hooks that call it are ported"
+    },
+    {
+      "id": "audit-arm:delegated:consume-arm",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--consume-arm",
+        "--start",
+        "sess-1",
+        "--cwd",
+        ".",
+        "--host",
+        "codex",
+        "--root",
+        "@AUDITS@"
+      ],
+      "native": false,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ],
+      "note": "hook mode: delegated to the TS until the hooks that call it are ported"
+    },
+    {
+      "id": "audit-arm:delegated:start",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--start",
+        "sess-1",
+        "--cwd",
+        ".",
+        "--host",
+        "claude"
+      ],
+      "native": false,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ],
+      "note": "hook mode: delegated to the TS until the hooks that call it are ported"
+    },
+    {
+      "id": "audit-arm:delegated:capture-child",
+      "fixture": "fresh-init",
+      "args": [
+        "audit",
+        "--capture-child",
+        "child-1",
+        "--root-session",
+        "sess-1",
+        "--rollout",
+        "rollout.jsonl",
+        "--cwd",
+        "."
+      ],
+      "native": false,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ],
+      "note": "hook mode: delegated to the TS until the hooks that call it are ported"
+    },
+    {
+      "id": "audit-arm:delegated:report",
+      "fixture": "fresh-init",
+      "args": [
+        "audit"
+      ],
+      "native": false,
+      "setup": [
+        {
+          "chmod": ".",
+          "mode": 448,
+          "in": "audits"
+        }
+      ],
+      "note": "report not ported in 0.13: delegated"
+    }
+  ]
+}
