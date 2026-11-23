@@ -1,7 +1,7 @@
-<!-- navori:managed id="orquestacion" hash="68ff98a9" version="0.12.5" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="32c5f7b6" version="0.12.5" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference.
 
 Route by `navori plan classify <feature>` (level) and critical areas (`render/sync/backup writes and deletes in the user's repo, settings.json permissions, deny/ask rules and hooks, managed-block markers and the anti-rollback guard`):
 
@@ -12,15 +12,15 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
-- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
+- **Evidence in recommendations:** a repo, config or infrastructure claim cites `file:line` or this turn's command, else it is "unverified" with the reason; a negative names the scope searched; a subagent's report is unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
-- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
-- **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `bun run check:fast` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
+- Same check before dispatching `scribe`.
+- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`, nothing staged until both producers finish, then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `bun run check:fast` plus its `A<n>` commands, in the foreground main thread; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 - Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
 - Independent sub-tasks: ALL `Agent` calls in ONE turn (Claude serializes by default); you synthesize. At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs prove no cap.
 - Without nested dispatch, run `scout` before `architect`.
