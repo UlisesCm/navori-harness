@@ -100,6 +100,10 @@ tiene `assert_ne!(STAMP_VERSION, VERSION, "the stamp must never be the Rust prer
   lo vuelve a comprobar al publicar.
 - Verificación: `cargo test -p navori-core --locked --test semver` en verde con las dos en 0.13.0,
   y en rojo si se deja una en `0.13.0-rust.1`.
+- **Listo para aplicar:** commit `d75d5c63` en la rama `wip/release-0.13-bump-e1` (prueba y enmienda
+  de D20). En el PR del bump: `git cherry-pick d75d5c63`. No se mergea suelto: hoy falla a
+  propósito porque las versiones difieren. Verificado: en rojo con 0.13.0-rust.1 frente a 0.12.5, y
+  en verde con las dos iguales.
 
 **e.2 `dist-probe` deja de distinguir el binario del legacy.** `scripts/js/dist-probe.mjs`
 (`checkInstall`, :198-202) espera `version` (Cargo) en el carril nativo y `legacyVersion` (el pin)
@@ -117,6 +121,8 @@ comprobación de `--version`.
   launcher que cae al legacy, `checkInstall` reporta la falla aunque `--version` coincida.
 - Verificación: el job `probe` de `rust-release.yml` en verde en las 4 plataformas con las versiones
   iguales.
+- **Adelantado en #1799**, porque no depende de que las versiones coincidan. En el PR del bump solo
+  hay que confirmar que el job `probe` sigue en verde.
 
 ## Paso f: docs
 
