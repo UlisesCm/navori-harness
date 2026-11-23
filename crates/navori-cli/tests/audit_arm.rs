@@ -3,7 +3,10 @@
 //! Parity tests run the same argv in two isolated worlds, once native and once through the built
 //! TS CLI (`packages/cli/dist/index.js`, or `$NAVORI_TS_CLI`), and compare stdout, stderr, exit
 //! code and the audit tree. They need that build: `bun run ensure-dist`. Without it they print a
-//! note and pass, so a bare `cargo test --workspace` stays usable; CI builds it first.
+//! note and pass, so a bare `cargo test --workspace` stays usable. The `quality` job of
+//! `rust.yml` runs without `dist`, so in CI these are skipped: there the `oracle` job carries the
+//! native/TS parity of `--arm`/`--disarm` (`rust-oracle/cases/audit.json`), and the interop in
+//! both directions is checked locally (A3) and by the E2E of the workplan (A10).
 //!
 //! The native binary is only selected for `audit` once `crates/ported.json` lists it; the
 //! delegation tests use a recording stub in place of the TS.

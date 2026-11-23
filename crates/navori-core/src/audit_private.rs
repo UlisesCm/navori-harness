@@ -824,6 +824,31 @@ mod tests {
     }
 
     #[test]
+    fn the_nofollow_flag_refuses_to_open_a_final_symlink() {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Pins the per-platform constant: the other symlink tests are caught earlier by lstat or
+        // O_EXCL, so a wrong value would pass them.
+        let Some(flag) = NOFOLLOW else { return };
+        let temp = Temp::new();
+        let target = temp.0.join("target");
+        fs::write(&target, b"x").unwrap();
+        let link = temp.0.join("link");
+        symlink(&target, &link).unwrap();
+        let opened = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(flag)
+            .open(&link);
+        assert!(opened.is_err(), "O_NOFOLLOW ({flag:#o}) followed a symlink");
+        assert!(
+            fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(flag)
+                .open(&target)
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn a_file_of_another_uid_is_unsafe() {
         let temp = Temp::new();
         let mine = store(&temp);
