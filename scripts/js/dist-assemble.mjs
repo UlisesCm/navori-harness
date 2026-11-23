@@ -4,6 +4,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, re
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0062 T6 (R21, R22; D17 of 0057, D51, D53): assembles the npm packages of the cutover without
@@ -527,7 +528,16 @@ async function main(argv) {
   return 0;
 }
 
+const USAGE = `usage: node scripts/js/dist-assemble.mjs --out <dir> --binary linux-x64=<path> [--binary ...]
+                                    [--legacy-tarball <tgz>] [--legacy-pin <json>] [--pack]
+       node scripts/js/dist-assemble.mjs legacy --from <ref> --out <dir> [--version <v>] [--write-pin] [--pin-out <file>]
+       node scripts/js/dist-assemble.mjs legacy --from-dir <built checkout> --out <dir> ...
+       node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir> ...
+       node scripts/js/dist-assemble.mjs check-pin
+  -h, --help  print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exitCode = await main(process.argv.slice(2));
   } catch (error) {

@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0055 R24 / D12 — fan-in of tests per module, for the hub rule of `test:affected`.
@@ -137,6 +138,9 @@ function main() {
   return 0;
 }
 
+const USAGE = "usage: node scripts/js/test-import-graph.mjs\n  Computes the fan-in of tests per module and writes .navori/state/bench/graph-latest.json.\n  -h, --help  print this text and exit";
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exit(main());
 }

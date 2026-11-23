@@ -489,7 +489,7 @@ export function parseBatches(text) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.includes("--help")) {
+  if (args.includes("--help") || args.includes("-h")) {
     console.log(USAGE);
     process.exit(0);
   }

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { readProvenance } from "./bench-provenance.mjs";
 import { withoutRepoGitEnv } from "./git-env.mjs";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0054 R27 / spec 0055 R3 — `bun run bench:hooks`.
@@ -1338,6 +1339,12 @@ export async function main(argv) {
   return 0;
 }
 
+const USAGE = `usage: node scripts/js/bench-hooks.mjs [--impl shell|rust] [--report-only] [--runs N]
+         [--scenario NAME ...] [--hook NAME.sh ...] [--root DIR] [--write-shape]
+       node scripts/js/bench-hooks.mjs --summarize <report.json> ...
+  -h, --help  print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exit(await main(process.argv.slice(2)));
 }
