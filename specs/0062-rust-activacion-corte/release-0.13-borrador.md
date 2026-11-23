@@ -15,12 +15,27 @@
    de corte y con la versión del release; `packaging/legacy.json` fija `{ version, integrity,
    commit }`. Implementado en #1760. 0.12.5 no pasó la prueba rápida (detalle en
    decisiones-ulises/2026-11-20-legacy-json).
-5. **El prólogo nativo busca `navori-rust` y el paquete no lo instala** (decisiones-ulises/2026-11-20-launcher):
-   sin resolverlo, en las máquinas de los usuarios los hooks corren siempre su cuerpo shell.
-   Decisión pendiente (recomendación: exponer también el bin `navori-rust`).
+5. ~~**El prólogo nativo busca `navori-rust` y el paquete no lo instala**~~ RESUELTO: opción A
+   (decisiones-ulises/2026-11-20-1645). El paquete expone el bin `navori-rust` (#1769), y sin
+   postinstall `doctor` avisa del costo.
 3. **claudePlugins**: no hay 0.12.6; sale en 0.13 (Ulises, 20 nov 11:25).
 4. **Paso f′**: integrar main en dev (merge commit, #1705 y #1748) y luego dev en migration/rust,
    antes del PR dev → main.
+
+## Lo que entró en migration/rust desde el borrador (al 23 nov)
+
+Debe aparecer en las notas del release y en la entrada de `releases.ts`:
+
+- `gate foreign` nativo (#1775, con #1777 de seguimiento).
+- `audit --arm` y `audit --disarm` nativos (#1791, si entra antes del 26). El resto de `audit`
+  sigue en el TS congelado; los cuatro modos que llaman los hooks son deuda en el inventario
+  post-0.13.
+- El paquete expone `navori-rust` y el launcher JS para instalaciones sin postinstall (#1769).
+  El seguimiento del legacy, con pin completo y `--from-pin`, entró en #1764.
+- `check-pin` exige que Cargo y `packages/cli` tengan la misma versión (#1788).
+- El oráculo y `cutover-check` respetan `requires`. `sync` y `remove` sin sus banderas quedan como
+  prompts interactivos del TS (#1780, D2).
+- La caché de `navori --version` se invalida al cambiar el `node` del PATH (#1778, de S1).
 
 ## Paso e: bump a 0.13.0
 
@@ -131,9 +146,9 @@ redactar con Ulises (la línea principal es suya):
       "zh-CN": "Claude Code 与 Pi 的钩子以原生方式运行，裁决与 shell 脚本一致，已通过回放和七天影子运行验证。",
     },
     {
-      es: "master, audit, codex, workspace, ticket y registry siguen en el TS congelado, que viaja dentro del paquete; no necesitas instalar nada aparte.",
-      en: "master, audit, codex, workspace, ticket and registry stay on the frozen TS, which ships inside the package; there is nothing else to install.",
-      "zh-CN": "master、audit、codex、workspace、ticket 与 registry 仍由冻结的 TS 版本处理，它随包一起发布，无需另行安装。",
+      es: "master, codex, workspace, ticket, registry y la mayor parte de audit (salvo --arm y --disarm) siguen en el TS congelado, que viaja dentro del paquete; no necesitas instalar nada aparte.",
+      en: "master, codex, workspace, ticket, registry and most of audit (except --arm and --disarm) stay on the frozen TS, which ships inside the package; there is nothing else to install.",
+      "zh-CN": "master、codex、workspace、ticket、registry 以及 audit 的大部分功能（--arm 与 --disarm 除外）仍由冻结的 TS 版本处理，它随包一起发布，无需另行安装。",
     },
     {
       es: "claudePlugins en navori.config.json declara los plugins de Claude Code y el render escribe enabledPlugins en .claude/settings.json (#1747).",
@@ -227,7 +242,8 @@ que un `npm i -g navori` no recibe nada a medias.
 0. **Pin completo antes de publicar** (D53; pendiente de #1764 señalado por S3): sobre el commit del
    release, `node scripts/js/dist-assemble.mjs check-pin` tiene que imprimir
    `dist-assemble: packaging/legacy.json is complete`. Falla si `commit` no es hex de 40, si
-   `integrity` no es `sha512-` o si `version` no es la de `packages/cli/package.json`. Hoy ningún
+   `integrity` no es `sha512-`, si `version` no es la de `packages/cli/package.json` o si la versión de
+   Cargo no es la de `packages/cli/package.json` (#1788). Hoy ningún
    workflow lo corre: cuando exista un job de publicación, este paso va primero en él.
 1. **Legacy primero:** `npm publish /tmp/legacy-0.13/<tarball> --tag next --access public`.
    Comprobar que npm sirva los mismos bytes que fija el pin:
