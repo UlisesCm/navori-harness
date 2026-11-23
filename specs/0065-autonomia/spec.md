@@ -4,7 +4,7 @@
 
 Quien mantiene un repo declara `autonomy` en la config, enciende `mode: "routine"` y consiente una vez en la terminal de Pi. Desde entonces la sesión principal abre PRs hacia una rama de integración, comenta, revisa sin aprobar y crea issues sin diálogo, con la marca de su sesión y un registro local. El merge y lo demás siguen pidiendo; lo crítico bloquea. Sin la clave, navori se comporta como en 0.12.
 
-Enmienda el invariante 9 de `docs/DIRECTION.md` en un PR aparte (#1785), que se aprueba con esta spec.
+Enmienda el invariante 9 de `docs/DIRECTION.md` en un PR aparte (#1792), que se aprueba con esta spec.
 
 ## Guion de aceptación
 
