@@ -124,6 +124,13 @@ const USAGE = `usage: node scripts/js/gen-pi-extension-asset.mjs [--check]
   -h, --help print this text and exit`;
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  exitOnHelp(process.argv.slice(2), USAGE);
-  process.exitCode = main(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  exitOnHelp(argv, USAGE);
+  // Only --check is accepted: any other argument used to fall through to the write path (#1789).
+  const unknown = argv.find((arg) => arg !== "--check");
+  if (unknown !== undefined) {
+    process.stderr.write(`gen-pi-extension-asset: unknown argument: ${unknown}\n${USAGE}\n`);
+    process.exit(2);
+  }
+  process.exitCode = main(argv);
 }
