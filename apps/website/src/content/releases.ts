@@ -34,6 +34,37 @@ export interface ReleaseEntry {
 
 export const RELEASES: readonly ReleaseEntry[] = [
   {
+    minor: "0.13",
+    date: "<fecha del tag v0.13.0>",
+    headline: {
+      es: "navori es un binario nativo",
+      en: "navori is a native binary",
+      "zh-CN": "navori 现为原生二进制程序",
+    },
+    bullets: [
+      {
+        es: "La CLI es un binario Rust para macOS (arm64 y x64) y Linux (arm64 y x64, estático con musl), con los mismos comandos y la misma salida que el TS. En otras plataformas, el paquete instala el último TS publicado, verificado con su integrity.",
+        en: "The CLI is a Rust binary for macOS (arm64 and x64) and Linux (arm64 and x64, statically linked with musl), with the same commands and the same output as the TS one. On other platforms the package installs the last published TS, verified against its integrity.",
+        "zh-CN": "CLI 现为 Rust 二进制程序，支持 macOS（arm64 与 x64）和 Linux（arm64 与 x64，使用 musl 静态链接），命令与输出与 TS 版本一致。其他平台会安装最后发布的 TS 版本，并校验其 integrity。",
+      },
+      {
+        es: "Los hooks de Claude Code y Pi corren nativos, con los mismos veredictos que los scripts de shell, comprobados con replay y siete días de sombra.",
+        en: "Claude Code and Pi hooks run natively, with the same verdicts as the shell scripts, checked by replay and seven days of shadow runs.",
+        "zh-CN": "Claude Code 与 Pi 的钩子以原生方式运行，裁决与 shell 脚本一致，已通过回放和七天影子运行验证。",
+      },
+      {
+        es: "master, codex, workspace, ticket, registry y la mayor parte de audit (salvo --arm y --disarm) siguen en el TS congelado, que viaja dentro del paquete; no necesitas instalar nada aparte.",
+        en: "master, codex, workspace, ticket, registry and most of audit (except --arm and --disarm) stay on the frozen TS, which ships inside the package; there is nothing else to install.",
+        "zh-CN": "master、codex、workspace、ticket、registry 以及 audit 的大部分功能（--arm 与 --disarm 除外）仍由冻结的 TS 版本处理，它随包一起发布，无需另行安装。",
+      },
+      {
+        es: "claudePlugins en navori.config.json declara los plugins de Claude Code y el render escribe enabledPlugins en .claude/settings.json (#1747).",
+        en: "claudePlugins in navori.config.json declares Claude Code plugins, and render writes enabledPlugins into .claude/settings.json (#1747).",
+        "zh-CN": "navori.config.json 中的 claudePlugins 用于声明 Claude Code 插件，render 会将 enabledPlugins 写入 .claude/settings.json（#1747）。",
+      },
+    ],
+  },
+  {
     minor: "0.12",
     patches: [
       {

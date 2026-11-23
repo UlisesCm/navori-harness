@@ -323,7 +323,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "navori-cli"
-version = "0.13.0-rust.1"
+version = "0.13.0"
 dependencies = [
  "lexopt",
  "navori-core",
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "navori-core"
-version = "0.13.0-rust.1"
+version = "0.13.0"
 dependencies = [
  "jiff",
  "regex",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "navori-hooks"
-version = "0.13.0-rust.1"
+version = "0.13.0"
 dependencies = [
  "navori-core",
  "regex",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "navori-oracle-tests"
-version = "0.13.0-rust.1"
+version = "0.13.0"
 dependencies = [
  "navori-core",
  "proptest",

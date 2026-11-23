@@ -19,7 +19,7 @@ use navori_core::tools::notice::{self, Plugins};
 use navori_core::tools::update_notice;
 
 /// R85: off until the cutover.
-pub const ENABLED: bool = false;
+pub const ENABLED: bool = true;
 
 /// The binary a reserved refresh runs: this one once the notices are native, the TS on `PATH`
 /// before.
