@@ -17,7 +17,10 @@ import { PERMANENT_DELEGATION } from "./rust-areas.mjs";
  *     postinstall linked it, or through the JS launcher and Node when it did not;
  *   - `navori-native-hook` blocks a destructive command (a `guard-destructive` case of the corpus
  *     whose recorded verdict is a block);
- *   - a delegated subcommand reaches the frozen TS shipped in `legacy/`.
+ *   - a delegated subcommand reaches the frozen TS shipped in `legacy/`;
+ *   - the binary, not the frozen TS, answered: with `NAVORI_TS_CLI` set to a stub, a delegated
+ *     subcommand reaches the stub (`--version` alone cannot tell them apart in a release, where
+ *     Cargo and the legacy carry the same version).
  *
  * One more scenario installs without the platform package (`--omit=optional`): `navori` is then the
  * frozen TS and `navori-native-hook` exits 127 so the hook prologue runs its shell body (R22).
@@ -86,6 +89,40 @@ export function isScript(file) {
   } finally {
     closeSync(fd);
   }
+}
+
+/** What the stub TS of the lane check prints. */
+export const STUB_MARK = "navori-dist-probe-stub-ts";
+
+/**
+ * Writes a stand-in TS CLI that only prints {@link STUB_MARK}, for `NAVORI_TS_CLI`.
+ * @param {string} dir
+ * @returns {string} the script path
+ */
+export function writeStubCli(dir) {
+  const file = join(dir, "stub-ts.js");
+  writeFileSync(file, `process.stdout.write(${JSON.stringify(`${STUB_MARK}\n`)});\n`);
+  return file;
+}
+
+/**
+ * Who answered a delegated subcommand run with `NAVORI_TS_CLI` set to the stub, independent of the
+ * versions (which are equal in a release): the binary delegates to `NAVORI_TS_CLI` (the launcher
+ * keeps a value the caller set), while the launcher without a binary runs the packaged frozen TS
+ * directly and never reads it.
+ * @param {boolean} native whether this install has the binary
+ * @param {string} output stdout and stderr of that run
+ * @returns {string | undefined} the failure, if the wrong lane answered
+ */
+export function laneFailure(native, output) {
+  const stub = output.includes(STUB_MARK);
+  if (native && !stub) {
+    return "a delegated subcommand ignored NAVORI_TS_CLI: the frozen TS answered instead of the binary";
+  }
+  if (!native && stub) {
+    return "without a binary, a delegated subcommand ran NAVORI_TS_CLI instead of the packaged frozen TS";
+  }
+  return undefined;
 }
 
 /** The subcommand that must delegate: a permanent delegation entry, else an unknown one (F45). */
@@ -200,6 +237,20 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
   // The frozen TS prints through consola, which prefixes `[log] ` under CI: its last word counts.
   if (own.status !== 0 || own.stdout.trim().split(/\s+/).at(-1) !== expected) {
     failures.push(`navori --version answered ${JSON.stringify(own.stdout.trim())} (exit ${own.status}), expected ${expected}`);
+  }
+  // `--version` cannot tell the binary from the frozen TS once both carry the release version.
+  const stubDir = mkdtempSync(join(tmpdir(), "navori-probe-stub-"));
+  try {
+    const lane = spawnSync(join(bins, "navori"), delegationProbe(), {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...env, NAVORI_TS_CLI: writeStubCli(stubDir) },
+      timeout: 60_000,
+    });
+    const wrong = laneFailure(native, `${lane.stdout}${lane.stderr}`);
+    if (wrong !== undefined) failures.push(wrong);
+  } finally {
+    rmSync(stubDir, { recursive: true, force: true });
   }
   // Linked (npm/bun with scripts): every bin, `navori-rust` included, IS the binary, not a script.
   for (const name of ["navori", "navori-native-hook", "navori-rust"]) {
