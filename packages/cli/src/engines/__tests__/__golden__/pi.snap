@@ -3877,7 +3877,8 @@ function bridgeEnv(): NodeJS.ProcessEnv {
 /**
  * What bash exports to the binary it runs: PWD kept literally when it names the working directory and the
  * physical directory otherwise, SHLVL one above (an unset or invalid one counts as 0, a negative result is 0, past
- * 999 is 1), OLDPWD only when it is a directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
+ * 999 is 1), OLDPWD only when it is a directory. The binary (hook_facts shell_pwd) accepts only a canonical PWD
+ * and defers otherwise, so both paths hand it the same value and reach the same decision.
  */
 function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env };
@@ -9272,14 +9273,21 @@ if [ -n "$_dsc_cands" ]; then
   if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then
     block "too many discard commands to inspect (> 16) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
-  # $1 dir · $2 tracked|untracked|all — succeeds when the dir holds what would be lost.
+  # $1 dir · $2 tracked|untracked|all — 0 when the dir holds what would be lost, 1 when it
+  # holds nothing (a non-work-tree included), 2 when git cannot inspect it (fail closed).
   _dsc_dirty() {
-    git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    if ! git -C "$1" rev-parse --git-dir >/dev/null 2>&1; then
+      # "Not a work tree" only counts when git itself runs.
+      git --version >/dev/null 2>&1 && return 1
+      return 2
+    fi
+    _dsc_out=""
     case "$2" in
-      tracked) [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null)" ] ;;
-      untracked) [ -n "$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ] ;;
-      *) [ -n "$(git -C "$1" ls-files --others 2>/dev/null | head -n 1)" ] ;;
+      tracked) _dsc_out=$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null) || return 2 ;;
+      untracked) _dsc_out=$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null) || return 2 ;;
+      *) _dsc_out=$(git -C "$1" ls-files --others 2>/dev/null) || return 2 ;;
     esac
+    [ -n "$_dsc_out" ]
   }
   # $1 base dir · $2 operand → the directory it names, or `?` when it is not literal.
   _dsc_resolve() {
@@ -9357,7 +9365,13 @@ if [ -n "$_dsc_cands" ]; then
       block "git ${_dsc_sub} discards work and its target directory cannot be inspected (variable, substitution, missing or unresolved path)" unspecified \
         "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
     fi
-    if _dsc_dirty "$_dsc_dir" "$_dsc_kind"; then
+    _dsc_rc=0
+    _dsc_dirty "$_dsc_dir" "$_dsc_kind" || _dsc_rc=$?
+    if [ "$_dsc_rc" = 2 ]; then
+      block "git ${_dsc_sub} discards work and its target directory cannot be inspected (the repository tool is missing, not executable or failing)" unspecified \
+        "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
+    fi
+    if [ "$_dsc_rc" = 0 ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"

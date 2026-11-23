@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:ba3a0c678c1d41c4028d4a0740343b1b3311c7319379429d83ef166e8d02338b impl=sha256:edca929eacfc8777e6d6db617fe9991edd6bf27167945c55aaaeabce5e2eb2d5
-# navori:managed start id="guard-destructive-base" hash="19d22a27" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:b1b228b3494bae8539a47d4d0e3c3e24f7ac48d60fcb9e2e1df7c6e5bd30e3f9 impl=sha256:005cd9f6c5be330a6006e77f282e74d4fbb996e21635f07ce792d282738af495
+# navori:managed start id="guard-destructive-base" hash="e91baf7a" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -3222,14 +3222,21 @@ if [ -n "$_dsc_cands" ]; then
   if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then
     block "too many discard commands to inspect (> 16) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
-  # $1 dir · $2 tracked|untracked|all — succeeds when the dir holds what would be lost.
+  # $1 dir · $2 tracked|untracked|all — 0 when the dir holds what would be lost, 1 when it
+  # holds nothing (a non-work-tree included), 2 when git cannot inspect it (fail closed).
   _dsc_dirty() {
-    git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    if ! git -C "$1" rev-parse --git-dir >/dev/null 2>&1; then
+      # "Not a work tree" only counts when git itself runs.
+      git --version >/dev/null 2>&1 && return 1
+      return 2
+    fi
+    _dsc_out=""
     case "$2" in
-      tracked) [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null)" ] ;;
-      untracked) [ -n "$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ] ;;
-      *) [ -n "$(git -C "$1" ls-files --others 2>/dev/null | head -n 1)" ] ;;
+      tracked) _dsc_out=$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null) || return 2 ;;
+      untracked) _dsc_out=$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null) || return 2 ;;
+      *) _dsc_out=$(git -C "$1" ls-files --others 2>/dev/null) || return 2 ;;
     esac
+    [ -n "$_dsc_out" ]
   }
   # $1 base dir · $2 operand → the directory it names, or `?` when it is not literal.
   _dsc_resolve() {
@@ -3307,7 +3314,13 @@ if [ -n "$_dsc_cands" ]; then
       block "git ${_dsc_sub} discards work and its target directory cannot be inspected (variable, substitution, missing or unresolved path)" unspecified \
         "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
     fi
-    if _dsc_dirty "$_dsc_dir" "$_dsc_kind"; then
+    _dsc_rc=0
+    _dsc_dirty "$_dsc_dir" "$_dsc_kind" || _dsc_rc=$?
+    if [ "$_dsc_rc" = 2 ]; then
+      block "git ${_dsc_sub} discards work and its target directory cannot be inspected (the repository tool is missing, not executable or failing)" unspecified \
+        "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
+    fi
+    if [ "$_dsc_rc" = 0 ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"
