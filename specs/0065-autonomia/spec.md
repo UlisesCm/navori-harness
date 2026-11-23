@@ -52,7 +52,7 @@ Entorno: Linux, repo fabricado en GitHub con `main`, `dev` y una rama de trabajo
 - `gh` con escritura en el repo fabricado y un PR hacia `dev`.
 - El dueño crea el ruleset de `main` y los tags.
 - Previo: atribuir cada acción a su sesión (#1774).
-- Ramas: el TS (`lib/config/schema.ts`, `lib/config/config.ts`, `engines/pi/policy-source.ts`, `extension-source.ts`, `denials.ts` y sus pruebas) nace en `dev`, con excepción al congelamiento de TS solo para esta fase, escrita aquí; la paridad va a `migration/rust` al sincronizar. Excepción a `DIRECTION.md:100`, solo para archivos que no existen en `dev`: `config.rs`, `extension.ts.in`, `gen-pi-extension-asset.mjs`, los casos del oráculo, `rust-manifest-check.mjs` y `rust.yml`. Queda escrita en `docs/DIRECTION.md` de `migration/rust` con la vigente de `bridge-source.ts` (#1784).
+- Ramas: el TS (`lib/config/schema.ts`, `lib/config/config.ts`, `engines/pi/policy-source.ts`, `extension-source.ts`, `denials.ts`, `bridge-source.ts` y sus pruebas) nace en `dev`, con excepción al congelamiento de TS solo para esta fase, escrita aquí; la paridad va a `migration/rust` al sincronizar. Excepción a `DIRECTION.md:100`, solo para archivos que no existen en `dev`: `config.rs`, `extension.ts.in`, `gen-pi-extension-asset.mjs`, los casos del oráculo, `rust-manifest-check.mjs` y `rust.yml`. Queda escrita en `docs/DIRECTION.md` de `migration/rust` con la vigente de `bridge-source.ts` (#1784).
 
 ## Fuera de alcance
 
@@ -65,7 +65,7 @@ Entorno: Linux, repo fabricado en GitHub con `main`, `dev` y una rama de trabajo
 ## Tareas
 
 1. La clave `autonomy` existe con paridad en ambas implementaciones.
-2. La extensión sabe qué hook hizo cada pregunta.
+2. La extensión sabe qué hook hizo cada pregunta; empieza cuando el grupo de re-firmas del 26 nov esté mergeado.
 3. Con la clave, R5 bloquea y R6 pregunta, también a subagentes.
 4. El consentimiento se pide, guarda y caduca según R8.
 5. La sesión principal aprueba sola la rutina de R4, con cuerpo, marca y registro.
