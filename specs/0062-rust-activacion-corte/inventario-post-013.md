@@ -4,6 +4,8 @@ Hecho por S1 el 20 nov 2026 sobre `migration/rust` `f40cbe7e`. Es solo lectura: 
 
 Revisión 2 (20 nov): incluye las correcciones de la revisión de S3 (`coordinacion/rust-0.13/revisiones/inventario-post-013`) y las decisiones de Ulises (`decisiones-ulises/2026-11-20-post-013-orden`).
 
+Revisión 3 (23 nov): agrega lo que queda fuera de 0.13 (sección "Fuera de 0.13"), según `decisiones-ulises/2026-11-23-0910`.
+
 Fuentes:
 - `scripts/js/rust-areas.mjs` (`AREAS`, `PERMANENT_DELEGATION`, `PERMANENT_SHELL_HOOKS`);
 - `scripts/js/cutover-check.mjs`;
@@ -120,6 +122,19 @@ Decidido por Ulises (`decisiones-ulises/2026-11-20-post-013-orden`):
 5. **Lo demás** (`init`, `add`, `configure`, `update`, `refresh`, `receipt`): por demanda.
 
 **Nota sobre la sombra y 0.14** (de la revisión de S3; decidido por Ulises el 20 nov): el modo `shadow` es como entran los portes nuevos con ventana de observación. Por eso `routing-watch` y `bash-outcome-watch` se portan y se activan ANTES de borrar el journal; el borrado va después de su activación.
+
+## Fuera de 0.13
+
+Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, para estos puntos, lo que `decisiones-ulises/2026-11-20-todo-en-013` había metido en 0.13.
+
+- **Arranques de Node en `plan-gate` y `session-start-context` activos (PR B): descartado.** El ahorro es de 0 a unos 30 ms y solo en ramas raras:
+  - con `navori` = binario (postinstall), los spawns que quedan ya no arrancan Node;
+  - con el lanzador JS (sin postinstall) cuestan ~30 ms, pero solo cuando falla el frame de `tools session-context` y además el subproceso (`tools notice`, `dominio inject`, `--ack`), con el memo de CLI viejo, o en Codex resume (`plan resume`);
+  - en `plan-gate` solo quedan las ramas `Delegate` (auditoría armada, workplan que no se lee, escalación).
+
+  No compensa tocar un área crítica con el plazo del 26 nov. El Node residual queda como está en la pregunta (b). El PR A (la sonda `navori --version`) también se descartó el 22 nov; solo entra el arreglo de su caché (#1778).
+- **Lo que sí importa para 0.13:** que `navori --version` del binario (versión de Cargo) coincida con `STAMP_VERSION` (`packages/cli/package.json`). Si difieren, `plan gate`, `tools session-context` y `gate probe` nunca corren en proceso. Lo toma S2 con prioridad para la instalación del 26 nov.
+- **`routing-watch` y `bash-outcome-watch`: fuera de 0.13** (no llegan al 26 nov). Siguen en shell, sin port ni sombra, con el orden de 0.14 de arriba. Antes de decidir su port se mide el costo de `routing-watch` por sesión.
 
 ## Preguntas abiertas
 
