@@ -422,3 +422,58 @@ fn la_version_del_navori_de_path_se_sondea_una_vez_por_binario() -> TestResult {
     assert_eq!(runs(&count), 5);
     Ok(())
 }
+
+/// A fake `node` (never run: only its identity matters) with `body` as content.
+fn fake_node(dir: &Path, body: &str) -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(dir)?;
+    let path = dir.join("node");
+    fs::write(&path, format!("#!/bin/sh\n{body}\n"))?;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+// Covers: R53
+#[test]
+fn la_cache_de_la_version_de_navori_se_invalida_al_cambiar_el_node_del_path() -> TestResult {
+    use navori_cli::hook_facts::navori_cli;
+    use std::time::{Duration, SystemTime};
+    let temp = Temp::new()?;
+    let cache = FactsCache::in_project(&temp.0);
+    let (bin, node_a, node_b) = (temp.0.join("bin"), temp.0.join("a"), temp.0.join("b"));
+    let count = temp.0.join("count");
+    let env = |dirs: &[&Path]| -> Result<Vec<(OsString, OsString)>, Box<dyn Error>> {
+        Ok(vec![
+            ("PATH".into(), std::env::join_paths(dirs)?),
+            ("COUNT".into(), count.as_os_str().to_owned()),
+        ])
+    };
+    fake_navori(&bin, navori_core::STAMP_VERSION, 0)?;
+    fake_node(&node_a, "# v1")?;
+    fake_node(&node_b, "# v1")?;
+    let call = |dirs: &[&Path]| -> Result<usize, Box<dyn Error>> {
+        navori_cli(&env(dirs)?, &temp.0, Some(&cache))?;
+        Ok(runs(&count))
+    };
+
+    assert_eq!(call(&[&bin, &node_a])?, 1, "first call probes");
+    assert_eq!(call(&[&bin, &node_a])?, 1, "same node: cached");
+    // A different size is a different node.
+    fake_node(&node_a, "# v1 longer")?;
+    assert_eq!(call(&[&bin, &node_a])?, 2, "node size changed");
+    assert_eq!(call(&[&bin, &node_a])?, 2, "node size changed, cached");
+    // Only the mtime changes.
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(node_a.join("node"))?;
+    file.set_modified(SystemTime::now() + Duration::from_secs(3600))?;
+    drop(file);
+    assert_eq!(call(&[&bin, &node_a])?, 3, "node mtime changed");
+    assert_eq!(call(&[&bin, &node_a])?, 3, "node mtime changed, cached");
+    // Another node earlier in PATH.
+    assert_eq!(call(&[&bin, &node_b, &node_a])?, 4, "another node");
+    assert_eq!(call(&[&bin, &node_b, &node_a])?, 4, "another node, cached");
+    // No node at all.
+    assert_eq!(call(&[&bin])?, 5, "no node");
+    assert_eq!(call(&[&bin])?, 5, "no node, cached");
+    Ok(())
+}

@@ -234,6 +234,10 @@ const NAVORI_CLI_PROBE: Duration = Duration::from_secs(5);
 /// Host fact `navori_cli` (spec 0059 D30, R53): the `navori` that `PATH` resolves and the
 /// version it prints. A ported subcommand runs in process only when that version is the TS CLI
 /// this binary was built from; otherwise the hook runs that `navori`, as the shell does.
+///
+/// The version depends on the `node` the hook's `PATH` resolves, not only on the binary: the TS
+/// CLI starts with `#!/usr/bin/env node`, so an `nvm use` changes the answer (or breaks it on
+/// Node < 22.12) with the same `navori` file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NavoriCli {
     /// `command -v navori` (a relative `PATH` entry joined to the hook's working directory),
@@ -252,10 +256,13 @@ impl NavoriCli {
     }
 }
 
-/// Collect [`NavoriCli`] before stdin. The probe runs once per binary: its answer is cached
-/// by the canonical path with the binary's stamp (device, inode, size and both timestamps),
-/// so replacing or touching the binary probes again. Without an absolute `PATH` nothing is
-/// cached.
+/// Collect [`NavoriCli`] before stdin. The probe runs once per binary and node: its answer is
+/// cached by the canonical path with the binary's stamp (device, inode, size and both
+/// timestamps) plus the identity of the `node` the `PATH` resolves (`|node=<canonical
+/// path>:<stamp>`, or `|node=none`). Replacing or touching either probes again; otherwise an
+/// `nvm use` within the cache lifetime replayed a version the shell would no longer get, and
+/// `quality-gate-pre-commit` (which decides on it) diverged in shadow. Without an absolute
+/// `PATH` nothing is cached.
 ///
 /// # Errors
 /// A probe that cannot be spawned, outlives its deadline or overflows its output bound: the
@@ -281,9 +288,14 @@ pub fn navori_cli(
     // The cache is keyed by the binary behind any symlink; the probe runs the resolved path.
     let binary = found.canonicalize().map_err(io_failure)?;
     let absolute = std::env::split_paths(path).all(|entry| entry.is_absolute());
-    let cache = cache
-        .filter(|_| absolute)
-        .and_then(|cache| Some((cache, facts_cache::stamp(&binary)?, facts_cache::now_ms()?)));
+    let cache = cache.filter(|_| absolute).and_then(|cache| {
+        let stamp = format!(
+            "{}|node={}",
+            facts_cache::stamp(&binary)?,
+            node_identity(env, cwd)
+        );
+        Some((cache, stamp, facts_cache::now_ms()?))
+    });
     if let Some((cache, stamp, now)) = &cache
         && let Some(version) = cache.load_cli(&binary, stamp, *now)
     {
@@ -311,6 +323,18 @@ pub fn navori_cli(
         path: Some(found),
         version,
     })
+}
+
+/// Identity of the `node` that `PATH` resolves: `<canonical path>:<stamp>`, or `none` when
+/// there is no `node` or it cannot be canonicalized or stat'ed.
+fn node_identity(env: &[(OsString, OsString)], cwd: &Path) -> String {
+    command_v("node", env, cwd)
+        .and_then(|node| node.canonicalize().ok())
+        .and_then(|node| {
+            let stamp = facts_cache::stamp(&node)?;
+            Some(format!("{}:{stamp}", node.display()))
+        })
+        .unwrap_or_else(|| "none".to_owned())
 }
 
 /// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
