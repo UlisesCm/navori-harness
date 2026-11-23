@@ -392,12 +392,14 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
             native.path
         );
         assert!(dispatch(&empty, &inv).is_none(), "{:?}", native.path);
-        let others: Vec<String> = embedded
+        // One bare entry per path: paths with several `requires` entries would be duplicates.
+        let mut others: Vec<String> = embedded
             .commands
             .iter()
             .filter(|c| c.path != native.path)
             .map(|c| format!(r#"{{"path":{:?}}}"#, c.path))
             .collect();
+        others.dedup();
         let without = manifest(&format!(
             r#"{{"schema":2,"commands":[{}]}}"#,
             others.join(",")
