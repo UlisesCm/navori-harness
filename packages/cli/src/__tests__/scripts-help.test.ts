@@ -151,13 +151,17 @@ describe("scripts/js --help / -h", () => {
   }
 
   it("hook-shadow-report -h keeps printing its usage", () => {
-    const script = resolve(REAL_SCRIPTS, "hook-shadow-report.mjs");
+    const before = snapshot(root);
+    const script = join(root, "scripts", "js", "hook-shadow-report.mjs");
     const result = spawnSync(process.execPath, [script, "-h"], {
       cwd: root,
       encoding: "utf8",
       timeout: 30_000,
+      env: { PATH: binDir, HOME: home, TMPDIR: join(base, "home") },
     });
-    expect(result.status).toBe(0);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("usage: node scripts/js/hook-shadow-report.mjs");
+    expect(snapshot(root)).toEqual(before);
+    expect(readFileSync(callsFile, "utf8")).toBe("");
   });
 });
