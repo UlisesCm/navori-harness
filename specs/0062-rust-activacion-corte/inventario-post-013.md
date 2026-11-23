@@ -139,6 +139,20 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   - por sesión (mediana / p90), 0,3 / 1,1 s en Claude y 1,4 / 3,7 s en Pi;
   - carriles caros: ~0,25 s cada vez que Bash corre un criterio de aceptación (huella del árbol) y +30 ms en el Bash exitoso que sigue a un fallo (`node -e`, 9 % de las llamadas en Claude).
 
+## Deuda de `audit` tras 0.13
+
+En 0.13 solo `audit --arm` y `audit --disarm` son nativos (dos entradas de `audit` con `requires` en `crates/ported.json`). El resto de `audit` sigue delegando al TS congelado. Es **deuda, no `PERMANENT_DELEGATION`**: se porta en 0.14 o después.
+
+| Modo | Quién lo llama | Motivo | Recomendación |
+|---|---|---|---|
+| `--record-metadata` | `_partials/audit-log.sh:162`; `navori-core/src/audit.rs:487` | los llaman hooks; decisión del 22 nov | portarlo junto con los hooks que lo llaman |
+| `--consume-arm` | `_partials/audit-arm.sh:39`; `navori-cli/src/session_start.rs:246` | los llaman hooks; decisión del 22 nov | portarlo junto con `session-start-context` (lote C) |
+| `--start` | `audit-mode-trigger.sh:87` | los llaman hooks; decisión del 22 nov | portarlo junto con el hook que lo llama |
+| `--capture-child` | `subagent-stop-handoff.sh:129`; `navori-cli/src/subagent_stop.rs:186` | los llaman hooks; decisión del 22 nov | portarlo junto con `subagent-stop-handoff` (punto 8, #350) |
+| reporte y demás modos (`--json`, `--session`, rango, `--stop`, `--snapshot`, `--compare`, `--by-engine`, `--collect`, `--all-repos`) | la persona usuaria | fuera de 0.13 por decisión de Ulises (22 nov, 15:40): unas 35-40k líneas de Rust para un comando poco usado, que no quita Node de caminos frecuentes | reevaluar después del release |
+
+`crates/navori-cli/tests/delegation.rs` falla si una entrada de `audit` en `ported.json` declara un flag de los modos de hooks. También comprueba que sus argv reales siguen llegando intactos al TS.
+
 ## Preguntas abiertas
 
 - El `navori` del PATH después de 0.13: Ulises eligió la opción A (decisiones-ulises/2026-11-20-1645): el paquete expone el bin `navori-rust` nativo con postinstall; sin postinstall queda un script de Node y `doctor` avisa del costo. Sigue abierta solo la verificación de S2 sobre `navori`: si es el CLI TS, la sonda `navori --version` y los ayudantes en proceso de los hooks lanzan Node.
