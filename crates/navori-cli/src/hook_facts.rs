@@ -338,8 +338,8 @@ fn node_identity(env: &[(OsString, OsString)], cwd: &Path) -> String {
 }
 
 /// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
-/// the physical directory. A `PWD` bash would canonicalize first (`.`, `..` or `//`
-/// components) is not modeled and defers.
+/// the physical directory. Bash keeps such a `PWD` literally even when it is not canonical
+/// (`.`, `..` or `//` components, or a trailing slash); that case is not modeled and defers.
 pub(crate) fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
     use std::os::unix::fs::MetadataExt;
     let physical = || {

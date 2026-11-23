@@ -1,4 +1,4 @@
-// navori:managed-file id="pi-extension" hash="3431138bc19f9ce41461f1e52d79b79f329ce2284b95c21281f2d191483e4b6b"
+// navori:managed-file id="pi-extension" hash="512c45c264b146d0ee07f8ff595c0d98dc77ec95d0b7689990de6407a3109f43"
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1205,7 +1205,8 @@ function bridgeEnv(): NodeJS.ProcessEnv {
 /**
  * What bash exports to the binary it runs: PWD kept literally when it names the working directory and the
  * physical directory otherwise, SHLVL one above (an unset or invalid one counts as 0, a negative result is 0, past
- * 999 is 1), OLDPWD only when it is a directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
+ * 999 is 1), OLDPWD only when it is a directory. The binary (hook_facts shell_pwd) accepts only a canonical PWD
+ * and defers otherwise, so both paths hand it the same value and reach the same decision.
  */
 function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env };
