@@ -236,6 +236,33 @@ describe("rust oracle", () => {
     ]);
   });
 
+  it("@AUDITS@, el paso chmod y la máscara de ts sobre la raíz de auditorías aislada", () => {
+    const dir = tmp();
+    const base = tmp();
+    const body = (stamp: string, extra = ""): string =>
+      `test "$1" = "$NAVORI_AUDITS_ROOT" || exit 3; test "$(stat -c %a "$1")" = 700 || exit 4; printf '{"ts":"'%s'"}' '${stamp}' > "$1/.armed"; ${extra}`;
+    const testCase: OracleCase = {
+      id: "audits",
+      fixture: "empty",
+      args: ["@AUDITS@"],
+      setup: [{ chmod: ".", mode: 0o700, in: "audits" }],
+    };
+    const run = (rustBody: string) =>
+      oracle.runCase(testCase, {
+        ts: stub(dir, "ts.sh", body("2020-01-01T00:00:00.000Z")),
+        rust: stub(dir, "rust.sh", rustBody),
+        tsCli: "/unused/index.js",
+        base,
+      });
+    // The marker expands to the root, the chmod applied, and a different ts is only masked.
+    expect(run(body("2031-12-31T23:59:59.999Z")).differences).toEqual([]);
+    // A real difference in the audit tree still shows: another format, another mode.
+    expect(run(body("2031-12-31 23:59:59")).differences).toMatchObject([{ kind: "tree:audits" }]);
+    expect(
+      run(body("2020-01-01T00:00:00.000Z", `chmod 600 "$1/.armed"`)).differences,
+    ).toMatchObject([{ kind: "tree:audits" }]);
+  });
+
   it("una diferencia conocida solo tolera sus tipos y falla cuando deja de diferir (#1750)", () => {
     const dir = tmp();
     const base = tmp();
