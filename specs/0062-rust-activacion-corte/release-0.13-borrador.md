@@ -66,12 +66,42 @@ Puntos a revisar al ejecutar:
   solo cuando `navori --version` es `STAMP_VERSION` (`hook_facts.rs` `in_process`, plan-gate
   `same_version`). Si difieren no se rompe nada, pero cada llamada lanza un proceso. `check-pin`
   (paso 0 de la publicación) falla si difieren.
-- `crates/navori-core/tests/semver.rs` tiene `assert_ne!(STAMP_VERSION, VERSION)` (D20 de 0058,
-  R38: el sello nunca es el prerelease de Rust). Con las dos en 0.13.0 falla: en este commit pasa a
-  `assert_eq!` y se enmienda D20.
-- `dist-probe.mjs` (`checkInstall`) distingue el binario del legacy por `--version` (Cargo frente al
-  pin). Con las dos en 0.13.0 esa comprobación ya no los distingue: se necesita otro discriminador
-  antes del ensayo del release.
+
+### Pasos obligatorios del mismo PR del bump (decisiones-ulises/2026-11-23-1120, punto 3)
+
+Con Cargo y `packages/cli` en el mismo número se rompen dos supuestos. Los dos arreglos van en el
+PR del bump, no después.
+
+**e.1 `semver.rs` exige que las versiones difieran.** `crates/navori-core/tests/semver.rs:25`
+tiene `assert_ne!(STAMP_VERSION, VERSION, "the stamp must never be the Rust prerelease")` (D20 de
+0058, R38). Con las dos en 0.13.0, `cargo test --workspace` falla.
+
+- Arreglo propuesto: cambiar esa aserción por
+  `assert_eq!(STAMP_VERSION, VERSION, "the binary answers --version with VERSION; the hooks run in process only when it is the stamp")`.
+  Se conservan las aserciones de orden del prerelease (`0.13.0-rust.1` = `0.13.0`,
+  `is_downgrade("0.13.0-rust.1", "0.12.2")`), porque siguen valiendo.
+- Enmendar D20 en `specs/0058-*/design.md`: desde 0.13.0 la versión de sello y la de Cargo son la
+  misma. La igualdad pasa a ser un invariante que la prueba vigila en cada PR, y `check-pin` (#1788)
+  lo vuelve a comprobar al publicar.
+- Verificación: `cargo test -p navori-core --locked --test semver` en verde con las dos en 0.13.0,
+  y en rojo si se deja una en `0.13.0-rust.1`.
+
+**e.2 `dist-probe` deja de distinguir el binario del legacy.** `scripts/js/dist-probe.mjs`
+(`checkInstall`, :198-202) espera `version` (Cargo) en el carril nativo y `legacyVersion` (el pin)
+sin binario. Con las dos en 0.13.0, un launcher que cayera por error al legacy pasaría la
+comprobación de `--version`.
+
+- Arreglo propuesto: agregar a `checkInstall` un discriminador que no dependa de la versión.
+  Correr un subcomando delegado (por ejemplo `navori workspace ls`) con `NAVORI_TS_CLI` apuntando
+  a un stub JS que imprime una marca y sale con 0.
+  - Carril nativo: el binario delega en ese stub. `plan()` del launcher respeta un `NAVORI_TS_CLI`
+    que ya viene puesto, y en el caso enlazado no hay launcher. Debe aparecer la marca.
+  - Sin binario: el launcher corre `node legacy/dist/index.js` directo y no lee `NAVORI_TS_CLI`. La
+    marca NO debe aparecer.
+- Prueba en `packages/cli/src/__tests__/dist-launcher.test.ts` o en la de `dist-probe`: con un
+  launcher que cae al legacy, `checkInstall` reporta la falla aunque `--version` coincida.
+- Verificación: el job `probe` de `rust-release.yml` en verde en las 4 plataformas con las versiones
+  iguales.
 
 ## Paso f: docs
 
