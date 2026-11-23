@@ -60,6 +60,18 @@ Puntos a revisar al ejecutar:
   `VERSION` (decisión de diseño, no del bump).
 - Que `navori --version` del binario responda `0.13.0`: el `postinstall` compara la versión del
   paquete con la del binario y, si no coinciden, deja los bins JS (`packaging/npm/lib/install.js`).
+- **Las dos versiones suben juntas y al mismo número** (decisiones-ulises/2026-11-23-version-stamp):
+  `Cargo.toml` es lo que responde `navori --version` y `packages/cli/package.json` es
+  `STAMP_VERSION`. Los hooks corren plan-gate, `tools session-context` y `gate probe` en proceso
+  solo cuando `navori --version` es `STAMP_VERSION` (`hook_facts.rs` `in_process`, plan-gate
+  `same_version`). Si difieren no se rompe nada, pero cada llamada lanza un proceso. `check-pin`
+  (paso 0 de la publicación) falla si difieren.
+- `crates/navori-core/tests/semver.rs` tiene `assert_ne!(STAMP_VERSION, VERSION)` (D20 de 0058,
+  R38: el sello nunca es el prerelease de Rust). Con las dos en 0.13.0 falla: en este commit pasa a
+  `assert_eq!` y se enmienda D20.
+- `dist-probe.mjs` (`checkInstall`) distingue el binario del legacy por `--version` (Cargo frente al
+  pin). Con las dos en 0.13.0 esa comprobación ya no los distingue: se necesita otro discriminador
+  antes del ensayo del release.
 
 ## Paso f: docs
 
@@ -210,6 +222,28 @@ que un `npm i -g navori` no recibe nada a medias.
 5. **Humo desde el registro:** en un directorio temporal, `npm i navori@next` y `npx navori --version`
    (0.13.0), un subcomando delegado (`npx navori workspace ls`) y `dist-legacy-smoke` contra el
    tarball del registro.
+5b. **Versiones y plan-gate en proceso, después de instalar** (decisiones-ulises/2026-11-23-version-stamp).
+   Con `navori@next` instalado (global o en el directorio de humo, con su `node_modules/.bin`
+   primero en el `PATH`):
+
+   ```bash
+   v=$(navori --version); r=$(navori-rust --version)
+   s=$(node -p 'require("./packages/cli/package.json").version')   # STAMP_VERSION, en el checkout del release
+   test "$v" = 0.13.0 && test "$r" = 0.13.0 && test "$s" = 0.13.0 || { echo "versiones: navori=$v navori-rust=$r stamp=$s"; exit 1; }
+   # plan-gate en proceso: un navori espía delante en el PATH anota cada argv; en proceso, el hook
+   # solo le pide --version (la sonda) y nunca `plan gate`.
+   spy=$(mktemp -d); real=$(command -v navori)
+   printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> %s/argv.log\nexec %s "$@"\n' "$spy" "$real" > "$spy/navori"; chmod +x "$spy/navori"
+   printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Task","session_id":"humo","cwd":"'"$PWD"'","tool_input":{"subagent_type":"implementer","prompt":"workplan: humo"}}' \
+     | PATH="$spy:$PATH" NAVORI_HOOK_IMPL=rust bash .claude/hooks/plan-gate.sh; code=$?
+   test "$code" = 2 && ! grep -qs '^plan gate' "$spy/argv.log" && echo 'plan-gate en proceso'
+   ```
+
+   Se corre en el checkout del release, ya re-renderizado en 0.13.0 (la cabecera del hook tiene que
+   ser la del binario instalado; si no, el runtime difiere con `hook integrity mismatch` y sale 1).
+   Sin workplan, el gate niega con exit 2: ese 2 prueba que el runtime nativo dio un veredicto. Que
+   `argv.log` no tenga `plan gate` prueba que fue en proceso. Si falta cualquiera de las dos cosas,
+   no se promueve.
 6. **Promover:** `npm dist-tag add <paquete>@0.13.0 latest` en el mismo orden (legacy, binarios,
    `navori` al final) y `npm view navori version`.
 
