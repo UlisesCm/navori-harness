@@ -38,7 +38,8 @@ import { fileURLToPath } from "node:url";
  * pin carries an integrity, the rebuilt tarball must match it (the build is reproducible), so the
  * rehearsal checks what is published instead of trusting the pin it writes.
  * `check-pin` is the step before publishing: it fails unless `packaging/legacy.json` has a 40-hex
- * `commit`, a `sha512-` integrity and the `packages/cli/package.json` version.
+ * `commit`, a `sha512-` integrity and the `packages/cli/package.json` version, and unless that
+ * version is also the Cargo workspace's (what the binary answers to `--version`).
  * `--from-dir` refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
  *
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
@@ -289,6 +290,21 @@ export function assertPublishablePin(pin, stamp) {
 }
 
 /**
+ * The check before publishing that the binary's version (Cargo) is the stamp (`packages/cli`): the
+ * hooks run a ported subcommand in process only when `navori --version` answers STAMP_VERSION
+ * (`hook_facts.rs` `in_process`, plan-gate `same_version`), and the published `navori` is the binary.
+ * @param {string} workspace the `[workspace.package]` version of `Cargo.toml`
+ * @param {string} stamp the `packages/cli/package.json` version
+ */
+export function assertReleaseVersions(workspace, stamp) {
+  if (workspace !== stamp) {
+    throw new Error(
+      `Cargo.toml is ${workspace} but packages/cli/package.json is ${stamp}: the published navori would answer --version with ${workspace}, so the hooks' in-process lane would never run; set both to the release version`,
+    );
+  }
+}
+
+/**
  * Refuses a checkout with uncommitted changes (`git status --porcelain`, ignored files aside): the
  * pin records its `HEAD`, which must be what was built.
  * @param {string} porcelain the output of `git status --porcelain`
@@ -490,6 +506,7 @@ async function main(argv) {
     if (argv.length > 1) throw new Error("check-pin takes no options");
     const stamp = JSON.parse(readFileSync(join(REPO_ROOT, "packages", "cli", "package.json"), "utf8")).version;
     assertPublishablePin(legacyPin(), stamp);
+    assertReleaseVersions(workspaceVersion(), stamp);
     process.stdout.write("dist-assemble: packaging/legacy.json is complete\n");
     return 0;
   }

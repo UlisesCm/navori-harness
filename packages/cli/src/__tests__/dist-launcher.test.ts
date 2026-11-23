@@ -56,6 +56,7 @@ interface Assemble {
     pin: { version?: string; integrity?: string | null; commit?: string | null },
     stamp: string,
   ) => void;
+  assertReleaseVersions: (workspace: string, stamp: string) => void;
   legacyManifest: (
     version: string,
     ts: Record<string, unknown>,
@@ -437,6 +438,17 @@ describe("ensamblado", () => {
     );
     expect(() => assemble.assertPublishablePin(full, "0.13.1")).toThrow(
       "packages/cli/package.json is 0.13.1",
+    );
+  });
+
+  // Covers: R22
+  it("check-pin rechaza publicar si la versión de Cargo no es la de packages/cli", () => {
+    expect(() => assemble.assertReleaseVersions("0.13.0", "0.13.0")).not.toThrow();
+    expect(() => assemble.assertReleaseVersions("0.13.0-rust.1", "0.12.5")).toThrow(
+      "Cargo.toml is 0.13.0-rust.1 but packages/cli/package.json is 0.12.5",
+    );
+    expect(() => assemble.assertReleaseVersions("0.13.0-rust.1", "0.12.5")).toThrow(
+      "in-process lane would never run",
     );
   });
 
