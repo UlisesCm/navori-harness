@@ -135,9 +135,10 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   No compensa tocar un área crítica con el plazo del 26 nov. El Node residual queda como está en la pregunta (b). El PR A (la sonda `navori --version`) también se descartó el 22 nov; solo entra el arreglo de su caché (#1778).
 - **Lo que sí importa para 0.13:** que `navori --version` del binario (versión de Cargo) coincida con `STAMP_VERSION` (`packages/cli/package.json`). Si difieren, `plan gate`, `tools session-context` y `gate probe` nunca corren en proceso. No se toca ninguna versión antes de la instalación del 26 nov: hoy coinciden la CLI TS 0.12.5 del PATH y `STAMP_VERSION`, así que en la sombra el camino en proceso corre. En el release las dos suben juntas a 0.13.0 y `check-pin` lo verifica al publicar (S2) (`decisiones-ulises/2026-11-23-0925`).
 - **`routing-watch` y `bash-outcome-watch`: fuera de 0.13** (no llegan al 26 nov). Siguen en shell, sin port ni sombra, con el orden de 0.14 de arriba. Costo medido el 23 nov (S1, `docs/research/routing-watch-costo.md`), para decidir el port después de 0.13:
-  - por llamada, ~22 ms en Claude y ~17 ms en Pi (no los ~76 ms estimados en `rust-areas.mjs:162`);
-  - por sesión (mediana / p90), 0,3 / 1,1 s en Claude y 1,4 / 3,7 s en Pi;
+  - por llamada, ~22 ms en Claude y ~14 ms en Pi (no los ~76 ms estimados en `rust-areas.mjs:162`);
+  - por sesión (mediana / p90), 0,3 / 1,1 s en Claude y 1,2 / 3,2 s en Pi;
   - carriles caros: ~0,25 s cada vez que Bash corre un criterio de aceptación (huella del árbol) y +30 ms en el Bash exitoso que sigue a un fallo (`node -e`, 9 % de las llamadas en Claude).
+  - En 0.13 entra solo #1793: el primer filtro del token de escritura deja de mirar la salida del comando (24,8 % de los Bash de Claude eran falsos positivos; Pi no está afectado). **#1794 (huella del árbol completo al correr un criterio, 246 ms) queda fuera de 0.13** (`decisiones-ulises/2026-11-23-1325`): el arreglo toca la huella que decide si `plan update` acepta un criterio y necesita una prueba de paridad con `fingerprintTree`.
 
 ## Deuda de `audit` tras 0.13
 
