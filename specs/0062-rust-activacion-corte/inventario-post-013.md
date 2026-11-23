@@ -4,7 +4,7 @@ Hecho por S1 el 20 nov 2026 sobre `migration/rust` `f40cbe7e`. Es solo lectura: 
 
 Revisión 2 (20 nov): incluye las correcciones de la revisión de S3 (`coordinacion/rust-0.13/revisiones/inventario-post-013`) y las decisiones de Ulises (`decisiones-ulises/2026-11-20-post-013-orden`).
 
-Revisión 3 (23 nov): agrega lo que queda fuera de 0.13 (sección "Fuera de 0.13"), según `decisiones-ulises/2026-11-23-0910`.
+Revisión 3 (23 nov): agrega lo que queda fuera de 0.13 (sección "Fuera de 0.13"), según `decisiones-ulises/2026-11-23-0910` y `decisiones-ulises/2026-11-23-0925`.
 
 Fuentes:
 - `scripts/js/rust-areas.mjs` (`AREAS`, `PERMANENT_DELEGATION`, `PERMANENT_SHELL_HOOKS`);
@@ -133,7 +133,7 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   - en `plan-gate` solo quedan las ramas `Delegate` (auditoría armada, workplan que no se lee, escalación).
 
   No compensa tocar un área crítica con el plazo del 26 nov. El Node residual queda como está en la pregunta (b). El PR A (la sonda `navori --version`) también se descartó el 22 nov; solo entra el arreglo de su caché (#1778).
-- **Lo que sí importa para 0.13:** que `navori --version` del binario (versión de Cargo) coincida con `STAMP_VERSION` (`packages/cli/package.json`). Si difieren, `plan gate`, `tools session-context` y `gate probe` nunca corren en proceso. Lo toma S2 con prioridad para la instalación del 26 nov.
+- **Lo que sí importa para 0.13:** que `navori --version` del binario (versión de Cargo) coincida con `STAMP_VERSION` (`packages/cli/package.json`). Si difieren, `plan gate`, `tools session-context` y `gate probe` nunca corren en proceso. No se toca ninguna versión antes de la instalación del 26 nov: hoy coinciden la CLI TS 0.12.5 del PATH y `STAMP_VERSION`, así que en la sombra el camino en proceso corre. En el release las dos suben juntas a 0.13.0 y `check-pin` lo verifica al publicar (S2) (`decisiones-ulises/2026-11-23-0925`).
 - **`routing-watch` y `bash-outcome-watch`: fuera de 0.13** (no llegan al 26 nov). Siguen en shell, sin port ni sombra, con el orden de 0.14 de arriba. Antes de decidir su port se mide el costo de `routing-watch` por sesión.
 
 ## Preguntas abiertas
