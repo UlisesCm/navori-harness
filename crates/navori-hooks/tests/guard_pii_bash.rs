@@ -32,7 +32,7 @@ use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{
     Code, EmailRead, HostGrep, Matcher, Secret, Unverifiable, is_local, read_user_email, stderr,
 };
-use navori_hooks::shell::repo::{Loss, Repo, System};
+use navori_hooks::shell::repo::{Holding, Loss, Repo, System};
 use navori_hooks::shell::subcommand::{Call, Capture, Input};
 use serde_json::Value;
 
@@ -2107,8 +2107,8 @@ impl Repo for Quiet {
     fn is_dir(&self, _: &str) -> bool {
         true
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
-        false
+    fn holds(&self, _: &str, _: Loss) -> Holding {
+        Holding::Clear
     }
     fn toplevel(&self, _: &str) -> Option<String> {
         None

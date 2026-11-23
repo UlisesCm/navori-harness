@@ -19,7 +19,7 @@ use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::hook_input::{self, Host};
 use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{self, EmailRead, Unverifiable};
-use navori_hooks::shell::repo::{Loss, Repo, System};
+use navori_hooks::shell::repo::{Holding, Loss, Repo, System};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -38,9 +38,9 @@ impl Repo for NoState {
     }
 
     /// That dir is not a git work tree, so a discard there holds nothing (as `System::holds`).
-    fn holds(&self, dir: &str, loss: Loss) -> bool {
+    fn holds(&self, dir: &str, loss: Loss) -> Holding {
         assert!(dir == NONE, "corpus case asks whether {dir} holds {loss:?}");
-        false
+        Holding::Clear
     }
 
     /// Every case runs outside a git repository (the progress lane, the other reader, is off).
@@ -816,9 +816,9 @@ impl Repo for Stuck {
         true
     }
 
-    fn holds(&self, _: &str, _: Loss) -> bool {
+    fn holds(&self, _: &str, _: Loss) -> Holding {
         self.call(Stall::Holds);
-        false
+        Holding::Clear
     }
 
     fn toplevel(&self, _: &str) -> Option<String> {
@@ -867,7 +867,7 @@ impl Repo for Panicky {
     fn is_dir(&self, _: &str) -> bool {
         panic!("rule exploded");
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
+    fn holds(&self, _: &str, _: Loss) -> Holding {
         panic!("rule exploded");
     }
     fn toplevel(&self, _: &str) -> Option<String> {
@@ -1002,5 +1002,178 @@ fn a_panicking_rule_is_an_error_never_a_permit() -> TestResult {
         "{}",
         failure.0
     );
+    Ok(())
+}
+
+/// A `Repo` whose rule-7 read answers a fixed [`Holding`] for an existing directory.
+struct Fixed(Holding);
+
+impl Repo for Fixed {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, _: &str, _: Loss) -> Holding {
+        self.0
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// `git reset --hard` in an existing directory, rule 7 reading `holding`: the stderr, or `None`
+/// when it is allowed.
+fn discard_verdict(holding: Holding) -> Result<Option<String>, Box<dyn Error>> {
+    let context = plain_context()?;
+    let payload =
+        br#"{"tool_name":"Bash","cwd":"/work","tool_input":{"command":"git reset --hard"}}"#;
+    let started = Instant::now();
+    let evaluation = entry::evaluate_until(
+        payload,
+        &context,
+        Fixed(holding),
+        Deadline::from_env(None, started),
+    )?;
+    Ok((evaluation.verdict == Verdict::Block)
+        .then(|| String::from_utf8_lossy(&evaluation.stderr).into_owned()))
+}
+
+/// #1776: a Repo that cannot inspect the directory blocks like an uninspectable directory;
+/// a clean one allows and one holding work blocks with its own message.
+#[test]
+fn rule_7_fails_closed_when_git_cannot_inspect() -> TestResult {
+    assert_eq!(discard_verdict(Holding::Clear)?, None);
+    let holds = discard_verdict(Holding::Holds)?.ok_or("holds must block")?;
+    assert!(
+        holds.contains("git reset would discard uncommitted work"),
+        "{holds}"
+    );
+    let unknown = discard_verdict(Holding::Unknown)?.ok_or("unknown must block")?;
+    assert!(
+        unknown.contains(
+            "git reset discards work and its target directory cannot be inspected (the repository tool is missing"
+        ),
+        "{unknown}"
+    );
+    assert!(
+        unknown.contains("use a literal existing directory"),
+        "{unknown}"
+    );
+    Ok(())
+}
+
+const PROBE_DIR: &str = "NAVORI_HOLDS_PROBE_DIR";
+
+/// Child half of [`system_holds_under`]: `System` caches its `git` per process, so each PATH
+/// variant needs its own. A no-op unless the parent sets [`PROBE_DIR`].
+#[test]
+fn system_holds_probe_child() {
+    if let Some(dir) = std::env::var_os(PROBE_DIR) {
+        let dir = dir.to_string_lossy().into_owned();
+        println!("HOLDING={:?}", System.holds(&dir, Loss::Tracked));
+    }
+}
+
+/// `System::holds(dir, Tracked)` in a child process whose `PATH` is `path`.
+fn system_holds_under(path: &str, dir: &Path) -> Result<String, Box<dyn Error>> {
+    let out = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "system_holds_probe_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("PATH", path)
+        .env(PROBE_DIR, dir)
+        .output()?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.split_once("HOLDING=")
+        .map(|(_, rest)| rest.lines().next().unwrap_or_default().to_owned())
+        .ok_or_else(|| format!("child printed no verdict: {text}").into())
+}
+
+fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let dir = std::env::temp_dir().join(format!("navori-holds-{}-{name}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn git_ok(dir: &Path, args: &[&str]) -> TestResult {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+        .args(args)
+        .status()?;
+    assert!(status.success(), "git {args:?}");
+    Ok(())
+}
+
+/// A fake `git` in its own dir: `body` as the script, with `mode` permissions.
+fn fake_git(name: &str, body: &str, mode: u32) -> Result<String, Box<dyn Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch(name)?;
+    let git = dir.join("git");
+    fs::write(&git, body)?;
+    fs::set_permissions(&git, fs::Permissions::from_mode(mode))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// #1776 through `System`: only a git that runs can say "nothing to lose"; a missing,
+/// non-executable or failing git is `Unknown`, and a repo's dirty/clean state is unchanged.
+#[test]
+fn system_holds_is_unknown_when_git_is_unusable() -> TestResult {
+    let real = std::env::var("PATH")?;
+    let repo = scratch("repo")?;
+    git_ok(&repo, &["init", "-q"])?;
+    fs::write(repo.join("f"), "a")?;
+    git_ok(&repo, &["add", "f"])?;
+    git_ok(&repo, &["commit", "-qm", "init"])?;
+    assert_eq!(system_holds_under(&real, &repo)?, "Clear");
+    fs::write(repo.join("f"), "b")?;
+    assert_eq!(system_holds_under(&real, &repo)?, "Holds");
+
+    let plain = scratch("plain")?;
+    assert_eq!(system_holds_under(&real, &plain)?, "Clear");
+
+    let empty = scratch("empty-path")?;
+    let missing = empty.to_string_lossy().into_owned();
+    assert_eq!(system_holds_under(&missing, &repo)?, "Unknown");
+    let noexec = fake_git("noexec", "#!/bin/sh\nexec /usr/bin/git \"$@\"\n", 0o644)?;
+    assert_eq!(system_holds_under(&noexec, &repo)?, "Unknown");
+    let fails = fake_git("fails", "#!/bin/sh\nexit 128\n", 0o755)?;
+    assert_eq!(system_holds_under(&fails, &repo)?, "Unknown");
+    assert_eq!(system_holds_under(&fails, &plain)?, "Unknown");
+    // Usable for rev-parse and `--version`, failing on status.
+    let status_fails = fake_git(
+        "status-fails",
+        "#!/bin/sh\ncase \"$*\" in *status*) exit 1 ;; esac\nexec /usr/bin/git \"$@\"\n",
+        0o755,
+    )?;
+    assert_eq!(system_holds_under(&status_fails, &repo)?, "Unknown");
     Ok(())
 }
