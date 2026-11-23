@@ -803,14 +803,13 @@ describe("hook bridge: direct native call", () => {
 
   it("hands over an inherited PWD that names the cwd exactly as bash exports it", async () => {
     const cwd = project([{ script: "probe", body: wrapped("shadow") }]);
-    const parent = join(cwd, "..");
     const base = cwd.slice(cwd.lastIndexOf("/") + 1);
     const variants = [
       `${cwd}/`,
       `/${cwd}`,
       cwd.replace(/\/([^/]+)$/, "//$1"),
       `${cwd}/.`,
-      `${parent}/${base}`,
+      `${cwd}/../${base}`,
     ];
     for (const pwd of variants) {
       const bashPwd = execFileSync("bash", ["-c", 'printf %s "$PWD"'], {
