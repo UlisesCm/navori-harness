@@ -13,6 +13,7 @@ import {
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0055 R14 / D8 — probe of what lazy subcommands could save.
@@ -199,6 +200,9 @@ function main(argv) {
   }
 }
 
+const USAGE = "usage: node scripts/js/probe-lazy-load.mjs [--compare] [--runs N]\n  --compare   exit 1 when a hot subcommand saves less than the threshold\n  --runs N    alternated runs per subcommand (default 10)\n  -h, --help  print this text and exit";
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exit(main(process.argv.slice(2)));
 }

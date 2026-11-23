@@ -19,6 +19,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DIST = process.env.NAVORI_TS_CLI || join(REPO_ROOT, "packages", "cli", "dist", "index.js");
@@ -117,6 +118,12 @@ function main(argv) {
   return 0;
 }
 
+const USAGE = `usage: node scripts/js/gen-pi-extension-asset.mjs [--check]
+  (no flag)  write crates/navori-core/assets/pi/extension.ts.in
+  --check    exit 1 when the asset is stale
+  -h, --help print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exitCode = main(process.argv.slice(2));
 }
