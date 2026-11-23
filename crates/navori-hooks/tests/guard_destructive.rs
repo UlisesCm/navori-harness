@@ -1099,20 +1099,48 @@ fn system_holds_probe_child() {
 
 /// `System::holds(dir, Tracked)` in a child process whose `PATH` is `path`.
 fn system_holds_under(path: &str, dir: &Path) -> Result<String, Box<dyn Error>> {
-    let out = std::process::Command::new(std::env::current_exe()?)
+    let mut child = std::process::Command::new(std::env::current_exe()?);
+    hermetic(&mut child, path, dir)
         .args([
             "--exact",
             "system_holds_probe_child",
             "--nocapture",
             "--test-threads=1",
         ])
-        .env("PATH", path)
-        .env(PROBE_DIR, dir)
-        .output()?;
+        .env(PROBE_DIR, dir);
+    let out = child.output()?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     text.split_once("HOLDING=")
         .map(|(_, rest)| rest.lines().next().unwrap_or_default().to_owned())
         .ok_or_else(|| format!("child printed no verdict: {text}").into())
+}
+
+/// A clean environment for `command`: only `path`, a scratch `HOME` and no system or global git
+/// configuration, so neither the user's gitconfig nor an inherited `GIT_DIR`/`GIT_INDEX_FILE`
+/// can reach the real repository (as `navori-cli/tests/quality_gate_git.rs` does).
+fn hermetic<'a>(
+    command: &'a mut std::process::Command,
+    path: &str,
+    home: &Path,
+) -> &'a mut std::process::Command {
+    command
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", home)
+        .env("LC_ALL", "C")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+}
+
+/// Removes the scratch dirs a test created, also when it fails half way.
+struct Cleanup(Vec<PathBuf>);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        for dir in &self.0 {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
 }
 
 fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
@@ -1123,12 +1151,13 @@ fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
 }
 
 fn git_ok(dir: &Path, args: &[&str]) -> TestResult {
-    let status = std::process::Command::new("git")
+    let mut git = std::process::Command::new("git");
+    hermetic(&mut git, &std::env::var("PATH")?, dir)
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.email=t@t", "-c", "user.name=t"])
-        .args(args)
-        .status()?;
+        .args(args);
+    let status = git.status()?;
     assert!(status.success(), "git {args:?}");
     Ok(())
 }
@@ -1148,6 +1177,22 @@ fn fake_git(name: &str, body: &str, mode: u32) -> Result<String, Box<dyn Error>>
 #[test]
 fn system_holds_is_unknown_when_git_is_unusable() -> TestResult {
     let real = std::env::var("PATH")?;
+    let names = [
+        "repo",
+        "plain",
+        "empty-path",
+        "noexec",
+        "fails",
+        "status-fails",
+    ];
+    let _cleanup = Cleanup(
+        names
+            .iter()
+            .map(|name| {
+                std::env::temp_dir().join(format!("navori-holds-{}-{name}", std::process::id()))
+            })
+            .collect(),
+    );
     let repo = scratch("repo")?;
     git_ok(&repo, &["init", "-q"])?;
     fs::write(repo.join("f"), "a")?;

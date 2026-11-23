@@ -351,7 +351,11 @@ impl navori_hooks::shell::repo::Repo for HungGit {
     fn is_dir(&self, _: &str) -> bool {
         true
     }
-    fn holds(&self, _: &str, _: navori_hooks::shell::repo::Loss) -> navori_hooks::shell::repo::Holding {
+    fn holds(
+        &self,
+        _: &str,
+        _: navori_hooks::shell::repo::Loss,
+    ) -> navori_hooks::shell::repo::Holding {
         navori_hooks::shell::repo::Holding::Clear
     }
     fn toplevel(&self, _: &str) -> Option<String> {
