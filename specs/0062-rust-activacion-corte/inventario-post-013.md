@@ -139,6 +139,13 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   - por sesión (mediana / p90), 0,3 / 1,1 s en Claude y 1,2 / 3,2 s en Pi;
   - carriles caros: ~0,25 s cada vez que Bash corre un criterio de aceptación (huella del árbol) y +30 ms en el Bash exitoso que sigue a un fallo (`node -e`, 9 % de las llamadas en Claude).
   - En 0.13 entra solo #1793: el primer filtro del token de escritura deja de mirar la salida del comando (24,8 % de los Bash de Claude eran falsos positivos; Pi no está afectado). **#1794 (huella del árbol completo al correr un criterio, 246 ms) queda fuera de 0.13** (`decisiones-ulises/2026-11-23-1325`): el arreglo toca la huella que decide si `plan update` acepta un criterio y necesita una prueba de paridad con `fingerprintTree`.
+- **Limitaciones conocidas de `guard-destructive` en 0.13** (regla 7: descartes `git reset`, `checkout`, `restore` y `clean`; `decisiones-ulises/2026-11-23-1615`). La regla evalúa el comando tal como está escrito. Estas formas no se bloquean, ni en el shell ni en el nativo (verificado el 23 nov sobre un repo con cambios sin commitear):
+  - `GIT_DIR`/`GIT_WORK_TREE` heredados del entorno del shell del agente, sin escribirse en el comando. Ejemplo: con `export GIT_DIR=~/proyecto/.git` en el `~/.bashrc`, `git -C /tmp reset --hard` descarta en `~/proyecto` y la regla ve `/tmp`.
+  - git detrás de `sudo`. Ejemplo: `sudo git reset --hard`.
+  - git dentro de un shell anidado. Ejemplo: `sh -c 'git reset --hard'`.
+  - git dentro de `eval`. Ejemplo: `eval git reset --hard`.
+
+  Cada una necesita otro modelo (leer el entorno del shell del agente o interpretar un comando anidado), así que van después del release. Las formas de #1801 (`GIT_DIR`/`GIT_WORK_TREE` como prefijo o exportadas en el mismo comando, y git con ruta o detrás de `env`) entran en 0.13 solo si el arreglo queda revisado, en verde y con recibo el 25 nov a las 12:00. Si no, se suman a esta lista.
 
 ## Deuda de `audit` tras 0.13
 
