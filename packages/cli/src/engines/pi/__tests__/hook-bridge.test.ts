@@ -801,6 +801,31 @@ describe("hook bridge: direct native call", () => {
     ]);
   });
 
+  it("hands over an inherited PWD that names the cwd exactly as bash exports it", async () => {
+    const cwd = project([{ script: "probe", body: wrapped("shadow") }]);
+    const parent = join(cwd, "..");
+    const base = cwd.slice(cwd.lastIndexOf("/") + 1);
+    const variants = [
+      `${cwd}/`,
+      `/${cwd}`,
+      cwd.replace(/\/([^/]+)$/, "//$1"),
+      `${cwd}/.`,
+      `${parent}/${base}`,
+    ];
+    for (const pwd of variants) {
+      const bashPwd = execFileSync("bash", ["-c", 'printf %s "$PWD"'], {
+        cwd,
+        env: { PATH: "/usr/bin:/bin", PWD: pwd },
+      }).toString();
+      const bin = fakeNative({ code: 0 });
+      await load({ env: { PATH: `${bin}:/usr/bin:/bin`, PWD: pwd } }).get("tool_call")!(
+        bash("git status"),
+        ctxFor(cwd),
+      );
+      expect({ pwd, got: callsOf(bin)[0]!.pwd }).toEqual({ pwd, got: bashPwd });
+    }
+  });
+
   it("falls back to the script under bash on exit 3, 126 and 127 and without the binary", async () => {
     for (const code of [3, 126, 127]) {
       const bin = fakeNative({ code });

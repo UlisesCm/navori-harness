@@ -3875,7 +3875,7 @@ function bridgeEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * What bash exports to the binary it runs: PWD kept when it names the working directory (normalized) and the
+ * What bash exports to the binary it runs: PWD kept literally when it names the working directory and the
  * physical directory otherwise, SHLVL one above (an unset or invalid one counts as 0, a negative result is 0, past
  * 999 is 1), OLDPWD only when it is a directory. The binary applies the same PWD rule (hook_facts shell_pwd); this keeps the two paths identical.
  */
@@ -3889,7 +3889,7 @@ function bridgeNativeEnv(env: NodeJS.ProcessEnv, cwd: string): NodeJS.ProcessEnv
       return a.dev === b.dev && a.ino === b.ino;
     } catch { return false; }
   };
-  try { out.PWD = sameDir(env.PWD) ? resolve(env.PWD!) : realpathSync(cwd); } catch { delete out.PWD; }
+  try { out.PWD = sameDir(env.PWD) ? env.PWD : realpathSync(cwd); } catch { delete out.PWD; }
   const level = /^[ \t]*[+-]?[0-9]+[ \t]*$/.test(env.SHLVL ?? "") ? Number.parseInt(env.SHLVL!, 10) : 0;
   const next = level + 1;
   out.SHLVL = String(next < 0 ? 0 : next >= 1000 ? 1 : next);
