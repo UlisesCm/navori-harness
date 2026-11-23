@@ -1740,7 +1740,7 @@ navori receipt check --feature <feature> --target main --dir .navori/state/hando
 
 If the real PR base differs from `main`, pass it as `--target`.
 
-**A PR needs one of two things.** An `APPROVED` `review_<feature>.md` over this same content — mandatory for a critical area or level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change, the full gate green in pre-flight plus one line in the PR body stating route and level. Critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
+**A PR needs one of two things.** An `APPROVED` `review_<feature>.md` over this same content — mandatory for a critical area or level ≥ 2 — or, for a direct change, the full gate green in pre-flight plus one line in the PR body stating route and level. Without that review, `navori plan classify <feature> --diff origin/<base> --json` (real PR base, fetched) with `level` ≥ 2 or a `critical-area:` signal: **abort and send it to the `reviewer`**.
 
 ### Gate: `navori gate full` green before the PR
 
@@ -14700,6 +14700,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`auth, per
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.
@@ -14774,7 +14775,7 @@ On Claude, a `SessionStart` hook injects the live context — branch, recent com
 
 ### Resumen de decisión en el chat
 
-Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue. Campos fijos: **Verificado** (`file:line` o comando) y **Supuesto / sin verificar** (motivo, o «ninguno»).
 
 ## Formato de respuesta
 

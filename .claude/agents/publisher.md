@@ -7,7 +7,7 @@ effort: low
 maxWords: 2711
 ---
 
-<!-- navori:managed id="publisher-base" hash="1707eb69" version="0.12.5" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="publisher-base" hash="6c6c2fe5" version="0.12.5" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Publisher Agent
 
 Own commits and PRs in the configured style. Validate through pre-flight before `git`/`gh`; never edit project code.
@@ -67,7 +67,7 @@ navori receipt check --feature <feature> --target dev --dir .navori/state/handof
 
 If the real PR base differs from `dev`, pass it as `--target`.
 
-**A PR needs one of two things.** An `APPROVED` `review_<feature>.md` over this same content — mandatory for a critical area or level ≥ 2 (`navori plan classify`) — or, for a risk-routed direct change, the full gate green in pre-flight plus one line in the PR body stating route and level. Critical-area or level ≥ 2 diff with no APPROVED review: **abort and send it to the `reviewer`**.
+**A PR needs one of two things.** An `APPROVED` `review_<feature>.md` over this same content — mandatory for a critical area or level ≥ 2 — or, for a direct change, the full gate green in pre-flight plus one line in the PR body stating route and level. Without that review, `navori plan classify <feature> --diff origin/<base> --json` (real PR base, fetched) with `level` ≥ 2 or a `critical-area:` signal: **abort and send it to the `reviewer`**.
 
 ### Gate: `navori gate full` green before the PR
 
