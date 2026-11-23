@@ -1332,6 +1332,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`auth, per
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.
@@ -17019,7 +17020,7 @@ if (!parsed.success) return res.status(400).json({ error: z.prettifyError(parsed
 
 ### Resumen de decisión en el chat
 
-Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue. Campos fijos: **Verificado** (`file:line` o comando) y **Supuesto / sin verificar** (motivo, o «ninguno»).
 
 ## Formato de respuesta
 

@@ -1,4 +1,4 @@
-<!-- navori:managed-file id="pi-orchestrator" hash="ffe5e8cb46ad424ae19858a9702136ef15c2c58b33beb7564b39c37432d6460e" -->
+<!-- navori:managed-file id="pi-orchestrator" hash="207f33399881445cd5a9c5acb4bfd6d17e1efae9ef378c6d7d9e670565f39fa0" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -38,6 +38,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.

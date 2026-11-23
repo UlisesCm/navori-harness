@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="0d59fc5c" version="0.12.3" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="68ff98a9" version="0.12.5" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
 You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference, not a subagent.
@@ -12,6 +12,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.
