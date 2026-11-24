@@ -185,7 +185,7 @@
       "impl": "sha256:9a2a3e2daaba15a8caf5850fedc8c6358cc5d334c3bcb107d4c01125cd747459"
     },
     "comment-draft-confirm": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "comment-draft-confirm-base": "sha256:1802adfc799603cf0d22ce9197f38ca4e7c0409239bad1f674712bddd1d83173"
@@ -193,7 +193,7 @@
       "impl": "sha256:cd9655219d8641d08c21230ac2525a1835f4e9f7c0540f27b646d52e99fe2eaf"
     },
     "pr-publisher-confirm": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "pr-publisher-confirm-base": "sha256:9dab29bb39731d62b2f67011b6afd2b0fb4ec4b26e089ef817ed7fbc1b9a13d3"
