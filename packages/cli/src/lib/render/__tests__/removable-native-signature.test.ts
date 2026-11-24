@@ -15,7 +15,7 @@ const block = injectManagedSection(
   "",
   "guard-destructive-base",
   "#!/usr/bin/env bash\nexit 0",
-  { source: "@navori/core", version: "0.12.5" },
+  { source: "@navori/core", version: "0.13.0" },
   "shell",
 ).output;
 
