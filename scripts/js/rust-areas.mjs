@@ -249,14 +249,9 @@ export const TRANSITIONAL_DELEGATION = {
     { path: ["render"], flags: ["all", "prune", "verbose", "workspace"], reason: NOT_PORTED },
     { path: ["sync"], flags: ["interactive", "workspace"], reason: NOT_PORTED },
   ],
-  hooks: [
-    { hook: "plan-gate", reason: NO_CLAUDE_TRAFFIC },
-    { hook: "general-purpose-confirm", reason: NO_CLAUDE_TRAFFIC },
-    { hook: "session-start-context", reason: NO_CLAUDE_TRAFFIC },
-    { hook: "model-advisor", reason: NO_CLAUDE_TRAFFIC },
-    { hook: "pii-egress-guard", reason: NO_CLAUDE_TRAFFIC },
-    { hook: "subagent-stop-handoff", reason: NO_CLAUDE_TRAFFIC },
-  ],
+  // Batch C (plan-gate, general-purpose-confirm, session-start-context, model-advisor and
+  // pii-egress-guard) left this list when #1811 activated it (Ulises, 24 Nov).
+  hooks: [{ hook: "subagent-stop-handoff", reason: NO_CLAUDE_TRAFFIC }],
 };
 validateTransitional(TRANSITIONAL_DELEGATION);
 

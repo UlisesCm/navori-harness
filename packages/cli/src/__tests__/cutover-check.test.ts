@@ -493,17 +493,21 @@ describe("cutover-check (spec 0062 T8)", () => {
   });
 
   // Covers: R20
+  it("la lista transitoria solo nombra hooks que siguen en sombra en ported.json", async () => {
+    const { readFileSync } = await import("node:fs");
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8")) as {
+      hooks: Record<string, { mode: string }>;
+    };
+    // An activated hook left here would be stale debt that no finding reports (#1806 review).
+    for (const { hook } of areas.TRANSITIONAL_DELEGATION.hooks)
+      expect(manifest.hooks[hook]?.mode, hook).toBe("shadow");
+  });
+
+  // Covers: R20
   it("la lista transitoria real lleva motivo en cada entrada, no repite la permanente y deja en sombra solo hooks de Claude", () => {
     const list = areas.TRANSITIONAL_DELEGATION;
     for (const entry of [...list.commands, ...list.hooks]) expect(entry.reason.trim()).not.toBe("");
-    expect(list.hooks.map((h) => h.hook).sort()).toEqual([
-      "general-purpose-confirm",
-      "model-advisor",
-      "pii-egress-guard",
-      "plan-gate",
-      "session-start-context",
-      "subagent-stop-handoff",
-    ]);
+    expect(list.hooks.map((h) => h.hook).sort()).toEqual(["subagent-stop-handoff"]);
     expect(() =>
       areas.validateTransitional({ commands: [{ path: ["master"], reason: "r" }], hooks: [] }),
     ).toThrow(/repeats PERMANENT_DELEGATION/);
