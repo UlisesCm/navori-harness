@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:111b018b59e39c36d3b5088ad47519c8c6b75b71160adfb2f5f41fc6af728282 impl=sha256:005cd9f6c5be330a6006e77f282e74d4fbb996e21635f07ce792d282738af495
-# navori:managed start id="guard-destructive-base" hash="0ae0e2a6" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:100ffd36b1e52336cabd935a83f4849f2aeb93e85314e510c2e218ae058ff409 impl=sha256:9f552f75026991674fb652909e2187aba6c6dc25ca1d2d91b0ba8fc4f9f2a807
+# navori:managed start id="guard-destructive-base" hash="5c6a926f" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -3383,7 +3383,41 @@ fi
 # makes the segment a candidate; the token walk below decides the real subcommand.
 _dsc_re='^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)'
 _dsc_route="commit the work first (a WIP commit is enough: 'git add -A && git commit -m wip'), or ask the user to run the discard outside the agent."
-segments_dq=$(printf '%s' "$segments" | tr -d "'\")")
+# FORMS OF GIT (#1801). `segments` peeled every assignment prefix, so `GIT_DIR=… git reset`
+# looked like a plain `git reset` in the cwd, and a path (`/usr/bin/git`) or `env git` was not
+# a candidate at all. This pass reads the UNPEELED split instead, and per line: reads `env`,
+# assignments and a `…/git` path as the `git` word; and when `GIT_DIR=`/`GIT_WORK_TREE=` is
+# a prefix of the segment, or an EARLIER segment assigns/exports them (hold space), injects
+# `--git-dir=?` right after `git` — the token walk then blocks it like the real flag.
+# A segment that is not git is then RE-PEELED (leading `VAR=value` stripped, as `segments`
+# did), so the `cd` walk still follows `FOO=1 cd <dir>`. Exception: `tr -d` runs before the
+# peel here (needed to see `"GIT_DIR=x" git`), so `"FOO"=1 cd x` and `F"O"O=1 cd x` now peel
+# too (base did not); shell and native agree.
+# Out of scope, allowed as before: inherited env, sudo, sh -c, eval, and `env` with options
+# (`env -i`, `env -u NAME`, `env --`): known limitation.
+_dsc_w='[[:space:]]'
+_dsc_a='[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*'
+_dsc_g='(GIT_DIR|GIT_WORK_TREE)='
+_dsc_pre="^((env|${_dsc_a})${_dsc_w}+)*"
+_dsc_word='([^[:space:]=]*\/)?git([[:space:]]|$)'
+_dsc_sed="s/^${_dsc_w}+//
+/^(export|declare|typeset|readonly|local)(${_dsc_w}+[^[:space:]]+)*${_dsc_w}+${_dsc_g}/H
+/^(${_dsc_a}${_dsc_w}+)*${_dsc_g}[^[:space:]]*(${_dsc_w}+${_dsc_a})*${_dsc_w}*\$/H
+/${_dsc_pre}${_dsc_g}/s/${_dsc_pre}${_dsc_word}/git --git-dir=?\\4/
+s/${_dsc_pre}${_dsc_word}/git\\4/
+/^git([[:space:]]|\$)/{
+x
+/./{
+x
+s/^git/git --git-dir=?/
+b
+}
+x
+}
+:p
+s/^${_dsc_a}(${_dsc_w}+|\$)//
+tp"
+segments_dq=$(printf '%s' "$_split" | tr -d "'\")" | sed -E -e "$_dsc_sed")
 _dsc_cands=$(printf '%s' "$segments_dq" | grep -E "$_dsc_re" || true)
 if [ -n "$_dsc_cands" ]; then
   if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then

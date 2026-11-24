@@ -1,0 +1,34 @@
+# Desafío — solución #1783 (aborto de hermanos) — origin/migration/rust @ fe7996f8
+
+Solo lectura (`git show`). No se compiló ni se corrió nada. Sin veredicto global; por opción abajo.
+
+## Restricciones 1-4
+1. CONFIRMADA: `Cargo.toml:30` `unsafe_code = "deny"`; deps de `navori-cli/Cargo.toml:13-18` son core, hooks, lexopt, serde_json, sha2. Opción 3 exige dep nueva o `#[allow(..., reason)]` (R16, `Cargo.toml:28`). El SIGTERM sin handler mata el binario en el acto.
+2. CONFIRMADA con matiz: `shadow.rs:262-264` `process_group(0)` solo si hay plazo. En Pi hay plazo solo para `guard-destructive` y `pii-egress-guard` (`shadow.rs:19-23`); `deadline_for` da `None` al resto (`:27-32`). Sin plazo, el bash comparte grupo y muere con el SIGTERM del bridge (`bridge-source.ts:264`, `kill(-pid)`).
+3. CONFIRMADA: el id lo genera el TS CLI (`journal.ts:71`, `randomUUID`). Más fuerte que lo dicho: **el binario ni siquiera escribe el journal**; lanza `navori tools rust-shadow begin|complete` (`journal.rs:3-5, 143-151, 177-191`).
+4. CONFIRMADA: `rust-manifest-check.mjs:170-179` hashea solo `crates/navori-hooks/src`. `begin/complete` en `hook.rs:468-516` coincide con el documento. Bridge: `:51`, `:166-179` en el doc es otra cosa; el kill real está en `:262-271` y el aborto en `:368-383` (los números citados del bridge están desplazados; el comportamiento descrito sí es correcto).
+
+## Opción 5 — PROCEDE CON CAMBIOS
+- [ALTO] El diseño dice "un campo opcional en `begin`, los lectores lo ignoran". Falso: `beginSchema` y `completeSchema` son `z.strictObject` (`journal.schema.ts:68, 76`) e `identitySchema` también (`:31`); `complete` copia `...start.data` (`journal.ts:100-105`). Un campo nuevo exige tocar schema, `begin`, `complete`, `command.ts` (flag) y `report.ts`, y **un CLI TS viejo rechazaría la fila entera** (el informe marcaría el journal inválido, `report.ts`/`journal.ts:120-122`). Hay que sincronizar versión del CLI con binario o llevar el id fuera del schema estricto. No es "solo `journal.rs`": `journal.rs:177-185` solo pasa flags al CLI TS.
+- [ALTO] Alternativa que evita el schema: el bridge escribe el aborto con pid/hora y el informe correlaciona por begin dentro de la ventana, lo que reintroduce la ambigüedad de la opción 1. Entre ambas, la 5 es mejor, pero su coste real es el del punto anterior.
+- Env por hermano: SÍ llega. `runBridgeHook` pasa `bridgeNativeEnv(bridgeEnv(), cwd)` al `spawn` (`bridge-source.ts:233, 251`); `runBridgeProcess` recibe `env` por llamada, así que basta un parámetro. La ruta de respaldo (`runBridgeScript`, `:216`) pasa por bash y el wrapper hereda env. El binario captura `std::env::vars_os()` (`hook.rs:440`) y lo reenvía íntegro al script en sombra (`shadow.rs:255-256`): el script en shell vería `NAVORI_BRIDGE_CALL`; [MEDIO] hay que excluirla de la comparación/entorno del shell o confirmar que ningún hook lee el env completo (no verificado).
+- Escritura antes de que muera Pi: el aborto ocurre a +2 s del bloqueo con Pi vivo (`:383`, timer `unref`, no retiene el proceso). Usar `appendFileSync` en el handler `abort`, no `appendFile` async; así no depende del cierre. [MEDIO] Si Pi sale en esos 2 s, el timer no corre y no hay línea (la gracia ya lo permite; aceptable, pero documentarlo).
+- Concurrencia: varias sesiones/hermanos hacen append a `bridge-aborts.jsonl`. Una línea corta con `O_APPEND` es práctica­mente atómica en local, pero el repo usa `appendPrivateAuditFile` con `ownedRoot` y chequeo de symlink (`journal.ts:46-57`) para esto. [MEDIO] Un `appendFileSync` crudo del bridge se salta ese endurecimiento (área crítica: escrituras en el repo del usuario). Además, el bridge es una cadena de plantilla en TS (`bridge-source.ts:403` cierra el literal): el import de `fs` y el escape de backticks/`${}` hay que cuidarlos. No verificado: tope de tamaño/rotación del archivo.
+- `implementationHash` / `crates/ported.json`: NO afectados (`rust-manifest-check.mjs:170` solo `navori-hooks/src`; `hook.rs`, `journal.rs`, bridge y TS están fuera). Verificado por lectura; `ported.json` no se tocó. Sí cambia el asset renderizado del bridge → re-render (el documento ya lo anota).
+
+## Opción 2 — PROCEDE
+- `--sibling-cancel` ya existe (`hook-shadow-report.mjs:31-40, 280-300`): pending Pi con otro hook Pi a ≤500 ms que completó. Límites declarados (`:38-40`): timeout propio con hermanos completos y sesiones simultáneas se clasifican igual.
+- Falta: no distingue forma B (plazo agotado) de A; solo exige un hermano completado, no que *bloqueara*. El "el que bloquea siempre completa" no se usa: no hay marca de bloqueo en el journal (`comparison` no lleva el veredicto de la llamada, `journal.schema.ts:39`). [MEDIO] La propuesta "distingue A, B y aisladas" sin un dato nuevo es inferencia; para separar B hay que usar el hecho (`SHADOW_DEADLINES` 8.5 s) contra la edad no medible sin `complete`. Alcance honesto: reetiquetar, no resolver.
+
+## Opción 3 — NO PROCEDE (coincido). Efecto añadido: un handler de SIGTERM compite con `complete_until` (`hook.rs:511`) y con el plazo; y no cubre SIGKILL a +2 s (`bridge-source.ts:270`).
+
+## Opciones más simples no consideradas
+- [MEDIO] Opción 6: el bridge no mata los hermanos en sombra tras el bloqueo; los deja terminar con su propio plazo/`timeoutMs` (`:272` el timer sigue matando). La llamada ya vuelve al instante por `firstBlock` (`:375-383`), así que no hay latencia añadida. Solo cambia `bridge-source.ts`, sin schema ni dep. Coste: gates lentos viven hasta su timeout (el comentario `:47-50` lo evitó a propósito) → acotarlo a hermanos `native.shadow` (`:231`) o ampliar la gracia solo para ellos.
+- "El binario escribe `complete` antes del script": no sirve; `completion()` lleva `Comparison` (`journal.rs:234`) que solo existe tras correr ambos carriles, y `begin` ya sirve de pendiente. Un `complete` provisional rompería la semántica "begin sin complete = pérdida" (`journal.rs:5-6`) y el `now >= start` de `journal.ts:96`.
+- "El bridge espera el `complete`": no tiene el id (restricción 3) y alargaría el bloqueo.
+
+## Efecto 2 (bash huérfano) — REAL, con matiz
+Con plazo (solo los dos hooks de `shadow.rs:19-23`) el bash está en su propio grupo (`:262-264`) y el SIGTERM a `-pid` del binario no lo alcanza. El plazo lo vigila el binario (`:283-285`, `kill_group`); muerto el padre nadie lo aplica, así que corre hasta que termine solo (más fuerte que "hasta su plazo"). Sus pipes quedan rotas, no hay `complete` que lo mate. Sin plazo, muere con el grupo. Impacto de dato: ninguno en journal; solo procesos sueltos. Magnitud no medida.
+
+## No verificado
+Que ningún hook en sombra lea el env completo; tope/rotación de `bridge-aborts.jsonl`; comportamiento de `report.ts` ante filas con claves desconocidas más allá de lo que implica `strictObject`; versiones desplegadas CLI/binario.
