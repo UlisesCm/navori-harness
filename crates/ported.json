@@ -121,7 +121,7 @@
       "impl": "sha256:005cd9f6c5be330a6006e77f282e74d4fbb996e21635f07ce792d282738af495"
     },
     "subagent-no-background": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "subagent-no-background-base": "sha256:7a66430b90ea3006bfa6f7c3e9643e8c0de8532e7029bb6712e9adab2d4ee119"
@@ -129,7 +129,7 @@
       "impl": "sha256:d9cbd7029598180bf1b7374c589b3984fbb65ef4ba326b60e4d346b48185fccc"
     },
     "quality-gate-pre-commit": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "qg-pre-commit-base": "sha256:afa3b41f46d37ba5881816702e1cdd4f692d6e1c06c81086ee8d8c5109737025"
@@ -177,7 +177,7 @@
       "impl": "sha256:b91450b62083894b92361dfe416f65b351662ed0b85837b15a89b773d040913a"
     },
     "implementer-no-markdown": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "implementer-no-markdown-base": "sha256:ce00753f3e660e1510d91f2577841e57dcfba9df8006f84b2a0d3a38d9d71a7b"
