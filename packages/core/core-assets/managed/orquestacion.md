@@ -18,7 +18,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 <!-- navori:if scribeOwnsMarkdown -->- Same check before dispatching `scribe`.
-<!-- /navori:if --><!-- navori:if scribeOwnsMarkdown --><!-- navori:if-not onPi -->- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`, nothing staged until both producers finish, then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
+<!-- /navori:if --><!-- navori:if scribeOwnsMarkdown --><!-- navori:if-not onPi -->- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
 <!-- /navori:if-not --><!-- /navori:if --><!-- navori:if onPi -->- On Pi, you publish, following `.pi/agents/publisher.md`.
 <!-- /navori:if --><!-- navori:if planTiers -->- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `{{qualityGate.fast}}` plus its `A<n>` commands, in the foreground main thread; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 <!-- /navori:if -->- Parallel implementers or deliveries need disjoint files (deliveries: own PRs).<!-- navori:if planTiers --> No `implementer` dispatch without plan approval (`planificacion`).<!-- /navori:if -->

@@ -1,4 +1,4 @@
-<!-- navori:managed id="orquestacion" hash="32c5f7b6" version="0.12.5" source="@navori/core" -->
+<!-- navori:managed id="orquestacion" hash="eb0dc4e7" version="0.12.5" source="@navori/core" -->
 ## Role: orchestrator (route by risk)
 
 You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**. `.claude/agents/orchestrator.md` is a depth reference.
@@ -19,7 +19,7 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
 - Same check before dispatching `scribe`.
-- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`, nothing staged until both producers finish, then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
+- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
 - **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `bun run check:fast` plus its `A<n>` commands, in the foreground main thread; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 - Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
 - Independent sub-tasks: ALL `Agent` calls in ONE turn (Claude serializes by default); you synthesize. At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs prove no cap.
