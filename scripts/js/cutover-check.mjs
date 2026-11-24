@@ -56,13 +56,34 @@ export function postCutoverBudget(host) {
 }
 
 /**
- * @typedef {{ path: string[], flags?: string[] }} ManifestCommand
+ * @typedef {{ path: string[], flags?: string[], requires?: string[][] }} ManifestCommand
  * @typedef {{ commands: ManifestCommand[], hooks: Record<string, { mode?: string }> }} Manifest
  * @typedef {{ date: string, op: string, id: string }} HistoryEvent
  * @typedef {{ comparable?: boolean, measurements?: Array<{ engine?: string, hook?: string, wallMsP95: number }> }} BenchReport
  * @typedef {{ ok: boolean, seconds: number, host?: string }} PostCutoverReport
  * @typedef {{ check: string, detail: string }} Finding
  */
+
+/**
+ * Whether a runtime delegation (`unless`) covers the invocations a `requires` leaves to the TS: the
+ * entry names exactly the flags of the single-flag alternatives, so "none of them" is the same set
+ * of invocations on both sides.
+ * @param {string[]} path
+ * @param {string[][]} requires
+ * @param {ReadonlyArray<import("./rust-areas.mjs").Delegation>} delegation
+ * @returns {boolean}
+ */
+function excusedRequires(path, requires, delegation) {
+  if (requires.some((needed) => needed.length !== 1)) return false;
+  const wanted = new Set(requires.flat());
+  return delegation.some(
+    (entry) =>
+      entry.unless !== undefined &&
+      entry.path.join(" ") === path.join(" ") &&
+      entry.unless.length === wanted.size &&
+      entry.unless.every((flag) => wanted.has(flag)),
+  );
+}
 
 /**
  * What still blocks the cutover. Pure: every input is passed in.
@@ -85,16 +106,32 @@ export function cutoverFindings(input) {
   const shellHooks = input.shellHooks ?? PERMANENT_SHELL_HOOKS;
   /** @type {Finding[]} */
   const findings = [];
-  const declared = new Map(input.manifest.commands.map((c) => [c.path.join(" "), c.flags ?? []]));
+  // Entries of one path differ in `requires` (manifest.rs validate): their flags add up, and the
+  // path is native without flags only if one of them has no `requires`.
+  /** @type {Map<string, { flags: Set<string>, requires: string[][] | null }>} */
+  const declared = new Map();
+  for (const c of input.manifest.commands) {
+    const key = c.path.join(" ");
+    const seen = declared.get(key) ?? { flags: new Set(), requires: [] };
+    for (const flag of c.flags ?? []) seen.flags.add(flag);
+    seen.requires = seen.requires === null || c.requires === undefined ? null : [...seen.requires, ...c.requires];
+    declared.set(key, seen);
+  }
   for (const entry of input.commands) {
     areaOf({ command: entry.path });
     const key = entry.path.join(" ");
-    const flags = declared.get(key);
-    if (flags === undefined) {
+    const native = declared.get(key);
+    if (native === undefined) {
       if (!permanentlyDelegated(entry.path, undefined, delegation))
         findings.push({ check: "command", detail: key });
       continue;
     }
+    if (native.requires !== null && !excusedRequires(entry.path, native.requires, delegation))
+      findings.push({
+        check: "requires",
+        detail: `${key} (sin ${native.requires.map((needed) => needed.map((f) => `--${f}`).join(" ")).join(" | ")})`,
+      });
+    const flags = [...native.flags];
     for (const flag of entry.flags)
       if (!flags.includes(flag) && !permanentlyDelegated(entry.path, flag, delegation))
         findings.push({ check: "flag", detail: `${key} --${flag}` });

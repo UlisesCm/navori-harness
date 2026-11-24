@@ -54,6 +54,9 @@ function decisionContract(body: string): string {
   expect(contract).toMatch(/No se deben omitir garantías, riesgos ni bloqueos/);
   expect(contract).toMatch(/el artefacto complementa el resumen/);
   expect(contract).toMatch(/Aprobar producto o plan no autoriza despliegue/);
+  expect(contract).toMatch(
+    /Campos fijos: \*\*Verificado\*\* .* y \*\*Supuesto \/ sin verificar\*\*/,
+  );
   return contract;
 }
 

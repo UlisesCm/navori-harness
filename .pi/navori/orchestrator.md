@@ -1,4 +1,4 @@
-<!-- navori:managed-file id="pi-orchestrator" hash="ffe5e8cb46ad424ae19858a9702136ef15c2c58b33beb7564b39c37432d6460e" -->
+<!-- navori:managed-file id="pi-orchestrator" hash="0484f2d04ec78c80d299d1566768dfa96098f81da573ca1eaa02569972b98511" -->
 ## Planning tiers — classified, never chosen
 
 Before planning, write the draft `.navori/state/handoffs/workplan_<feature>.json` (files, signals) and
@@ -11,7 +11,7 @@ run `navori plan classify <feature>`. The level comes from that command, never j
 | 2 | score ≥ 8, or a floor: money/credentials/PII, 2+ repos, new dependency, shared contract, migration | `architect` → `auditor` challenge → user picks → your verdict → level-2 workplan. Skill `plan-advanced` |
 | 3 | user accepted a spec | `specs/<feature>/spec.md` with `navori spec check` green → user approval; encargo `workplan: <feature>`. Skill `spec-bootstrap`. Legacy `tasks.md` specs keep `spec: <spec> E<n> M<n>` |
 
-- **Plan precondition:** no `implementer` dispatch without its level's artifacts green and approved; routing is in the orchestrator block.
+- **Plan precondition:** no `implementer` dispatch without its level's artifacts green and approved.
 - Level 0 declares its files: `nivel-0: <path>[,<path>] <feature>`, declared like the slug (absolute or `..` paths are denied);
   `verify:` names the command that proves it and its expected result (no `verify:`, no dispatch);
   the gate checks only the declared path, never the real diff; a feature with a workplan opens with `workplan: <feature>`.
@@ -38,14 +38,15 @@ Route by `navori plan classify <feature>` (level) and critical areas (`render/sy
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
+- **Evidence in recommendations:** a repo, config or infrastructure claim cites `file:line` or this turn's command, else it is "unverified" with the reason; a negative names the scope searched; a subagent's report is unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. `navori gate full` green once per PR.
 - At close: `verify-before-done`'s Session close.
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
-- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
+- Same check before dispatching `scribe`.
 - On Pi, you publish, following `.pi/agents/publisher.md`.
-- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `bun run check:fast` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
+- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `bun run check:fast` plus its `A<n>` commands, in the foreground main thread; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 - Parallel implementers or deliveries need disjoint files (deliveries: own PRs). No `implementer` dispatch without plan approval (`planificacion`).
 - Independent sub-tasks: ALL `navori_subagent` calls in ONE turn; you synthesize.
 - Without nested dispatch, run `scout` before `architect`.
@@ -64,10 +65,10 @@ Depth: `.agents/skills/resolve-ticket/SKILL.md`, `.agents/skills/solution-design
 
 On Claude, a `SessionStart` hook injects the live context at the top of the session; read it to resume. Then, before touching code:
 
-1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.pi/` look inconsistent, or to confirm the declared quality gates can actually run.
+1. **Healthy config**: run `navori doctor` if `navori.config.json` / `.pi/` look inconsistent, or to confirm the declared quality gates run.
 2. **Scoped task**: one **user** task at a time; decompose and parallelize per your orchestrator role.
 
-**Audit mode on request**: if the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as the FIRST action of that turn — before loading skills or starting any pipeline — and confirm the log path it prints. The phrase never activates anything by itself (by design); the command is the only switch. If the injected context already says audit-mode is ACTIVE (armed via `navori audit --arm` — which also applies to a RUNNING session on its next message), it is running — do not start it again, and never tell the user to close and reopen the session for this.
+**Audit mode on request**: when the user asks for it in any wording ("audit mode", "con auditoría", "navori audit"), run `navori audit --start <this session's id>` as that turn's FIRST action, before any skill or pipeline, and confirm the log path it prints. The phrase alone activates nothing; the command is the only switch. If the injected context says audit-mode is ACTIVE (`navori audit --arm`, which also reaches a RUNNING session on its next message), do not start it again or ask the user to reopen the session.
 
 ## Agentes disponibles
 

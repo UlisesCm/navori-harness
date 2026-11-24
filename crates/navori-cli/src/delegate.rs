@@ -353,12 +353,21 @@ pub fn run_with_stdin(args: &[OsString], subcommand: &str, stdin: &[u8]) -> Exit
     }
 }
 
+/// True for `gate foreign …`: the `quality-gate-pre-commit` hook merges its stderr into stdout
+/// and classifies by the first line, so a version notice there would hide the verdict.
+#[must_use]
+pub fn notice_suppressed(args: &[OsString]) -> bool {
+    args.first().is_some_and(|arg| arg == "gate") && args.get(1).is_some_and(|arg| arg == "foreign")
+}
+
 /// Delegates `args` to the TS CLI, or exits 69 explaining why not.
 #[must_use]
 pub fn run(args: &[OsString], subcommand: &str) -> ExitCode {
     match plan(&Locations::from_process(), subcommand) {
         Ok(plan) => {
-            if let Some(notice) = version_notice(&plan, navori_core::VERSION) {
+            if !notice_suppressed(args)
+                && let Some(notice) = version_notice(&plan, navori_core::VERSION)
+            {
                 eprintln!("{notice}");
             }
             exec(&plan, args)
@@ -366,6 +375,32 @@ pub fn run(args: &[OsString], subcommand: &str) -> ExitCode {
         Err(NoTs { message }) => {
             eprint!("{message}");
             ExitCode::from(EXIT_NO_TS)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::notice_suppressed;
+    use std::ffi::OsString;
+
+    fn argv(items: &[&str]) -> Vec<OsString> {
+        items.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn only_gate_foreign_skips_the_version_notice() {
+        assert!(notice_suppressed(&argv(&["gate", "foreign"])));
+        assert!(notice_suppressed(&argv(&["gate", "foreign", "--force"])));
+        for other in [
+            &[][..],
+            &["gate"],
+            &["gate", "probe"],
+            &["gate", "fast"],
+            &["doctor", "foreign"],
+            &["render", "gate", "foreign"],
+        ] {
+            assert!(!notice_suppressed(&argv(other)), "{other:?}");
         }
     }
 }

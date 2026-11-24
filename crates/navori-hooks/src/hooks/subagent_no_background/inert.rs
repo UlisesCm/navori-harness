@@ -33,7 +33,7 @@ static C: LazyLock<Result<Policy, regex::Error>> = LazyLock::new(|| Policy::new(
 
 /// Apply the shared skeleton/live/segment transforms and this hook's two block rules.
 pub(super) fn reason(cmd: &str, locale: Locale) -> Result<Option<String>, Failure> {
-    let rules = Rules::get(locale).map_err(Failure)?;
+    let rules = Rules::get(locale);
     let policy = match locale {
         Locale::Utf8 => &UTF8,
         Locale::GnuUtf8 => &GNU_UTF8,
@@ -41,19 +41,22 @@ pub(super) fn reason(cmd: &str, locale: Locale) -> Result<Option<String>, Failur
     }
     .as_ref()
     .map_err(|e| Failure(format!("inert policy pattern: {e}")))?;
-    let skeleton = match inert::skeleton(cmd, rules) {
+    let skeleton = match inert::skeleton(cmd, rules).map_err(Failure)? {
         Ok(skeleton) => skeleton,
         Err(reason) => return Ok(Some(reason)),
     };
-    let live = inert::live(cmd, &skeleton, rules);
-    let flat = rules.remove_quotes(&live.replace('\n', " "));
+    let live = inert::live(cmd, &skeleton, rules).map_err(Failure)?;
+    let flat = rules
+        .remove_quotes(&live.replace('\n', " "))
+        .map_err(Failure)?;
     if policy.background.is_match(&flat) {
         return Ok(Some(
             "operador de shell & (segundo plano) dentro de un subagente".to_owned(),
         ));
     }
-    let scan = inert::scan(&live, rules);
+    let scan = inert::scan(&live, rules).map_err(Failure)?;
     if inert::segments(&scan, rules)
+        .map_err(Failure)?
         .iter()
         .any(|segment| policy.detached.is_match(segment))
     {

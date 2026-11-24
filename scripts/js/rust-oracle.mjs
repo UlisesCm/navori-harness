@@ -11,6 +11,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  symlinkSync,
   rmSync,
   truncateSync,
   utimesSync,
@@ -19,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0057 R8-R10 / D5 - differential oracle: `navori` (TS `dist/`) vs `navori-rust`.
@@ -36,7 +38,9 @@ import { fileURLToPath } from "node:url";
  * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
  * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
  * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
- * `HOME` (path, type, mode, bytes). Normalization is the closed table in {@link RULES}, each rule
+ * `HOME` (path, type, mode, bytes). The audits root is isolated per case; a case may write it (`audit --arm`),
+ * chmod it in `setup`, and name it in `args` as `@AUDITS@`; the `ts` of an `.armed` is `@ISO@` like any
+ * other `toISOString()`. Normalization is the closed table in {@link RULES}, each rule
  * matching only the exact format the TS CLI emits.
  */
 
@@ -71,7 +75,7 @@ const RUN_TIMEOUT_MS = 120_000;
 /**
  * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
  * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
- * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { chmod: string, mode: number, in?: "home" | "audits" } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
  * @typedef {{ issue: string, kinds: string[], why: string }} KnownDifference  see {@link applyKnown}
  * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string, known?: KnownDifference }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
  *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
@@ -136,6 +140,18 @@ export const RULES = [
     token: "@MS@",
     // `navori bench` summary rows: `min|p50|p95|max <n>.<d>ms`
     apply: (t) => t.replace(/\b(min|p50|p95|max)(\s+)\d+(?:\.\d+)?ms\b/g, "$1$2@MS@"),
+  },
+  {
+    name: "FOREIGN_LOG",
+    token: "@RAND@",
+    // `gate foreign` private log: `<tmpdir>/navori-gate-foreign-<mkdtemp suffix>/fast-<timestamp()>.log`.
+    // Only the random suffix and the stamp are replaced; the base directory, the prefix and the
+    // file name around them stay visible.
+    apply: (t) =>
+      t.replace(
+        /(?<=navori-gate-foreign-)[A-Za-z0-9]{6}(?=\/fast-\d{8}T\d{9}Z\.log(?![\dA-Za-z]))/g,
+        "@RAND@",
+      ).replace(/(?<=navori-gate-foreign-@RAND@\/fast-)\d{8}T\d{9}Z(?=\.log)/g, "@STAMP@"),
   },
 ];
 
@@ -280,7 +296,9 @@ export function relativeTime(relative, now) {
  * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
  * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
  * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
- * Called on every copy, so the TS and the Rust run see the same ages.
+ * Called on every copy, so the TS and the Rust run see the same ages. `symlinks` maps a path in
+ * the repo copy to its link target: created here because a committed symlink is not a regular git
+ * entry and the review receipt refuses it.
  *
  * @param {string} fixtureDir
  * @param {string} work
@@ -289,8 +307,12 @@ export function relativeTime(relative, now) {
 export function applyFixtureManifest(fixtureDir, work, now) {
   const path = join(fixtureDir, FIXTURE_MANIFEST);
   if (!existsSync(path)) return;
-  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }> }} */
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }>, symlinks?: Record<string, string> }} */
   const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const [rel, target] of Object.entries(manifest.symlinks ?? {})) {
+    mkdirSync(dirname(join(work, "repo", rel)), { recursive: true });
+    symlinkSync(target, join(work, "repo", rel));
+  }
   for (const backup of manifest.backups ?? []) {
     const dir = join(work, "backups", backup.name);
     mkdirSync(dir, { recursive: true });
@@ -516,7 +538,8 @@ function gitInit(repo, env) {
 /**
  * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
  * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
- * failure aborts the case. In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * failure aborts the case. `chmod` sets `mode` on a path under the repo, `HOME` (`in: "home"`) or the
+ * case's isolated audits root (`in: "audits"`, path `"."` for the root itself). In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
  * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
  * time-bound file (a dispatch marker) is identical and fresh for both.
  *
@@ -536,6 +559,9 @@ function applySetup(repo, env, ts, steps) {
       const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env: stepEnv, input: "" });
       if (run.status !== 0)
         throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("chmod" in step) {
+      const base = step.in === "home" ? env.HOME : step.in === "audits" ? env.NAVORI_AUDITS_ROOT : repo;
+      chmodSync(join(base, step.chmod), step.mode);
     } else if ("write" in step) {
       const base = step.in === "home" ? env.HOME : repo;
       const path = join(base, step.write);
@@ -661,7 +687,9 @@ function runOnce(work, runner, testCase, opts) {
   // A write-failure case: these directories are read-only during the run, then restored so the
   // snapshot and the cleanup can walk them.
   for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
-  const run = spawnSync(runner.cmd, [...runner.args, ...testCase.args], {
+  // `@AUDITS@` in an argument is the case's isolated audits root (`NAVORI_AUDITS_ROOT`).
+  const args = testCase.args.map((arg) => arg.replaceAll("@AUDITS@", env.NAVORI_AUDITS_ROOT));
+  const run = spawnSync(runner.cmd, [...runner.args, ...args], {
     cwd: repo,
     env,
     input: testCase.stdin ?? "",
@@ -879,7 +907,7 @@ function decoyCli(base) {
  * `Manifest::select` read them: the leading positionals as the path and the option names, without
  * dashes, value or `no-` prefix, as the flags.
  *
- * @param {{ commands: Array<{ path: string[], flags?: string[] }> }} manifest
+ * @param {{ commands: Array<{ path: string[], flags?: string[], requires?: string[][] }> }} manifest
  * @param {string[]} args
  */
 export function selectsNative(manifest, args) {
@@ -893,9 +921,13 @@ export function selectsNative(manifest, args) {
     .flatMap((a) =>
       a.startsWith("--") ? [a.slice(2).split("=")[0].replace(/^no-/, "")] : [...a.slice(1)],
     );
+  // `Manifest::select` (manifest.rs:145): with `requires`, the invocation also carries every flag
+  // of at least one alternative; entries of one path are tried in turn.
   return manifest.commands.some(
     (c) =>
-      c.path.every((token, i) => path[i] === token) && flags.every((f) => (c.flags ?? []).includes(f)),
+      c.path.every((token, i) => path[i] === token) &&
+      flags.every((f) => (c.flags ?? []).includes(f)) &&
+      (c.requires === undefined || c.requires.some((needed) => needed.every((f) => flags.includes(f)))),
   );
 }
 
@@ -1025,6 +1057,15 @@ export function main(argv) {
   return total === 0 ? 0 : 1;
 }
 
+const USAGE = `usage: node scripts/js/rust-oracle.mjs [--only <a>[,<b>...]] [--report <file>] [--rust-bin <path> | --self-check]
+  Differential oracle: navori (TS dist/) vs navori-rust; builds navori-cli unless --rust-bin/--self-check.
+  --only <ids>       only the cases whose id contains one of them
+  --report <file>    also write the JSON report
+  --rust-bin <path>  use that binary and skip cargo build
+  --self-check       TS against itself
+  -h, --help         print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exitCode = main(process.argv.slice(2));
 }

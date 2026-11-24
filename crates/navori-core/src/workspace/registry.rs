@@ -5,14 +5,16 @@
 //! caller catches the way the TS does, and [`Stop::Delegate`] is a branch the port does not
 //! reproduce, so the command hands its argv to the TS before any output.
 
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use regex::Regex;
 
 use crate::js_json::{self, JsObject, JsValue};
-use crate::posix::normalize;
-use crate::process::Env;
+use crate::posix::{basename, dirname, js_trim, normalize};
+use crate::process::{Env, ProcessRunner, Request};
 
 /// Why a read did not produce a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -385,3 +387,123 @@ pub fn for_cwd(env: &Env, cwd: &str) -> Result<Vec<String>, Stop> {
     }
     Ok(out)
 }
+
+/// Variables that pin git to a repository; `gitOut` strips them so the command reads `cwd`.
+const GIT_PINNING: [&str; 4] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+];
+
+/// `gitOut(cwd, args)`: stdout of `git` when it exits 0, `None` when it fails or outlives its
+/// 10 s budget. Stderr is discarded. `env` goes through whole except the four variables that pin
+/// a repository, so settings such as `GIT_CONFIG_GLOBAL` still apply.
+///
+/// # Errors
+/// [`Stop::Delegate`] when git's stdout is not UTF-8 (Node would decode it with replacements).
+pub fn git_out(
+    runner: &dyn ProcessRunner,
+    cwd: &Path,
+    args: &[&str],
+    env: &Env,
+) -> Result<Option<String>, Stop> {
+    let env: Vec<(OsString, OsString)> = env
+        .iter()
+        .filter(|(key, _)| !GIT_PINNING.iter().any(|name| key == name))
+        .cloned()
+        .collect();
+    let request = Request {
+        program: "git",
+        args,
+        cwd,
+        env: &env,
+        input: None,
+        timeout: Duration::from_secs(10),
+    };
+    match runner.run(&request) {
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout)
+            .map(Some)
+            .map_err(|_| Stop::Delegate("git output is not UTF-8")),
+        Ok(_) | Err(_) => Ok(None),
+    }
+}
+
+/// `findWorkspacesForPath(path)`: every workspace with a repo whose canonical path equals the
+/// canonical `path`. A workspace that fails to load is skipped. Relative paths, in `path` and in
+/// the registry, resolve against `process_cwd` (the TS uses `process.cwd()`).
+///
+/// # Errors
+/// As [`list`] and [`canonical`], and any [`Stop::Delegate`] of a workspace.
+pub fn find_for_path(env: &Env, process_cwd: &str, path: &str) -> Result<Vec<String>, Stop> {
+    let target = canonical(process_cwd, path)?;
+    let mut matches = Vec::new();
+    for name in list(env)? {
+        let workspace = match load(env, &name) {
+            Ok(Some(workspace)) => workspace,
+            Ok(None) | Err(Stop::Throw) => continue,
+            Err(stop) => return Err(stop),
+        };
+        for repo in &workspace.repo_paths {
+            if canonical(process_cwd, repo)? == target {
+                matches.push(name);
+                break;
+            }
+        }
+    }
+    Ok(matches)
+}
+
+/// `isRegisteredCheckout(toplevel)` (#1097): is the checkout the user registered? Either it is a
+/// registered repo of some workspace, or it is a linked worktree whose main repo is registered
+/// and lists it in `git worktree list --porcelain` (a verified back-link: `.git/commondir` is
+/// plain repo content, so it is never trusted alone).
+///
+/// # Errors
+/// As [`find_for_path`] and [`git_out`].
+pub fn is_registered_checkout(
+    env: &Env,
+    process_cwd: &str,
+    toplevel: &str,
+    runner: &dyn ProcessRunner,
+) -> Result<bool, Stop> {
+    let top = canonical(process_cwd, toplevel)?;
+    if !find_for_path(env, process_cwd, &top)?.is_empty() {
+        return Ok(true);
+    }
+    let common_args = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+    let Some(common) = git_out(runner, Path::new(&top), &common_args, env)?
+        .map(|out| js_trim(&out).to_owned())
+        .filter(|out| !out.is_empty())
+    else {
+        return Ok(false);
+    };
+    let common_dir = canonical(process_cwd, &common)?;
+    if basename(&common_dir) != ".git" {
+        return Ok(false);
+    }
+    let main = dirname(&common_dir);
+    if main == top || find_for_path(env, process_cwd, main)?.is_empty() {
+        return Ok(false);
+    }
+    let Some(listing) = git_out(
+        runner,
+        Path::new(main),
+        &["worktree", "list", "--porcelain"],
+        env,
+    )?
+    else {
+        return Ok(false);
+    };
+    for line in listing.split('\n') {
+        if let Some(path) = line.strip_prefix("worktree ")
+            && canonical(process_cwd, path)? == top
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests;

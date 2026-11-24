@@ -3,6 +3,9 @@
 
 use crate::integrity::is_js_whitespace;
 
+/// `String.prototype.trimEnd`: JS whitespace and line terminators at the end.
+pub use crate::integrity::js_trim_end;
+
 /// `String.prototype.trim`: JS whitespace and line terminators at both ends.
 #[must_use]
 pub fn js_trim(text: &str) -> &str {
@@ -30,6 +33,43 @@ pub fn normalize(path: &str) -> String {
         out.push('/');
     }
     if absolute { format!("/{out}") } else { out }
+}
+
+/// `path.posix.basename(path)` (no extension): the last non-slash segment, `""` for `""` or only
+/// slashes.
+#[must_use]
+pub fn basename(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    trimmed.rsplit('/').next().unwrap_or(trimmed)
+}
+
+/// `path.posix.dirname`: everything before the last segment; `.` for none, `/` for the root, and
+/// Node's `//` when the path starts with `//` and has no other segment (`//a`).
+#[must_use]
+pub fn dirname(path: &str) -> &str {
+    if path.is_empty() {
+        return ".";
+    }
+    let has_root = path.starts_with('/');
+    let bytes = path.as_bytes();
+    let mut matched_slash = true;
+    let mut end = None;
+    for i in (1..bytes.len()).rev() {
+        if bytes[i] == b'/' {
+            if !matched_slash {
+                end = Some(i);
+                break;
+            }
+        } else {
+            matched_slash = false;
+        }
+    }
+    match end {
+        None if has_root => "/",
+        None => ".",
+        Some(1) if has_root => "//",
+        Some(end) => &path[..end],
+    }
 }
 
 /// `path.posix.join`: the non-empty parts joined by `/`, then [`normalize`]d.
@@ -86,7 +126,27 @@ fn segments(path: &str, allow_above_root: bool) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{join, normalize, relative, resolve};
+    use super::{basename, dirname, join, normalize, relative, resolve};
+
+    #[test]
+    fn basename_and_dirname_match_node_posix() {
+        // Expected values from `node -p` on `path.posix.basename` / `dirname`.
+        assert_eq!(dirname("/.git"), "/");
+        assert_eq!(basename("/.git"), ".git");
+        assert_eq!(dirname("/a/b/"), "/a");
+        assert_eq!(basename("/a/b/"), "b");
+        assert_eq!(dirname("/a/b"), "/a");
+        assert_eq!(dirname("a/b//c"), "a/b/");
+        assert_eq!(dirname("a"), ".");
+        assert_eq!(basename("a"), "a");
+        assert_eq!(dirname("/"), "/");
+        assert_eq!(basename("/"), "");
+        assert_eq!(dirname("//"), "/");
+        assert_eq!(dirname("//a"), "//");
+        assert_eq!(dirname(""), ".");
+        assert_eq!(basename(""), "");
+        assert_eq!(dirname("a/"), ".");
+    }
 
     #[test]
     fn matches_node_posix() {

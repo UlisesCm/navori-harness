@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("../../../../", import.meta.url)));
@@ -342,6 +342,7 @@ describe("payload declarations and rendered extraction", () => {
     "uses at most one extraction jq per hook and engine under %s",
     (shell) => {
       const { dir, bin, log } = fixture(["jq"]);
+      const path = `${bin}${delimiter}${process.env.PATH ?? ""}`;
       const project = join(dir, "project");
       mkdirSync(project);
       // A CLI stub keeps hooks local to this private fixture and cannot write session state.
@@ -369,10 +370,13 @@ describe("payload declarations and rendered extraction", () => {
               hook_event_name: "PreToolUse",
             }),
             env: {
-              PATH: `${bin}:${process.env.PATH}`,
+              PATH: path,
               HOME: dir,
               CLAUDE_PROJECT_DIR: project,
               NAVORI_AUDITS_ROOT: join(dir, "absent-audits"),
+              // The count is the shell path's: the prologue's own switch skips an installed
+              // navori-rust, which would otherwise decide first and add its jq calls.
+              NAVORI_HOOK_IMPL: "shell",
             },
             timeout: 10000,
           });
