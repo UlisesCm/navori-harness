@@ -2480,6 +2480,56 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
     });
 
     // Covers: A1
+    it("follows `cd` behind assignment prefixes and anchors `export` to a token start (#1801)", () => {
+      const dirty = dirtyRepo();
+      const clean = makeRepo();
+      const denied = [
+        `FOO=1 cd ${dirty} && git reset --hard`,
+        `FOO=1 BAR=2 cd ${dirty} && git reset --hard`,
+        `GIT_DIR=x FOO=1 cd ${dirty} && git reset --hard`,
+        // Documented exception: quotes are dropped before the peel.
+        `"FOO"=1 cd ${dirty} && git reset --hard`,
+        `F"O"O=1 cd ${dirty} && git reset --hard`,
+        "export A=1 GIT_DIR=x; git reset --hard",
+      ];
+      for (const command of denied) expect(verdict(command, clean), command).toBe(2);
+      // `env` is not peeled (base behaviour), and a clean target stays clean.
+      expect(verdict(`env FOO=1 cd ${dirty} && git reset --hard`, clean)).toBe(0);
+      expect(verdict(`FOO=1 cd ${clean} && git reset --hard`, dirty)).toBe(0);
+      for (const command of [
+        "export MY_GIT_DIR=x; git reset --hard",
+        "export FOO=GIT_DIR=x; git reset --hard",
+        "FOO=GIT_DIR=x git reset --hard",
+      ]) {
+        expect(verdict(command, clean), command).toBe(0);
+      }
+    });
+
+    // Covers: A1
+    it("reads U+2000 as a blank only where the locale does, and stays fast on a long export", () => {
+      const clean = makeRepo();
+      const run = (command: string, locale: string): number => {
+        const payload = JSON.stringify({ cwd: clean, tool_input: { command } });
+        return acrossShells((shell) => {
+          const r = spawnSync(resolveBin(shell), [guardPath], {
+            input: payload,
+            cwd: clean,
+            encoding: "utf-8",
+            env: { ...process.env, LC_ALL: locale },
+          });
+          return r.status ?? -1;
+        });
+      };
+      const utf8 = process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+      const command = "GIT_DIR=x\u2000git reset --hard";
+      expect(run(command, "C")).toBe(0);
+      expect(run(command, utf8)).toBe(2);
+      const started = Date.now();
+      expect(run(`export ${"A=1 ".repeat(3000)} ; git reset --hard`, utf8)).toBe(0);
+      expect(Date.now() - started).toBeLessThan(15_000);
+    });
+
+    // Covers: A1
     it("names an actionable route and never needs to run outside the agent only", () => {
       const dir = dirtyRepo();
       const r = spawnSync(resolveBin("bash"), [guardPath], {

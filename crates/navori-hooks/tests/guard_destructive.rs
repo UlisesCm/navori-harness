@@ -1044,6 +1044,135 @@ impl Repo for Fixed {
     }
 }
 
+/// A `Repo` where only `/dirty` holds work; every directory exists.
+struct ByDir;
+
+impl Repo for ByDir {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, dir: &str, _: Loss) -> Holding {
+        if dir == "/dirty" {
+            Holding::Holds
+        } else {
+            Holding::Clear
+        }
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// `command` run from `cwd` under `locale`, where only `/dirty` holds work: whether it blocks.
+fn blocked_at(command: &str, cwd: &str, locale: Locale) -> Result<bool, Box<dyn Error>> {
+    let mut context = plain_context()?;
+    context.profile.locale = locale;
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": cwd,
+        "tool_input": { "command": command },
+    })
+    .to_string();
+    let evaluation = entry::evaluate_until(
+        payload.as_bytes(),
+        &context,
+        ByDir,
+        Deadline::from_env(None, Instant::now()),
+    )?;
+    Ok(evaluation.verdict == Verdict::Block)
+}
+
+/// #1801 round 3: assignment prefixes of a non-git segment are peeled again, so the `cd` walk
+/// follows `FOO=1 cd <dir>` as on base; `export` matches only at a token start.
+#[test]
+fn rule_7_follows_cd_behind_assignments() -> TestResult {
+    let utf8 = Locale::Utf8;
+    let deny_from_clean = [
+        "FOO=1 cd /dirty && git reset --hard",
+        "FOO=1 BAR=2 cd /dirty && git reset --hard",
+        "GIT_DIR=x FOO=1 cd /dirty && git reset --hard",
+        // Documented exception: quotes are dropped before the peel.
+        "\"FOO\"=1 cd /dirty && git reset --hard",
+        "F\"O\"O=1 cd /dirty && git reset --hard",
+    ];
+    for command in deny_from_clean {
+        assert!(blocked_at(command, "/work", utf8)?, "{command}");
+    }
+    // Base behaviour: `env` is not peeled, so the cd is not followed.
+    assert!(!blocked_at(
+        "env FOO=1 cd /dirty && git reset --hard",
+        "/work",
+        utf8
+    )?);
+    assert!(!blocked_at(
+        "FOO=1 cd /clean && git reset --hard",
+        "/dirty",
+        utf8
+    )?);
+    for command in [
+        "export MY_GIT_DIR=x; git reset --hard",
+        "export FOO=GIT_DIR=x; git reset --hard",
+        "FOO=GIT_DIR=x git reset --hard",
+    ] {
+        assert!(!blocked_at(command, "/work", utf8)?, "{command}");
+    }
+    assert!(blocked_at(
+        "export A=1 GIT_DIR=x; git reset --hard",
+        "/work",
+        utf8
+    )?);
+    Ok(())
+}
+
+/// U+2000 is a blank in the UTF-8 locales and not in `C`: `GIT_DIR=x<U+2000>git` is a prefix
+/// only where the blank class says so, as the shell's `sed` decides.
+#[test]
+fn rule_7_blank_class_follows_the_locale() -> TestResult {
+    let command = "GIT_DIR=x\u{2000}git reset --hard";
+    assert!(blocked_at(command, "/work", Locale::Utf8)?);
+    assert!(blocked_at(command, "/work", Locale::GnuUtf8)?);
+    assert!(!blocked_at(command, "/work", Locale::C)?);
+    Ok(())
+}
+
+/// The anchored `export` match stays linear on a long line (nested `*` in the shell's regex).
+#[test]
+fn rule_7_export_line_stays_fast() -> TestResult {
+    let command = format!("export {} ; git reset --hard", "A=1 ".repeat(3000));
+    let started = Instant::now();
+    assert!(!blocked_at(&command, "/work", Locale::Utf8)?);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
 /// `git reset --hard` in an existing directory, rule 7 reading `holding`: the stderr, or `None`
 /// when it is allowed.
 fn discard_verdict(holding: Holding) -> Result<Option<String>, Box<dyn Error>> {

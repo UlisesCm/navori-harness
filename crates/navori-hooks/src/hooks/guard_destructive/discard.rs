@@ -179,7 +179,7 @@ fn is_git_word(token: &str) -> bool {
 fn next_token(text: &str, from: usize, locale: Locale) -> Option<(usize, usize)> {
     let mut start = None;
     for (i, c) in text[from..].char_indices() {
-        let blank = tr::space(locale, c);
+        let blank = locale.whitespace(c);
         match (start, blank) {
             (None, false) => start = Some(from + i),
             (Some(a), true) => return Some((a, from + i)),
@@ -229,6 +229,17 @@ fn normalize(segment: &str, sticky: &mut bool, locale: Locale) -> String {
         .is_some_and(|rest| rest.chars().next().is_none_or(|c| locale.whitespace(c)));
     if git && (tainted || *sticky) {
         line = format!("git --git-dir=?{}", &line[3..]);
+    } else if !git {
+        // Re-peel: leading assignments go, as `inert::segments` peels them.
+        let mut rest = line.as_str();
+        while let Some((a, b)) = next_token(rest, 0, locale) {
+            if a == 0 && is_assignment(&rest[a..b]) {
+                rest = rest[b..].trim_start_matches(|c| locale.whitespace(c));
+            } else {
+                break;
+            }
+        }
+        line = rest.trim_start_matches(|c| locale.whitespace(c)).to_owned();
     }
     line
 }
@@ -323,4 +334,39 @@ pub(super) fn evaluate(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::inert::{self, Rules};
+
+    /// For non-git, unquoted segments, `normalize` peels exactly what `inert::segments` peels.
+    #[test]
+    fn normalize_peels_like_inert_segments() -> Result<(), String> {
+        let inputs = [
+            "FOO=1 cd x",
+            "FOO=1 BAR=2 cd x",
+            "  FOO=1   cd x",
+            "env FOO=1 cd x",
+            "FOO=1",
+            "FOO=1 BAR=",
+            "cd x",
+            "MY_GIT_DIR=x ls",
+            "FOO=GIT_DIR=x ls",
+            "1FOO=1 ls",
+            "FOO=1\u{2000}ls",
+            "ls -la",
+            "",
+        ];
+        for locale in [Locale::Utf8, Locale::GnuUtf8, Locale::C] {
+            let rules = Rules::get(locale);
+            for input in inputs {
+                let peeled = inert::segments(input, rules)?;
+                let got = normalize(input, &mut false, locale);
+                assert_eq!(Some(&got), peeled.first(), "{locale:?} {input:?}");
+            }
+        }
+        Ok(())
+    }
 }
