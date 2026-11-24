@@ -34,3 +34,4 @@
 {"date":"2026-11-12","op":"port","id":"status","reason":"status nativo, re-land de E3 (0060, #1473)","pr":1689}
 {"date":"2026-11-22","op":"port","id":"gate foreign","reason":"gate foreign nativo, ayudante de quality-gate-pre-commit (0062, inventario post-0.13)","pr":1775}
 {"date":"2026-11-22","op":"port","id":"audit","reason":"audit --arm y --disarm nativos; los cuatro modos que llaman los hooks siguen delegando (0062, inventario post-0.13)","pr":1791}
+{"date":"2026-11-26","op":"activate","id":"guard-destructive","reason":"lote del guard de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias en Claude y Pi","pr":1527}
