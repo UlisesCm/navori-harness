@@ -37,6 +37,17 @@ en Codex. Al retomar la migración, el código Rust de esos cuatro ya portados
 manifiesto y del binario junto con `master` (enmienda de 0060). Extender `PERMANENT_DELEGATION` y
 `cutover:check` a hooks y a motores es parte de T10.
 
+**Delegación transitoria (enmienda de R20 y T10, 23 nov 2026; decisiones-ulises/2026-11-23-t10-alcance).**
+R20 se lee además "... o en la **delegación transitoria** de `rust-areas.mjs`". Es la lista
+`TRANSITIONAL_DELEGATION`, separada de `PERMANENT_DELEGATION`, con un motivo por entrada. Reúne lo
+que el corte de 0.13.0 deja en el TS congelado (los comandos y banderas sin portar, que se portan por
+demanda según el inventario post-0.13) o en `shadow` (los hooks que solo corren en Claude, si no
+tuvieron tráfico de Claude en la ventana R81; se activan en 0.13.x). Es deuda, no una decisión
+permanente: ninguna entrada repite la lista permanente ni los hooks shell permanentes.
+`cutover:check` no bloquea por ella, pero la lista aparte como `transitional`. Es solo datos: el
+cierre de la ventana ajusta los hooks de la lista (deja los de Claude sin tráfico y quita los que se
+activan) sin rehacer T10.
+
 **Estimado restante** (LOC; referencia gruesa).
 
 | Entrega | Estimado original | Restante antes | Restante después |
