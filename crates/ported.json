@@ -137,7 +137,7 @@
       "impl": "sha256:211d47623f6a22e6d0adf965449ec0b6caa9fe08aa85a962b07df142a4bbf951"
     },
     "plan-gate": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "plan-gate-base": "sha256:a189e8f4d1921bfa2d6fb2e22722e0ac476245d40298a11eba23182a162c636b"
@@ -145,7 +145,7 @@
       "impl": "sha256:d4376269796260e6a1ad4ad738644cd3556180e65b18b9567ce471f124c8070a"
     },
     "session-start-context": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": false,
       "blocks": {
         "session-start-context-base": "sha256:1375d62cc3a3fd22ca8a6f84b1d9c63d6f9696648b308b81a1cbc2d744e3578c"
@@ -161,7 +161,7 @@
       "impl": "sha256:afca09803078a862cb61c3a1986d37856ac93d15f9bce074181b46b96f982dd5"
     },
     "model-advisor": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": false,
       "blocks": {
         "model-advisor-base": "sha256:c7beeedd2c3d7d088b774b52bff13b4fabae0c279532f69eb5a0ae31d6916a30"
@@ -169,7 +169,7 @@
       "impl": "sha256:0368e22e420f1b1f68b5e850a9c675cf34a3a9eb8cb0fc6c732f2cb823f8fe30"
     },
     "general-purpose-confirm": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "general-purpose-confirm-base": "sha256:a51c01bfedfc1a1aad2e8e360b84e88163d5be0352c742c360a3f27eff0543bf"
@@ -201,7 +201,7 @@
       "impl": "sha256:590ccdecd8dbcdcb5a9777aa6ca555ea2a19fe9ff203928ff68655541aee4f34"
     },
     "pii-egress-guard": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "pii-egress-guard-base": "sha256:4ff455a3d96947dabf37f1d7817ff20f3e177a36bc54dc248abab77b7c202eec"
