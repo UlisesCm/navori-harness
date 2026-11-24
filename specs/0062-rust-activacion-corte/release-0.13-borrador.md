@@ -22,12 +22,12 @@
 4. **Paso f′**: integrar main en dev (merge commit, #1705 y #1748) y luego dev en migration/rust,
    antes del PR dev → main.
 
-## Lo que entró en migration/rust desde el borrador (al 23 nov)
+## Lo que entró en migration/rust desde el borrador (al 23 nov, cierre: punta `f1e198df`)
 
 Debe aparecer en las notas del release y en la entrada de `releases.ts`:
 
 - `gate foreign` nativo (#1775, con #1777 de seguimiento).
-- `audit --arm` y `audit --disarm` nativos (#1791, si entra antes del 26). El resto de `audit`
+- `audit --arm` y `audit --disarm` nativos (#1791). El resto de `audit`
   sigue en el TS congelado; los cuatro modos que llaman los hooks son deuda en el inventario
   post-0.13.
 - El paquete expone `navori-rust` y el launcher JS para instalaciones sin postinstall (#1769).
@@ -36,6 +36,11 @@ Debe aparecer en las notas del release y en la entrada de `releases.ts`:
 - El oráculo y `cutover-check` respetan `requires`. `sync` y `remove` sin sus banderas quedan como
   prompts interactivos del TS (#1780, D2).
 - La caché de `navori --version` se invalida al cambiar el `node` del PATH (#1778, de S1).
+- Grupo de re-firmas 2 (re-firman los 12 hooks; la ventana R81 nueva arranca con la instalación del 26):
+  - menor latencia de `guard-destructive`: `inert` perezoso y git resuelto una vez (#1772);
+  - el bridge de Pi llama directo a `navori-rust`, con caída a bash, y los hooks hermanos terminan (#1773); la llamada directa pasa el `PWD` heredado tal cual, como bash (#1790);
+  - la regla de descartes del guard cierra en fallo cuando git no puede inspeccionar el repo (#1800). Las formas que el guard no ve en 0.13 están en el inventario post-0.13 («Limitaciones conocidas», #1802).
+- Herramientas del repo (no van en las notas del release): los scripts de `scripts/js` que escriben o compilan responden `--help` sin efectos (#1795) y `gen-pi-extension-asset` rechaza argumentos desconocidos (#1797).
 
 ## Paso e: bump a 0.13.0
 
