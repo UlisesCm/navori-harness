@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="3d0191be" version="0.12.5" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="c17a4d6c" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -78,9 +78,11 @@ set -uo pipefail
 #              check exits.
 #   5 spawns — an edit that actually counts: + `agent_id` (the subagent guard
 #              below) + the file path.
-#   6 spawns — a `Bash` whose PAYLOAD looked like a write but whose COMMAND is
-#              not one: + `extract_cmd`, and the same probe re-applied to the
-#              command ends it one fork before the extraction pipeline.
+#   6 spawns — a `Bash` whose payload carried a write token but whose COMMAND
+#              is not one (rung 1 probes the loaded command, so this is a
+#              `>` that came in through a path the probe could not tell apart):
+#              + `extract_cmd`, and the same probe re-applied to the command
+#              ends it one fork before the extraction pipeline.
 # The discard `case` therefore comes BEFORE `session_id`: a tool this hook does
 # not care about must not pay to locate a stamp it will never open. The Bash
 # probe is that same argument one level down — see `navori_has_write_token`.
@@ -1250,23 +1252,21 @@ fi
 # BEFORE `session_id`: a shell command that writes nothing must not pay to
 # locate a stamp it will never open, for the same reason a `Read` does not pay
 # for the `case` above.
+#
+# The tool output is not the command, so when the payload was loaded in one
+# pass (`_nv_pf_loaded=1` and `$payload` is the cached source) the probe reads
+# the cached `tool_input.command` instead of the whole payload: a `>` in the
+# output, the description or the cwd must not make this call pay the stamp
+# path. That relies on `tool_input.command` being listed in `nv_payload_fields`.
+# No string surgery on the payload: cutting it at "tool_response" was quadratic
+# on multi-MiB output under bash 3.2. Otherwise (no cache, or a payload that was
+# rewritten above) the whole payload is probed, as before. Rung 2 reads the same
+# cache and still decides the verdict, so this only narrows who reaches it.
 if [ "$tool" = "Bash" ]; then
-  # Bash substitutions are quadratic on multi-MiB output. The loaded command is
-  # already exact; large responses must not enter the payload-wide write probe.
-  if [ "${#payload}" -gt 1048576 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
+  if [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
     navori_has_write_token "${_nv_pf_tool_input__command:-}" || exit 0
   else
-    # The tool output is not the command: a `>` that only the output carries
-    # must not make this call pay the stamp path. Probe what precedes
-    # "tool_response": when that prefix holds "tool_input":; otherwise (Pi has
-    # no tool_response; some engine may order it first) the whole payload. Rung
-    # 2 still decides the verdict, so this only narrows who reaches it.
-    probe=${payload%%\"tool_response\":*}
-    case "$probe" in
-      *'"tool_input":'*) ;;
-      *) probe=${payload:-} ;;
-    esac
-    navori_has_write_token "$probe" || exit 0
+    navori_has_write_token "${payload:-}" || exit 0
   fi
 fi
 
@@ -1327,7 +1327,10 @@ grep -q -E '^#(delegated|notified)$' "$stamp" 2>/dev/null && exit 0
 
 # Hooks run INSIDE subagents too — the host fires the same PostToolUse for a
 # subagent's tool calls, adding `agent_id` to the payload (empty in the main
-# conversation). And the `#delegated` mark from the `Agent` case above only
+# conversation). Incidental: a subagent Bash with a `>` outside the command
+# (description, cwd, output) no longer pre-marks `#delegated` through rung 1;
+# the `Agent` return and any subagent edit still do. And the `#delegated` mark
+# from the `Agent` case above only
 # lands when that tool RETURNS, i.e. after the subagent already finished. So
 # without this check a delegated implementer's own 4th edit would fire the
 # notice INTO THE SUBAGENT'S context — "no subagent has been invoked" is false
@@ -1402,16 +1405,16 @@ navori_is_source() {
 # command that writes more than once.
 if [ "$tool" = "Bash" ]; then
   # Rung 1 already ran, way up next to the tool `case`, so reaching here means
-  # the payload carries a write token somewhere. Now it is worth one fork to
-  # find out WHERE.
+  # the loaded command (or, without a cache, the payload) carries a write
+  # token. Now it is worth one fork to find out WHERE.
   navori_cmd=$(extract_cmd)
   [ -n "$navori_cmd" ] || exit 0
-  # Rung 2: the same probe, on the COMMAND this time. Rung 1 had to read the
-  # whole payload — which carries `tool_response`, i.e. the command's own
-  # OUTPUT — so all it can answer is "maybe"; this answers "yes". Measured, it
-  # ends a further 25% of the park's Bash calls one fork before the extraction
-  # pipeline below (three more) would have found nothing (same discipline as
-  # #716: the second payload read has to be earned, and so does the third).
+  # Rung 2: the same probe, on the extracted COMMAND (the same cache rung 1
+  # reads). It is the fallback when rung 1 had to probe the whole payload (no
+  # cache; Pi has no `tool_response`), and it ends those calls one fork before
+  # the extraction pipeline below (three more) would have found nothing (same
+  # discipline as #716: the second payload read has to be earned, and so does
+  # the third).
   navori_has_write_token "$navori_cmd" || exit 0
   # The three forms `guard-destructive` rule 6 recognizes. One `grep -oE` pass,
   # because a shell-level parse of every redirect is not worth a fork per
