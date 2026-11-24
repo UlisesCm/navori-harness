@@ -84,10 +84,24 @@
 - **`NAVORI_TEST_WORKERS`**（正整数）设置 Vitest 的 worker 数量。未设置时，数量为
   `min(CPUs - 1, 4, 文件描述符预算)`。
 
+## Rust CLI（0.13）
+
+- **除 bun 外，还要用 cargo 构建和测试：** `cargo fmt --check`、
+  `cargo clippy --workspace --all-targets -- -D warnings` 和 `cargo test --workspace --locked`。
+  工具链固定在 `rust-toolchain.toml` 中。
+- **钩子：** `crates/navori-hooks` 是原生钩子的来源。它在 `.claude/hooks` 和
+  `.pi/navori/hooks` 中的渲染副本、带签名的 `navori:native-hook` 头部以及
+  `crates/ported.json` 中的哈希，都用 `bun run rust:hooks-sync` 重新生成，绝不手工修改。
+  这些文件经过合并或出现冲突后，按 `rebase-rerender` skill 处理。
+- **`packages/cli/src` 已冻结：** 它是以 `navori-legacy` 发布的 TypeScript CLI，用于永久委托和
+  无二进制的平台。切换（spec 0062 T10）会删除其源码，只保留 `packages/cli/src` 下的产物测试套件。
+- **历史：** `crates/ported-history.jsonl` 只能追加（`rust-manifest-check.mjs`）：错误的行不会被修改，
+  更正记录在后续的行或 spec 中。
+
 ## Rust 迁移分支（`navori-rust` 本地）
 
-仅适用于 `migration/rust`（[spec 0057](specs/0057-migracion-rust/requirements.md)）；`dev` 与 npm
-仍然只使用 TypeScript。
+这些说明描述 `migration/rust` 上的共存阶段（[spec 0057](specs/0057-migracion-rust/requirements.md)），
+直到切换（spec 0062 T10）进入 `dev`；在此之前，`dev` 与 npm 仍然只使用 TypeScript。
 
 - **与 TS CLI 并存安装：** `cargo install --path crates/navori-cli --locked` 会安装 `navori-rust`，
   且不会替换 `navori`（`command -v navori` 的路径保持不变）。`navori-rust --version` 报告内部

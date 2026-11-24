@@ -125,6 +125,13 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 
 → Tabla completa, presets y plugins en [`packages/cli/README.md`](./packages/cli/README.es.md).
 
+## Migrando a 0.13
+
+- No hay nada que cambiar en tu repo. Después de `npm i -g navori@0.13`, `navori --version` debe responder `0.13.0`.
+- El CLI ahora es un binario nativo para macOS (arm64, x64) y Linux (arm64, x64). npm lo instala con un paquete opcional por plataforma (`navori-<os>-<cpu>`). En otras plataformas, el paquete corre el CLI de TypeScript congelado que viaja dentro de él.
+- `master`, `codex`, `workspace`, `ticket` y `registry` siguen en ese CLI congelado, igual que algunas formas interactivas (`sync` sin una bandera no interactiva, `remove` y los comandos `restore` sin `--yes`, `doctor --json`). No necesitas instalar nada aparte.
+- Los hooks que `crates/ported.json` marca `active` deciden de forma nativa en Claude Code y Pi cuando `navori-rust` está en el `PATH` (el paquete lo instala); si no, corre su cuerpo shell renderizado, con los mismos veredictos. Los demás hooks siguen corriendo su cuerpo shell.
+
 ## Migrando a 0.12
 
 - Se retiró el comando `global` y el colector launchd (`audit --collect` sigue). `doctor --json` ya no emite `globalScope`.
@@ -158,16 +165,25 @@ caps, triggers), en [`docs/recipes/skill-authoring.md`](./docs/recipes/skill-aut
 
 ```
 navori-harness/
+├─ crates/
+│  ├─ navori-cli/     # el binario `navori-rust` (publicado como `navori`)
+│  ├─ navori-core/    # render, config, manifiesto y assets embebidos
+│  ├─ navori-hooks/   # hooks nativos (fuente de su implementación firmada)
+│  ├─ ported.json     # qué corre nativo y el modo de cada hook (shadow / active)
+│  └─ ported-history.jsonl  # historial port/activate, de solo agregar
+├─ packaging/
+│  ├─ npm/            # bins JS, lanzador y postinstall del paquete `navori`
+│  └─ legacy.json     # pin del TS congelado (`navori-legacy`)
 ├─ packages/
-│  ├─ cli/            # el CLI `navori` (publicado a npm)
-│  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
+│  ├─ cli/            # el CLI de TypeScript congelado (delegación y plataformas sin binario)
+│  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks)
 │  └─ plugins/        # acli · codegraph · engram · gh · tgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ package.json      # workspaces + trustedDependencies (bun)
 ```
 
-`@navori/core` y los plugins se **empaquetan dentro del CLI** en build (no se publican por separado): un solo `npm i -g navori` trae todo.
+`@navori/core` y los plugins se **empaquetan en el build** (no se publican por separado): un solo `npm i -g navori` trae todo.
 
 ## Desarrollo
 
@@ -183,7 +199,14 @@ bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
+
+# CLI en Rust (toolchain fijado en rust-toolchain.toml)
+cargo build --release -p navori-cli   # target/release/navori-rust
+cargo test --workspace --locked
+bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
+
+El toolchain de Rust está fijado en `rust-toolchain.toml` (1.99.1, con los cuatro targets del release). Después de cambiar `crates/navori-hooks`, corre `bun run rust:hooks-sync`: reescribe los hashes desactualizados de `crates/ported.json` y las cabeceras de los hooks nativos, y vuelve a renderizar. `bun run rust:hooks-sync --check` no escribe nada y falla si algo está desactualizado.
 
 **Quality gate**: `bun check` desde la raíz. Es un alias de `qualityGate.full` en
 `navori.config.json`, que es **el único lugar** donde vive el gate — de ahí salen los bloques
@@ -204,14 +227,11 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
 1. Escribe la entrada de versiones del minor (titular + 3–5 bullets, en español e inglés) en
    `apps/website/src/content/releases.ts`. Si el minor actual del CLI no tiene entrada, falla el
    bloque "release notes" de `landing-inventory.test.ts`.
-2. Bump de la versión en `packages/cli/package.json`.
+2. Bump de la versión en `packages/cli/package.json` **y** en `[workspace.package]` de `Cargo.toml`, y después `cargo update --workspace` (con `--locked`, el build falla hasta actualizar el lock). El binario responde la versión de Cargo, y de ahí la toman los paquetes.
 3. **Re-render obligatorio del espejo** (no es opcional ni un detalle):
 
-
 ```bash
-   bun run --filter navori build && node packages/cli/dist/index.js render --apply
-
-
+   cargo build --release -p navori-cli && target/release/navori-rust render --apply
 ```
    El marcador de cada bloque managed estampa la versión del CLI, así que el bump del paso 2
    desfasa el espejo renderizado de este repo **entero**: medido en 0.6.0 → 0.6.1, **30 archivos**
@@ -251,8 +271,16 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
    Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 6> && git push origin vX.Y.Z`.
    Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
    como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-8. En `main`, tras el merge, `npm publish` desde `packages/cli` (antes `npm login`; `prepack`
-   construye `dist/`). Compruébalo con `npm view navori version`.
+8. En `main`, tras el merge, publica los paquetes que arma `scripts/js/dist-assemble.mjs` con los
+   artefactos de `rust-release.yml` (`npm-packages/*.tgz`), no `packages/cli`: primero los cuatro de
+   plataforma (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`,
+   `navori-linux-x64`) y después `navori` (antes `npm login`). Compruébalo con
+   `npm view navori version`.
+
+   `packaging/legacy.json` fija el CLI de TypeScript congelado (`navori-legacy`) que el paquete corre
+   para la delegación permanente y en plataformas sin binario. Se construye con
+   `dist-assemble.mjs legacy ... --write-pin` y se publica antes del release; el ensamblado verifica
+   su `integrity`. Se cambia solo con una decisión explícita.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en

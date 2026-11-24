@@ -6,6 +6,35 @@
 > engine-specific resources idempotently from a single source of truth (`navori.config.json`),
 > without overwriting your manual work.
 
+## CLI runtime (0.13): Rust binary and frozen TypeScript
+
+- **The CLI is `navori-rust`** ([crates/navori-cli](../crates/navori-cli)), published as the
+  `navori` npm package. Its postinstall puts the platform binary (`navori-<os>-<cpu>`) in place of the
+  `navori`, `navori-native-hook` and `navori-rust` bins when it answers `--version` with the package
+  version ([packaging/npm/lib/install.js](../packaging/npm/lib/install.js)); otherwise the JS bins
+  stay and launch it through Node.
+- **The frozen TypeScript CLI** (`navori-legacy`, pinned in
+  [packaging/legacy.json](../packaging/legacy.json)) ships inside the package as `legacy/`. It answers
+  on platforms without a binary and for the **permanent delegation** of
+  [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs): `master`, `codex`, `workspace`,
+  `ticket` and `registry`, `doctor --json`, and the interactive forms of `sync`, `remove`,
+  `backup restore` and `migrations restore`. A command not declared in
+  [crates/ported.json](../crates/ported.json) is delegated too.
+- **Native hooks.** A hook rendered for a native implementation starts with a signed header,
+  `# navori:native-hook v=1 file=sha256:<rendered script> impl=sha256:<implementation>`, where `impl`
+  hashes the hook's sources under [crates/navori-hooks/src](../crates/navori-hooks/src). The
+  `navori:native-runtime` block that follows runs `navori-rust hook --via-script "$0"` when the binary
+  is on `PATH` and `NAVORI_HOOK_IMPL` is not `shell`:
+  - exit 0, 1 or 2 is the native verdict;
+  - 3, 126 or 127 (deferred, or no binary) falls through to the shell body below;
+  - any other exit gives the hook's safe verdict, so a gating hook never allows on a crash.
+
+  In `shadow` mode the call carries `--shadow`: the shell body decides, and the comparison is
+  journaled in `.navori/state/rust-shadow/`. `crates/ported.json` holds each hook's mode;
+  `rust-manifest-check.mjs` validates every `shadow` → `active` change against an `activate` line in
+  the append-only `crates/ported-history.jsonl`. Headers and hashes are regenerated with
+  `bun run rust:hooks-sync`.
+
 ## 1. Layer model — where content comes from
 
 The five cascading layers (a project design decision) each compose on top of the previous one. `navori.config.json` is the checked-in source of truth and materializes **layer 4 (Project config)**: it declares which preset to use, which workspace to inherit from, and which **plugins** to enable. Plugins are opt-in add-ons *within* Project config, not a separate layer. Layer 5 (Engine adapters) renders resources for the selected engine. The CLI currently includes adapters for Claude Code, Codex, Pi, AGENTS.md, Cursor, and Copilot; each adapter has its own output and supported controls, so this architecture guide does not imply feature parity. (In monorepos, `monorepo.workspaces[]` applies an override per app inside the Project layer.)
