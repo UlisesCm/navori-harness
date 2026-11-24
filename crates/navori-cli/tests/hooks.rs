@@ -283,8 +283,12 @@ mod shadow_dispatch {
             assert_eq!(stdout, expected);
             assert_eq!(stderr, b"shell-only\n\n");
         }
-        // Every embedded hook has the compiled implementation it names, and none answers for the
-        // shell yet: shadow only until its activation is approved (R7, T27).
+        // Every embedded hook has the compiled implementation it names, and answers for the shell
+        // only after an approved activation: anything but shadow needs its `activate` line in the
+        // history (R7, T27; rust-manifest-check owns the transition rules, R79 and R80).
+        let history = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../ported-history.jsonl"),
+        )?;
         let embedded = Manifest::embedded()?;
         for (id, hook) in &embedded.hooks {
             let compiled = navori_cli::hook::NATIVE_HOOKS
@@ -292,7 +296,14 @@ mod shadow_dispatch {
                 .find(|native| native.id == id)
                 .ok_or("embedded hook without a compiled implementation")?;
             assert_eq!(compiled.implementation, hook.r#impl, "{id}");
-            assert_eq!(hook.mode, navori_core::manifest::HookMode::Shadow, "{id}");
+            if hook.mode != navori_core::manifest::HookMode::Shadow {
+                let activation = format!("\"op\":\"activate\",\"id\":\"{id}\"");
+                assert!(
+                    history.contains(&activation),
+                    "{id} is {:?} without an activate line",
+                    hook.mode
+                );
+            }
         }
         Ok(())
     }
