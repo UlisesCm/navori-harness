@@ -245,10 +245,8 @@ describe("spec 0019 — la escalera llega, no solo cabe", () => {
 });
 
 describe("#1455 — ningún preset degrada el contexto de arranque a puntero", () => {
-  // Defaults only (`planTiers` / `masterPlan` off). OPEN DECISION: the planTiers
-  // render overflows today (~316-407 chars over before `30-arranque-sesion`), so
-  // those flags are deliberately not enumerated here; this test bounds navori's
-  // own default prose, not every consumer config.
+  // Defaults only (`planTiers` / `masterPlan` off). The heaviest real consumer
+  // shape (both flags on) is pinned separately below (#1779).
   const coreRoot = getCoreRoot();
   const presets = [
     ...readdirSync(join(coreRoot, "core-assets", "presets"))
@@ -290,6 +288,58 @@ describe("#1455 — ningún preset degrada el contexto de arranque a puntero", (
         }));
       expect(files.length).toBeGreaterThan(0);
       const degraded = simulateContextDelivery(files).filter((r) => r.delivered !== "inline");
+      expect(
+        degraded.map((r) => `${r.path} (${r.chars} chars, ctxCharsBefore=${r.ctxCharsBefore})`),
+        "these context files would reach the model as a pointer, not as a body",
+      ).toEqual([]);
+    },
+  );
+});
+
+describe("#1779 — con planTiers y masterPlan el arranque sigue llegando como cuerpo", () => {
+  // The shape of a real consumer (mf-s6): custom preset, Claude + Pi, SDD, the
+  // four everyday plugins and every harness flag that adds a startup block.
+  // #1779 grew `10-orquestacion` by 379 chars and pushed `30-arranque-sesion`
+  // to a pointer here; that file carries the only audit-mode-on-request trigger
+  // (`audit-mode-trigger.sh` no longer matches the phrase). `20-agentes-disponibles`
+  // already degraded to a pointer before #1779, so it is the one file allowed to.
+  const ALLOWED_POINTER = new Set([".claude/context/20-agentes-disponibles.md"]);
+
+  it.each(["es", "en"] as const)(
+    "%s: ningún archivo de arranque, salvo el catálogo, degrada a puntero",
+    (language) => {
+      const cwd = mkdtempSync(join(tmpdir(), "navori-budget-plantiers-"));
+      renderClaudeEngine(
+        cwd,
+        NavoriConfigSchema.parse({
+          name: "budget-plantiers",
+          engines: ["claude", "pi"],
+          preset: "custom",
+          language,
+          branchBase: "main",
+          qualityGate: { fast: "npm run lint", full: "npm test" },
+          sdd: { enabled: true },
+          plugins: {
+            engram: { enabled: true },
+            codegraph: { enabled: true },
+            gh: { enabled: true },
+            tgrep: { enabled: true },
+          },
+          harness: { planTiers: true, masterPlan: true, authoring: true, scribeOwnsMarkdown: true },
+        }),
+      );
+      const dir = join(cwd, ".claude/context");
+      const files = readdirSync(dir)
+        .filter((f) => f.endsWith(".md"))
+        .sort()
+        .map((f) => ({
+          path: `.claude/context/${f}`,
+          chars: [...readFileSync(join(dir, f), "utf-8").replace(/\n+$/, "")].length,
+        }));
+      expect(files.map((f) => f.path)).toContain(".claude/context/30-arranque-sesion.md");
+      const degraded = simulateContextDelivery(files).filter(
+        (r) => r.delivered !== "inline" && !ALLOWED_POINTER.has(r.path),
+      );
       expect(
         degraded.map((r) => `${r.path} (${r.chars} chars, ctxCharsBefore=${r.ctxCharsBefore})`),
         "these context files would reach the model as a pointer, not as a body",

@@ -1,6 +1,6 @@
 ## Role: orchestrator (route by risk)
 
-You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference, not a subagent.<!-- /navori:if-not -->
+You are the main agent and **embody** the orchestrator: you decompose, coordinate and synthesize, and **NEVER delegate that role** — **do not invoke `Agent(subagent_type: orchestrator)`**.<!-- navori:if-not onPi --> `.claude/agents/orchestrator.md` is a depth reference.<!-- /navori:if-not -->
 
 Route by `navori plan classify <feature>` (level) and critical areas (`{{project.criticalAreas}}`):
 
@@ -11,16 +11,16 @@ Route by `navori plan classify <feature>` (level) and critical areas (`{{project
 | critical area or level ≥ 2 | `implementer` → independent `reviewer` before integrating |
 | answer, investigate, plan, probe | yourself |
 
-- **Evidence in recommendations:** a claim about the repo, config or infrastructure carries `file:line` or the command run this turn; otherwise mark it "unverified" with the reason. A negative ("nothing blocks it", "same as today") names the scope searched (paths + pattern). A subagent's report stays unverified until its load-bearing claims are checked (`verify-before-done`).
+- **Evidence in recommendations:** a repo, config or infrastructure claim cites `file:line` or this turn's command, else it is "unverified" with the reason; a negative names the scope searched; a subagent's report is unverified until its load-bearing claims are checked (`verify-before-done`).
 - One review per PR; minor fixes, a delta review.
 - Checks run once on the final diff; rerun only what a change or failure invalidated. <!-- navori:if-not onCodex -->`{{gateRun.full}}`<!-- /navori:if-not --><!-- navori:if onCodex -->`{{qualityGate.full}}`<!-- /navori:if --> green once per PR.
 - At close: `verify-before-done`'s Session close.
 - Subagent ban: work directly, say so.
 - **Reviewer preflight:** `navori handoff check <feature> --dir .navori/state/handoffs/ --json` must return `"status":"ok"` before dispatching `reviewer`.
-<!-- navori:if scribeOwnsMarkdown -->- Before dispatching `scribe`, run the same check and require `"status":"ok"`.
-<!-- /navori:if --><!-- navori:if scribeOwnsMarkdown --><!-- navori:if-not onPi -->- **Parallel scribe (opt-in):** level-3 specs only, serial default, Codex 0.162.1 only. `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review. https://github.com/UlisesCm/navori-harness/blob/main/docs/scribe-parallel.md
+<!-- navori:if scribeOwnsMarkdown -->- Same check before dispatching `scribe`.
+<!-- /navori:if --><!-- navori:if scribeOwnsMarkdown --><!-- navori:if-not onPi -->- **Parallel scribe (opt-in, Codex 0.162.1, level-3 specs):** `prepare-parallel`; no stage/commit/checkout/render until both producers finish; then `finalize-parallel` + independent review (`docs/scribe-parallel.md`).
 <!-- /navori:if-not --><!-- /navori:if --><!-- navori:if onPi -->- On Pi, you publish, following `.pi/agents/publisher.md`.
-<!-- /navori:if --><!-- navori:if planTiers -->- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `{{qualityGate.fast}}` plus its `A<n>` commands, run from the main thread, foreground; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
+<!-- /navori:if --><!-- navori:if planTiers -->- **Spec with deliveries:** one cycle per milestone `M<n>`, encargo `spec: <spec> E<n> M<n>`; verify with `{{qualityGate.fast}}` plus its `A<n>` commands, in the foreground main thread; `navori receipt gate` decides the gate; publisher commits until the closing milestone.
 <!-- /navori:if -->- Parallel implementers or deliveries need disjoint files (deliveries: own PRs).<!-- navori:if planTiers --> No `implementer` dispatch without plan approval (`planificacion`).<!-- /navori:if -->
 - Independent sub-tasks: ALL `Agent` calls in ONE turn<!-- navori:if-not onPi --> (Claude serializes by default)<!-- /navori:if-not -->; you synthesize.<!-- navori:if-not onPi --> At the turn cap, continue a foreground `Agent` via `SendMessage`. Missing markers or handoffs prove no cap.<!-- /navori:if-not -->
 - Without nested dispatch, run `scout` before `architect`.
