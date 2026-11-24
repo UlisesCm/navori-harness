@@ -37,6 +37,17 @@ en Codex. Al retomar la migración, el código Rust de esos cuatro ya portados
 manifiesto y del binario junto con `master` (enmienda de 0060). Extender `PERMANENT_DELEGATION` y
 `cutover:check` a hooks y a motores es parte de T10.
 
+**Delegación transitoria (enmienda de R20 y T10, 23 nov 2026; decisiones-ulises/2026-11-23-t10-alcance).**
+R20 se lee además "... o en la **delegación transitoria** de `rust-areas.mjs`". Es la lista
+`TRANSITIONAL_DELEGATION`, separada de `PERMANENT_DELEGATION`, con un motivo por entrada. Reúne lo
+que el corte de 0.13.0 deja en el TS congelado (los comandos y banderas sin portar, que se portan por
+demanda según el inventario post-0.13) o en `shadow` (los hooks que solo corren en Claude, si no
+tuvieron tráfico de Claude en la ventana R81; se activan en 0.13.x). Es deuda, no una decisión
+permanente: ninguna entrada repite la lista permanente ni los hooks shell permanentes.
+`cutover:check` no bloquea por ella, pero la lista aparte como `transitional`. Es solo datos: el
+cierre de la ventana ajusta los hooks de la lista (deja los de Claude sin tráfico y quita los que se
+activan) sin rehacer T10.
+
 **Estimado restante** (LOC; referencia gruesa).
 
 | Entrega | Estimado original | Restante antes | Restante después |
@@ -71,6 +82,19 @@ desempacarlo, como antes.
 `crates/ported.json` (`packages/cli/src/lib/render/native-hook.ts:42-60`) y renderiza hooks shell:
 `renderPending: 8` sobre un proyecto al día. Por eso el paquete replica el layout del checkout (D53).
 Con el paquete nuevo, `scripts/js/dist-legacy-smoke.mjs` repite la prueba: 115 pasos, 0 fallos.
+
+## Nota sobre el registro de la activación (2026-11-24)
+
+Los cuatro lotes se activaron el **24 nov 2026**, por orden explícita de Ulises, antes de que
+cerrara la ventana R81 nueva: lote C en #1811, guard en #1823, lote B en #1825 y lote D en #1826.
+La activación salió de esa orden, no del cierre de la ventana que prevén R81 y R82.
+
+Las 11 líneas `activate` de `crates/ported-history.jsonl` (líneas 37-47) no dicen eso. Se
+escribieron para el plan anterior y llevan `"date":"2026-11-26"`, `"pr":1527` y motivos como
+"ventana R81 del 19 al 26 nov sin divergencias" o, en el lote C, "ventana R81 desde el 19 nov sin
+divergencias". No se corrigen porque el historial es de solo agregar: `checkHistory` de
+`scripts/js/rust-manifest-check.mjs:109-115` rechaza cualquier cambio a una línea existente. Para
+esos 11 hooks, esta nota manda sobre la fecha, el PR y el motivo que dicen esas líneas.
 
 ## Contexto
 

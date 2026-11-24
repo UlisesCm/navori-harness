@@ -422,8 +422,8 @@ impl Repo for NoRepo {
     fn is_dir(&self, dir: &str) -> bool {
         dir == "/work"
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
-        false
+    fn holds(&self, _: &str, _: Loss) -> navori_hooks::shell::repo::Holding {
+        navori_hooks::shell::repo::Holding::Clear
     }
     fn toplevel(&self, _: &str) -> Option<String> {
         None

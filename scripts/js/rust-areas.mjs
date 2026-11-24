@@ -182,6 +182,104 @@ export const PERMANENT_SHELL_HOOKS = [
   },
 ];
 
+/** Reason shared by the commands the 0.13.0 cutover leaves on the frozen TS until they are ported. */
+const NOT_PORTED = "sin portar en 0.13.0; se porta por demanda (inventario post-0.13)";
+/** Reason shared by the hooks that leave 0.13.0 in shadow. */
+const NO_CLAUDE_TRAFFIC = "sin tráfico de Claude en la ventana R81; se activan en 0.13.x";
+
+/**
+ * Amendment of R20 and T10 (0062; decision of 23 Nov 2026, 16:30): what the 0.13.0 cutover leaves
+ * on the frozen TS (`commands`, with the semantics of {@link Delegation}) or in shadow (`hooks`)
+ * for now, each with its reason. Unlike `PERMANENT_DELEGATION` it is debt that gets ported or
+ * activated in 0.13.x or later: `cutover:check` does not block on it but lists it apart
+ * (`transitional`). It is data on purpose: the close of the R81 window edits `hooks` (keeps the
+ * Claude-only hooks without traffic, drops the ones it activates) without touching T10.
+ * An entry may not repeat a permanent one.
+ * @type {{ commands: ReadonlyArray<Delegation>, hooks: ReadonlyArray<{ hook: string, reason: string }> }}
+ */
+export const TRANSITIONAL_DELEGATION = {
+  commands: [
+    { path: ["add"], reason: NOT_PORTED },
+    { path: ["configure"], subtree: true, reason: NOT_PORTED },
+    { path: ["gate"], reason: `${NOT_PORTED}; probe y foreign ya son nativos` },
+    { path: ["init"], reason: NOT_PORTED },
+    { path: ["receipt"], subtree: true, reason: NOT_PORTED },
+    { path: ["refresh"], reason: NOT_PORTED },
+    { path: ["update"], reason: NOT_PORTED },
+    { path: ["tools"], reason: `${NOT_PORTED}; notice y session-context ya son nativos` },
+    {
+      path: ["tools", "rust-shadow"],
+      subtree: true,
+      reason: "journal de la sombra; se borra en 0.14 después de activar routing-watch y bash-outcome-watch (orden post-0.13)",
+    },
+    {
+      path: ["audit"],
+      unless: ["arm", "disarm"],
+      reason:
+        "solo --arm y --disarm son nativos; el resto de audit no entra en 0.13 (decisión del 22 nov) y sus cuatro modos de hooks se portan con los hooks que los llaman (inventario post-0.13)",
+    },
+    {
+      path: ["audit"],
+      flags: [
+        "all-repos",
+        "by-engine",
+        "capture-child",
+        "collect",
+        "compare",
+        "consume-arm",
+        "copy-to",
+        "days",
+        "include-human-content",
+        "out",
+        "published-from",
+        "record-metadata",
+        "repo",
+        "rollout",
+        "root",
+        "root-session",
+        "session",
+        "since",
+        "snapshot",
+        "start",
+        "stop",
+        "until",
+      ],
+      reason: "modos de audit sin portar (decisión del 22 nov; inventario post-0.13)",
+    },
+    { path: ["render"], flags: ["all", "prune", "verbose", "workspace"], reason: NOT_PORTED },
+    { path: ["sync"], flags: ["interactive", "workspace"], reason: NOT_PORTED },
+  ],
+  // Batch C (plan-gate, general-purpose-confirm, session-start-context, model-advisor and
+  // pii-egress-guard) left this list when #1811 activated it (Ulises, 24 Nov).
+  hooks: [{ hook: "subagent-stop-handoff", reason: NO_CLAUDE_TRAFFIC }],
+};
+validateTransitional(TRANSITIONAL_DELEGATION);
+
+/**
+ * Throws when a transitional entry is malformed, lacks a reason or repeats a permanent one: debt
+ * and a permanent decision never share an entry.
+ * @param {{ commands: ReadonlyArray<Delegation>, hooks: ReadonlyArray<{ hook: string, reason: string }> }} list
+ */
+export function validateTransitional(list) {
+  validateDelegation(list.commands);
+  for (const entry of list.commands) {
+    const key = entry.path.join(" ");
+    if (typeof entry.reason !== "string" || entry.reason.trim() === "")
+      throw new Error(`TRANSITIONAL_DELEGATION entry "${key}" has no reason`);
+    const repeated =
+      entry.flags === undefined
+        ? entry.unless === undefined && permanentlyDelegated(entry.path, undefined)
+        : entry.flags.some((flag) => permanentlyDelegated(entry.path, flag));
+    if (repeated) throw new Error(`TRANSITIONAL_DELEGATION entry "${key}" repeats PERMANENT_DELEGATION`);
+  }
+  for (const entry of list.hooks) {
+    if (typeof entry.reason !== "string" || entry.reason.trim() === "")
+      throw new Error(`TRANSITIONAL_DELEGATION hook "${entry.hook}" has no reason`);
+    if (permanentShellHook(entry.hook))
+      throw new Error(`TRANSITIONAL_DELEGATION hook "${entry.hook}" repeats PERMANENT_SHELL_HOOKS`);
+  }
+}
+
 /**
  * Whether `PERMANENT_SHELL_HOOKS` (or `list`) keeps hook `id` in shell for good.
  * @param {string} id

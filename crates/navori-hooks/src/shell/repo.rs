@@ -24,12 +24,23 @@ pub enum Loss {
     All,
 }
 
+/// What `_dsc_dirty` finds in a directory a discard targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Holding {
+    /// A git work tree holding what the discard destroys.
+    Holds,
+    /// Nothing to lose, including a directory that is not a git work tree.
+    Clear,
+    /// git could not inspect it (missing, not executable, failing): fail closed.
+    Unknown,
+}
+
 /// Facts the shell reads from the host. Directories are passed as the shell spells them.
 pub trait Repo {
     /// `[ -d dir ]`.
     fn is_dir(&self, dir: &str) -> bool;
-    /// `_dsc_dirty dir kind`: `dir` is a git work tree holding what `loss` destroys.
-    fn holds(&self, dir: &str, loss: Loss) -> bool;
+    /// `_dsc_dirty dir kind`: whether `dir` is a git work tree holding what `loss` destroys.
+    fn holds(&self, dir: &str, loss: Loss) -> Holding;
     /// `git -C dir rev-parse --show-toplevel`, `None` on failure or empty output.
     fn toplevel(&self, dir: &str) -> Option<String>;
     /// `git -C dir rev-parse --show-superproject-working-tree`, `None` on failure.
@@ -321,11 +332,20 @@ impl Repo for System {
         !dir.is_empty() && Path::new(dir).is_dir()
     }
 
-    fn holds(&self, dir: &str, loss: Loss) -> bool {
-        let inside = finish(git_in(dir).args(["rev-parse", "--git-dir"]), false)
-            .is_ok_and(|out| out.status.success());
-        if !inside {
-            return false;
+    fn holds(&self, dir: &str, loss: Loss) -> Holding {
+        match finish(git_in(dir).args(["rev-parse", "--git-dir"]), false) {
+            Err(_) => return Holding::Unknown,
+            Ok(out) if !out.status.success() => {
+                // "Not a work tree" only counts when git itself runs (`git --version`).
+                let usable = finish(Command::new(git()).arg("--version"), false)
+                    .is_ok_and(|out| out.status.success());
+                return if usable {
+                    Holding::Clear
+                } else {
+                    Holding::Unknown
+                };
+            }
+            Ok(_) => {}
         }
         let mut command = git_in(dir);
         match loss {
@@ -337,8 +357,16 @@ impl Repo for System {
             Loss::Untracked => command.args(["ls-files", "--others", "--exclude-standard"]),
             Loss::All => command.args(["ls-files", "--others"]),
         };
-        // `[ -n "$(…)" ]` and `head -n 1` ignore git's exit status.
-        finish(&mut command, true).is_ok_and(|out| out.stdout.iter().any(|b| *b != b'\n'))
+        match finish(&mut command, true) {
+            Ok(out) if out.status.success() => {
+                if out.stdout.iter().any(|b| *b != b'\n') {
+                    Holding::Holds
+                } else {
+                    Holding::Clear
+                }
+            }
+            _ => Holding::Unknown,
+        }
     }
 
     fn toplevel(&self, dir: &str) -> Option<String> {

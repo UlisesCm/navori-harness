@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -82,7 +83,9 @@ function snapshot(dir: string, prefix = ""): string[] {
 }
 
 beforeAll(() => {
-  base = mkdtempSync(join(tmpdir(), "navori-scripts-help-"));
+  // Real path: on macOS tmpdir() is a symlink (/var -> /private/var) and the scripts' entry guard
+  // compares argv[1] with the resolved import.meta.url, so a symlinked path skips main (#1816).
+  base = realpathSync(mkdtempSync(join(tmpdir(), "navori-scripts-help-")));
   root = join(base, "root");
   home = join(base, "home");
   binDir = join(base, "bin");
@@ -164,4 +167,37 @@ describe("scripts/js --help / -h", () => {
     expect(snapshot(root)).toEqual(before);
     expect(readFileSync(callsFile, "utf8")).toBe("");
   });
+});
+
+describe("gen-pi-extension-asset.mjs rejects unknown arguments (#1789)", () => {
+  // Any argument other than --check used to fall through to the write path and rewrite
+  // crates/navori-core/assets/pi/extension.ts.in from whatever dist NAVORI_TS_CLI pointed at.
+  it.each([["--bogus"], ["--check", "--bogus"], ["check"], ["--chek"]])(
+    "%s exits 2, names the argument and writes nothing",
+    (...args) => {
+      const before = snapshot(root);
+      const result = spawnSync(
+        process.execPath,
+        [join(root, "scripts", "js", "gen-pi-extension-asset.mjs"), ...args],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 30_000,
+          env: {
+            PATH: binDir,
+            HOME: home,
+            TMPDIR: join(base, "home"),
+            NAVORI_TS_CLI: join(base, "missing.js"),
+          },
+        },
+      );
+      const bad = args.find((arg) => arg !== "--check");
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(`unknown argument: ${bad}`);
+      expect(result.stderr).toContain("usage: node scripts/js/gen-pi-extension-asset.mjs");
+      expect(snapshot(root)).toEqual(before);
+      expect(readFileSync(callsFile, "utf8")).toBe("");
+    },
+  );
 });

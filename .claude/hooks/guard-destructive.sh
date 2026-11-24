@@ -1,10 +1,10 @@
-# navori:native-hook v=1 file=sha256:ba3a0c678c1d41c4028d4a0740343b1b3311c7319379429d83ef166e8d02338b impl=sha256:edca929eacfc8777e6d6db617fe9991edd6bf27167945c55aaaeabce5e2eb2d5
-# navori:managed start id="guard-destructive-base" hash="19d22a27" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:947161734ea4b93a185f9f2d7f593583a0f6f71d071468e370def2edfe8866cd impl=sha256:9f552f75026991674fb652909e2187aba6c6dc25ca1d2d91b0ba8fc4f9f2a807
+# navori:managed start id="guard-destructive-base" hash="280b1a75" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
   if nv_native=$(command -v navori-rust 2>/dev/null); then
-    nv_out=$(if "$nv_native" hook --via-script "$0" --shadow "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
     nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
     case "$nv_rc" in
       0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
@@ -3216,20 +3216,61 @@ fi
 # makes the segment a candidate; the token walk below decides the real subcommand.
 _dsc_re='^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)'
 _dsc_route="commit the work first (a WIP commit is enough: 'git add -A && git commit -m wip'), or ask the user to run the discard outside the agent."
-segments_dq=$(printf '%s' "$segments" | tr -d "'\")")
+# FORMS OF GIT (#1801). `segments` peeled every assignment prefix, so `GIT_DIR=… git reset`
+# looked like a plain `git reset` in the cwd, and a path (`/usr/bin/git`) or `env git` was not
+# a candidate at all. This pass reads the UNPEELED split instead, and per line: reads `env`,
+# assignments and a `…/git` path as the `git` word; and when `GIT_DIR=`/`GIT_WORK_TREE=` is
+# a prefix of the segment, or an EARLIER segment assigns/exports them (hold space), injects
+# `--git-dir=?` right after `git` — the token walk then blocks it like the real flag.
+# A segment that is not git is then RE-PEELED (leading `VAR=value` stripped, as `segments`
+# did), so the `cd` walk still follows `FOO=1 cd <dir>`. Exception: `tr -d` runs before the
+# peel here (needed to see `"GIT_DIR=x" git`), so `"FOO"=1 cd x` and `F"O"O=1 cd x` now peel
+# too (base did not); shell and native agree.
+# Out of scope, allowed as before: inherited env, sudo, sh -c, eval, and `env` with options
+# (`env -i`, `env -u NAME`, `env --`): known limitation.
+_dsc_w='[[:space:]]'
+_dsc_a='[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*'
+_dsc_g='(GIT_DIR|GIT_WORK_TREE)='
+_dsc_pre="^((env|${_dsc_a})${_dsc_w}+)*"
+_dsc_word='([^[:space:]=]*\/)?git([[:space:]]|$)'
+_dsc_sed="s/^${_dsc_w}+//
+/^(export|declare|typeset|readonly|local)(${_dsc_w}+[^[:space:]]+)*${_dsc_w}+${_dsc_g}/H
+/^(${_dsc_a}${_dsc_w}+)*${_dsc_g}[^[:space:]]*(${_dsc_w}+${_dsc_a})*${_dsc_w}*\$/H
+/${_dsc_pre}${_dsc_g}/s/${_dsc_pre}${_dsc_word}/git --git-dir=?\\4/
+s/${_dsc_pre}${_dsc_word}/git\\4/
+/^git([[:space:]]|\$)/{
+x
+/./{
+x
+s/^git/git --git-dir=?/
+b
+}
+x
+}
+:p
+s/^${_dsc_a}(${_dsc_w}+|\$)//
+tp"
+segments_dq=$(printf '%s' "$_split" | tr -d "'\")" | sed -E -e "$_dsc_sed")
 _dsc_cands=$(printf '%s' "$segments_dq" | grep -E "$_dsc_re" || true)
 if [ -n "$_dsc_cands" ]; then
   if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then
     block "too many discard commands to inspect (> 16) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
-  # $1 dir · $2 tracked|untracked|all — succeeds when the dir holds what would be lost.
+  # $1 dir · $2 tracked|untracked|all — 0 when the dir holds what would be lost, 1 when it
+  # holds nothing (a non-work-tree included), 2 when git cannot inspect it (fail closed).
   _dsc_dirty() {
-    git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    if ! git -C "$1" rev-parse --git-dir >/dev/null 2>&1; then
+      # "Not a work tree" only counts when git itself runs.
+      git --version >/dev/null 2>&1 && return 1
+      return 2
+    fi
+    _dsc_out=""
     case "$2" in
-      tracked) [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null)" ] ;;
-      untracked) [ -n "$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ] ;;
-      *) [ -n "$(git -C "$1" ls-files --others 2>/dev/null | head -n 1)" ] ;;
+      tracked) _dsc_out=$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null) || return 2 ;;
+      untracked) _dsc_out=$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null) || return 2 ;;
+      *) _dsc_out=$(git -C "$1" ls-files --others 2>/dev/null) || return 2 ;;
     esac
+    [ -n "$_dsc_out" ]
   }
   # $1 base dir · $2 operand → the directory it names, or `?` when it is not literal.
   _dsc_resolve() {
@@ -3307,7 +3348,13 @@ if [ -n "$_dsc_cands" ]; then
       block "git ${_dsc_sub} discards work and its target directory cannot be inspected (variable, substitution, missing or unresolved path)" unspecified \
         "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
     fi
-    if _dsc_dirty "$_dsc_dir" "$_dsc_kind"; then
+    _dsc_rc=0
+    _dsc_dirty "$_dsc_dir" "$_dsc_kind" || _dsc_rc=$?
+    if [ "$_dsc_rc" = 2 ]; then
+      block "git ${_dsc_sub} discards work and its target directory cannot be inspected (the repository tool is missing, not executable or failing)" unspecified \
+        "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
+    fi
+    if [ "$_dsc_rc" = 0 ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"

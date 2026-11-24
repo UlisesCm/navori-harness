@@ -19,7 +19,7 @@ use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::hook_input::{self, Host};
 use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{self, EmailRead, Unverifiable};
-use navori_hooks::shell::repo::{Loss, Repo, System};
+use navori_hooks::shell::repo::{Holding, Loss, Repo, System};
 use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -38,9 +38,9 @@ impl Repo for NoState {
     }
 
     /// That dir is not a git work tree, so a discard there holds nothing (as `System::holds`).
-    fn holds(&self, dir: &str, loss: Loss) -> bool {
+    fn holds(&self, dir: &str, loss: Loss) -> Holding {
         assert!(dir == NONE, "corpus case asks whether {dir} holds {loss:?}");
-        false
+        Holding::Clear
     }
 
     /// Every case runs outside a git repository (the progress lane, the other reader, is off).
@@ -816,9 +816,9 @@ impl Repo for Stuck {
         true
     }
 
-    fn holds(&self, _: &str, _: Loss) -> bool {
+    fn holds(&self, _: &str, _: Loss) -> Holding {
         self.call(Stall::Holds);
-        false
+        Holding::Clear
     }
 
     fn toplevel(&self, _: &str) -> Option<String> {
@@ -867,7 +867,7 @@ impl Repo for Panicky {
     fn is_dir(&self, _: &str) -> bool {
         panic!("rule exploded");
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
+    fn holds(&self, _: &str, _: Loss) -> Holding {
         panic!("rule exploded");
     }
     fn toplevel(&self, _: &str) -> Option<String> {
@@ -1002,5 +1002,420 @@ fn a_panicking_rule_is_an_error_never_a_permit() -> TestResult {
         "{}",
         failure.0
     );
+    Ok(())
+}
+
+/// A `Repo` whose rule-7 read answers a fixed [`Holding`] for an existing directory.
+struct Fixed(Holding);
+
+impl Repo for Fixed {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, _: &str, _: Loss) -> Holding {
+        self.0
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// A `Repo` where only `/dirty` holds work; every directory exists.
+struct ByDir;
+
+impl Repo for ByDir {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(&self, dir: &str, _: Loss) -> Holding {
+        if dir == "/dirty" {
+            Holding::Holds
+        } else {
+            Holding::Clear
+        }
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// `command` run from `cwd` under `locale`, where only `/dirty` holds work: whether it blocks.
+fn blocked_at(command: &str, cwd: &str, locale: Locale) -> Result<bool, Box<dyn Error>> {
+    let mut context = plain_context()?;
+    context.profile.locale = locale;
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": cwd,
+        "tool_input": { "command": command },
+    })
+    .to_string();
+    let evaluation = entry::evaluate_until(
+        payload.as_bytes(),
+        &context,
+        ByDir,
+        Deadline::from_env(None, Instant::now()),
+    )?;
+    Ok(evaluation.verdict == Verdict::Block)
+}
+
+/// #1801 round 3: assignment prefixes of a non-git segment are peeled again, so the `cd` walk
+/// follows `FOO=1 cd <dir>` as on base; `export` matches only at a token start.
+#[test]
+fn rule_7_follows_cd_behind_assignments() -> TestResult {
+    let utf8 = Locale::Utf8;
+    let deny_from_clean = [
+        "FOO=1 cd /dirty && git reset --hard",
+        "FOO=1 BAR=2 cd /dirty && git reset --hard",
+        "GIT_DIR=x FOO=1 cd /dirty && git reset --hard",
+        // Documented exception: quotes are dropped before the peel.
+        "\"FOO\"=1 cd /dirty && git reset --hard",
+        "F\"O\"O=1 cd /dirty && git reset --hard",
+    ];
+    for command in deny_from_clean {
+        assert!(blocked_at(command, "/work", utf8)?, "{command}");
+    }
+    // Base behaviour: `env` is not peeled, so the cd is not followed.
+    assert!(!blocked_at(
+        "env FOO=1 cd /dirty && git reset --hard",
+        "/work",
+        utf8
+    )?);
+    assert!(!blocked_at(
+        "FOO=1 cd /clean && git reset --hard",
+        "/dirty",
+        utf8
+    )?);
+    for command in [
+        "export MY_GIT_DIR=x; git reset --hard",
+        "export FOO=GIT_DIR=x; git reset --hard",
+        "FOO=GIT_DIR=x git reset --hard",
+    ] {
+        assert!(!blocked_at(command, "/work", utf8)?, "{command}");
+    }
+    assert!(blocked_at(
+        "export A=1 GIT_DIR=x; git reset --hard",
+        "/work",
+        utf8
+    )?);
+    Ok(())
+}
+
+/// U+2000 is a blank in the UTF-8 locales and not in `C`: `GIT_DIR=x<U+2000>git` is a prefix
+/// only where the blank class says so, as the shell's `sed` decides.
+#[test]
+fn rule_7_blank_class_follows_the_locale() -> TestResult {
+    let command = "GIT_DIR=x\u{2000}git reset --hard";
+    assert!(blocked_at(command, "/work", Locale::Utf8)?);
+    assert!(blocked_at(command, "/work", Locale::GnuUtf8)?);
+    assert!(!blocked_at(command, "/work", Locale::C)?);
+    Ok(())
+}
+
+/// The anchored `export` match stays linear on a long line (nested `*` in the shell's regex).
+#[test]
+fn rule_7_export_line_stays_fast() -> TestResult {
+    let command = format!("export {} ; git reset --hard", "A=1 ".repeat(3000));
+    let started = Instant::now();
+    assert!(!blocked_at(&command, "/work", Locale::Utf8)?);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+/// `git reset --hard` in an existing directory, rule 7 reading `holding`: the stderr, or `None`
+/// when it is allowed.
+fn discard_verdict(holding: Holding) -> Result<Option<String>, Box<dyn Error>> {
+    let context = plain_context()?;
+    let payload =
+        br#"{"tool_name":"Bash","cwd":"/work","tool_input":{"command":"git reset --hard"}}"#;
+    let started = Instant::now();
+    let evaluation = entry::evaluate_until(
+        payload,
+        &context,
+        Fixed(holding),
+        Deadline::from_env(None, started),
+    )?;
+    Ok((evaluation.verdict == Verdict::Block)
+        .then(|| String::from_utf8_lossy(&evaluation.stderr).into_owned()))
+}
+
+/// #1776: a Repo that cannot inspect the directory blocks like an uninspectable directory;
+/// a clean one allows and one holding work blocks with its own message.
+#[test]
+fn rule_7_fails_closed_when_git_cannot_inspect() -> TestResult {
+    assert_eq!(discard_verdict(Holding::Clear)?, None);
+    let holds = discard_verdict(Holding::Holds)?.ok_or("holds must block")?;
+    assert!(
+        holds.contains("git reset would discard uncommitted work"),
+        "{holds}"
+    );
+    let unknown = discard_verdict(Holding::Unknown)?.ok_or("unknown must block")?;
+    assert!(
+        unknown.contains(
+            "git reset discards work and its target directory cannot be inspected (the repository tool is missing"
+        ),
+        "{unknown}"
+    );
+    assert!(
+        unknown.contains("use a literal existing directory"),
+        "{unknown}"
+    );
+    Ok(())
+}
+
+/// `command` in an existing directory, rule 7 reading `holding`: whether it is blocked.
+fn blocked(command: &str, holding: Holding) -> Result<bool, Box<dyn Error>> {
+    let context = plain_context()?;
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": "/work",
+        "tool_input": { "command": command },
+    })
+    .to_string();
+    let evaluation = entry::evaluate_until(
+        payload.as_bytes(),
+        &context,
+        Fixed(holding),
+        Deadline::from_env(None, Instant::now()),
+    )?;
+    Ok(evaluation.verdict == Verdict::Block)
+}
+
+/// #1801: git as a path, behind `env` or escaped is a rule-7 candidate, and a `GIT_DIR`/
+/// `GIT_WORK_TREE` written in the command (prefix or an earlier segment) makes the directory
+/// uninspectable, so it blocks even when the inspected directory is clean.
+#[test]
+fn rule_7_reads_other_forms_of_git() -> TestResult {
+    let uninspectable = [
+        "GIT_DIR=/r/.git GIT_WORK_TREE=/r git -C /n reset --hard",
+        "GIT_WORK_TREE=/r GIT_DIR=/r/.git git -C /n checkout -- .",
+        "export GIT_DIR=/r/.git; git -C /n reset --hard",
+        "GIT_DIR=/r/.git; git -C /n reset --hard",
+        "declare -x GIT_WORK_TREE=/r && git -C /n clean -fd",
+        "env GIT_DIR=/r/.git git -C /n reset --hard",
+        "GIT_DIR=/r/.git /usr/bin/git -C /n reset --hard",
+        "git -C /n --git-dir=/r/.git reset --hard",
+    ];
+    for command in uninspectable {
+        assert!(blocked(command, Holding::Clear)?, "{command}");
+    }
+    let holds = [
+        "git reset --hard",
+        "/usr/bin/git reset --hard",
+        "./git reset --hard",
+        "/usr/bin/git -C /r clean -fd",
+        "env git reset --hard",
+        "env FOO=1 git reset --hard",
+        "\\git reset --hard",
+        "FOO=1 git reset --hard",
+        "command git reset --hard",
+    ];
+    for command in holds {
+        assert!(blocked(command, Holding::Holds)?, "{command}");
+        assert!(!blocked(command, Holding::Clear)?, "{command} on clean");
+    }
+    let allowed = [
+        "/usr/bin/git status",
+        "env git status",
+        "GIT_DIR=/r/.git git status",
+        "export GIT_DIR=/r/.git; git status",
+        "export FOO=1; git reset --soft HEAD~1",
+        "sudo git reset --hard",
+        "sh -c 'git reset --hard'",
+        "eval git reset --hard",
+        "/usr/bin/mygit reset --hard",
+    ];
+    for command in allowed {
+        assert!(!blocked(command, Holding::Holds)?, "{command}");
+    }
+    Ok(())
+}
+
+const PROBE_DIR: &str = "NAVORI_HOLDS_PROBE_DIR";
+
+/// Child half of [`system_holds_under`]: `System` caches its `git` per process, so each PATH
+/// variant needs its own. A no-op unless the parent sets [`PROBE_DIR`].
+#[test]
+fn system_holds_probe_child() {
+    if let Some(dir) = std::env::var_os(PROBE_DIR) {
+        let dir = dir.to_string_lossy().into_owned();
+        println!("HOLDING={:?}", System.holds(&dir, Loss::Tracked));
+    }
+}
+
+/// `System::holds(dir, Tracked)` in a child process whose `PATH` is `path`.
+fn system_holds_under(path: &str, dir: &Path) -> Result<String, Box<dyn Error>> {
+    let mut child = std::process::Command::new(std::env::current_exe()?);
+    hermetic(&mut child, path, dir)
+        .args([
+            "--exact",
+            "system_holds_probe_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(PROBE_DIR, dir);
+    let out = child.output()?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    text.split_once("HOLDING=")
+        .map(|(_, rest)| rest.lines().next().unwrap_or_default().to_owned())
+        .ok_or_else(|| format!("child printed no verdict: {text}").into())
+}
+
+/// A clean environment for `command`: only `path`, a scratch `HOME` and no system or global git
+/// configuration, so neither the user's gitconfig nor an inherited `GIT_DIR`/`GIT_INDEX_FILE`
+/// can reach the real repository (as `navori-cli/tests/quality_gate_git.rs` does).
+fn hermetic<'a>(
+    command: &'a mut std::process::Command,
+    path: &str,
+    home: &Path,
+) -> &'a mut std::process::Command {
+    command
+        .env_clear()
+        .env("PATH", path)
+        .env("HOME", home)
+        .env("LC_ALL", "C")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+}
+
+/// Removes the scratch dirs a test created, also when it fails half way.
+struct Cleanup(Vec<PathBuf>);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        for dir in &self.0 {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
+
+fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let dir = std::env::temp_dir().join(format!("navori-holds-{}-{name}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn git_ok(dir: &Path, args: &[&str]) -> TestResult {
+    let mut git = std::process::Command::new("git");
+    hermetic(&mut git, &std::env::var("PATH")?, dir)
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+        .args(args);
+    let status = git.status()?;
+    assert!(status.success(), "git {args:?}");
+    Ok(())
+}
+
+/// A fake `git` in its own dir: `body` as the script, with `mode` permissions.
+fn fake_git(name: &str, body: &str, mode: u32) -> Result<String, Box<dyn Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch(name)?;
+    let git = dir.join("git");
+    fs::write(&git, body)?;
+    fs::set_permissions(&git, fs::Permissions::from_mode(mode))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// #1776 through `System`: only a git that runs can say "nothing to lose"; a missing,
+/// non-executable or failing git is `Unknown`, and a repo's dirty/clean state is unchanged.
+#[test]
+fn system_holds_is_unknown_when_git_is_unusable() -> TestResult {
+    let real = std::env::var("PATH")?;
+    let names = [
+        "repo",
+        "plain",
+        "empty-path",
+        "noexec",
+        "fails",
+        "status-fails",
+    ];
+    let _cleanup = Cleanup(
+        names
+            .iter()
+            .map(|name| {
+                std::env::temp_dir().join(format!("navori-holds-{}-{name}", std::process::id()))
+            })
+            .collect(),
+    );
+    let repo = scratch("repo")?;
+    git_ok(&repo, &["init", "-q"])?;
+    fs::write(repo.join("f"), "a")?;
+    git_ok(&repo, &["add", "f"])?;
+    git_ok(&repo, &["commit", "-qm", "init"])?;
+    assert_eq!(system_holds_under(&real, &repo)?, "Clear");
+    fs::write(repo.join("f"), "b")?;
+    assert_eq!(system_holds_under(&real, &repo)?, "Holds");
+
+    let plain = scratch("plain")?;
+    assert_eq!(system_holds_under(&real, &plain)?, "Clear");
+
+    let empty = scratch("empty-path")?;
+    let missing = empty.to_string_lossy().into_owned();
+    assert_eq!(system_holds_under(&missing, &repo)?, "Unknown");
+    let noexec = fake_git("noexec", "#!/bin/sh\nexec /usr/bin/git \"$@\"\n", 0o644)?;
+    assert_eq!(system_holds_under(&noexec, &repo)?, "Unknown");
+    let fails = fake_git("fails", "#!/bin/sh\nexit 128\n", 0o755)?;
+    assert_eq!(system_holds_under(&fails, &repo)?, "Unknown");
+    assert_eq!(system_holds_under(&fails, &plain)?, "Unknown");
+    // Usable for rev-parse and `--version`, failing on status.
+    let status_fails = fake_git(
+        "status-fails",
+        "#!/bin/sh\ncase \"$*\" in *status*) exit 1 ;; esac\nexec /usr/bin/git \"$@\"\n",
+        0o755,
+    )?;
+    assert_eq!(system_holds_under(&status_fails, &repo)?, "Unknown");
     Ok(())
 }

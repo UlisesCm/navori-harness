@@ -6,6 +6,8 @@ Revisión 2 (20 nov): incluye las correcciones de la revisión de S3 (`coordinac
 
 Revisión 3 (23 nov): agrega lo que queda fuera de 0.13 (sección "Fuera de 0.13"), según `decisiones-ulises/2026-11-23-0910` y `decisiones-ulises/2026-11-23-0925`.
 
+Cierre del 23 nov: el estado de las tres sesiones, los PRs abiertos y los seguimientos posteriores a 0.13 (#1776, #1774, #1783, #1794) están en [`estado-sesiones-2026-11-23.md`](estado-sesiones-2026-11-23.md).
+
 Fuentes:
 - `scripts/js/rust-areas.mjs` (`AREAS`, `PERMANENT_DELEGATION`, `PERMANENT_SHELL_HOOKS`);
 - `scripts/js/cutover-check.mjs`;
@@ -139,6 +141,16 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   - por sesión (mediana / p90), 0,3 / 1,1 s en Claude y 1,2 / 3,2 s en Pi;
   - carriles caros: ~0,25 s cada vez que Bash corre un criterio de aceptación (huella del árbol) y +30 ms en el Bash exitoso que sigue a un fallo (`node -e`, 9 % de las llamadas en Claude).
   - En 0.13 entra solo #1793: el primer filtro del token de escritura deja de mirar la salida del comando (24,8 % de los Bash de Claude eran falsos positivos; Pi no está afectado). **#1794 (huella del árbol completo al correr un criterio, 246 ms) queda fuera de 0.13** (`decisiones-ulises/2026-11-23-1325`): el arreglo toca la huella que decide si `plan update` acepta un criterio y necesita una prueba de paridad con `fingerprintTree`.
+- **Limitaciones conocidas de `guard-destructive` en 0.13** (regla 7: descartes `git reset`, `checkout`, `restore` y `clean`; `decisiones-ulises/2026-11-23-1615`). La regla evalúa el comando tal como está escrito. Estas formas no se bloquean, ni en el shell ni en el nativo (verificado el 23 nov sobre un repo con cambios sin commitear):
+  - `GIT_DIR`/`GIT_WORK_TREE` heredados del entorno del shell del agente, sin escribirse en el comando. Ejemplo: con `export GIT_DIR=~/proyecto/.git` en el `~/.bashrc`, `git -C /tmp reset --hard` descarta en `~/proyecto` y la regla ve `/tmp`.
+  - git detrás de `sudo`. Ejemplo: `sudo git reset --hard`.
+  - git dentro de un shell anidado. Ejemplo: `sh -c 'git reset --hard'`.
+  - git dentro de `eval`. Ejemplo: `eval git reset --hard`.
+  - git detrás de `env` con opciones. Ejemplo: `env -i git reset --hard`, `env -u X git …` o `env -- git …`.
+
+  Cada una necesita otro modelo (leer el entorno del shell del agente o interpretar un comando anidado), así que van después del release. Las formas de #1801 entraron en 0.13 con #1818: `GIT_DIR`/`GIT_WORK_TREE` como prefijo o exportadas en el mismo comando, y git con ruta, escapado o detrás de `env` sin opciones.
+
+  Bloqueo de más, en fallo cerrado (segunda revisión de #1818; verificado el 24 nov en el shell y en el nativo): un `GIT_DIR` exportado o asignado en un segmento anterior sigue contando aunque un segmento posterior lo quite. Ejemplo: `export GIT_DIR=x; unset GIT_DIR; git reset --hard` (o `GIT_DIR=;` en lugar de `unset`) bloquea en un repo limpio. El arreglo, si hace falta, va después del release.
 
 ## Deuda de `audit` tras 0.13
 

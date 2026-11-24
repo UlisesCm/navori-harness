@@ -1,0 +1,7 @@
+{
+  "Guard (1.ª ventana, evidencia)": ["guard-destructive"],
+  "B (1.ª ventana, evidencia)": ["quality-gate-pre-commit", "subagent-no-background", "implementer-no-markdown"],
+  "D (1.ª ventana, evidencia)": ["comment-draft-confirm", "pr-publisher-confirm"],
+  "C (1.ª ventana, evidencia; solo Claude)": ["plan-gate", "general-purpose-confirm", "session-start-context", "model-advisor", "pii-egress-guard"],
+  "subagent-stop-handoff (1.ª ventana, evidencia; punto 8)": ["subagent-stop-handoff"]
+}

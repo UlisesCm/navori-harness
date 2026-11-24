@@ -1,0 +1,8 @@
+{
+  "guard-destructive|pi|2026-11-19T22:41:12.165Z": "interrupción probable de una sesión de pi",
+  "implementer-no-markdown|pi|2026-11-19T23:33:46.750Z": "bridge de Pi: un hook hermano bloqueó primero y runBridge mató el grupo antes del complete",
+  "pr-publisher-confirm|pi|2026-11-21T17:15:37.255Z": "hermano abortado: en la misma llamada de Pi comment-draft-confirm agotó su plazo de 10 s (transcript de S1 2026-11-21T16-52-56-712Z_01a1ff06, bash 17:15:11.555Z→17:15:40.025Z, 'timed out after 10000 ms'); asociación por intervalo, el journal no guarda sesión",
+  "pr-publisher-confirm|pi|2026-11-21T17:16:02.687Z": "plazo propio de 10 s agotado: llamada de Pi bloqueada por plazo agotado de pr-publisher-confirm (transcript de S1 2026-11-21T16-52-56-712Z_01a1ff06, bash 17:15:53.409Z→17:16:19.383Z, 'timed out after 10000 ms'); asociación por intervalo, el journal no guarda sesión",
+  "quality-gate-pre-commit|pi|2026-11-21T17:16:01.460Z": "hermano abortado: llamada de Pi bloqueada por plazo agotado de pr-publisher-confirm (transcript de S1 2026-11-21T16-52-56-712Z_01a1ff06, bash 17:15:53.409Z→17:16:19.383Z, 'timed out after 10000 ms'); asociación por intervalo, el journal no guarda sesión",
+  "guard-destructive|pi|2026-11-21T17:16:12.761Z": "hermano abortado: llamada de Pi bloqueada por plazo agotado de pr-publisher-confirm (transcript de S1 2026-11-21T16-52-56-712Z_01a1ff06, bash 17:15:53.409Z→17:16:19.383Z, 'timed out after 10000 ms'); asociación por intervalo, el journal no guarda sesión"
+}
