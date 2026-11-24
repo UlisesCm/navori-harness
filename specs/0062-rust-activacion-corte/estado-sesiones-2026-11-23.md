@@ -2,6 +2,8 @@
 
 Cierre ordenado por Ulises el 23 nov (~18:10 CST) para seguir desde otra PC. Este documento junta lo que estaba repartido entre la memoria de engram (punteros `coordinacion/rust-0.13/sesion-1`, `-2` y `-3`) y los archivos locales de `.navori/state/handoffs/`, que git ignora y no viajan.
 
+Para retomar desde otra máquina, lee después [`continuar-desde-otra-pc.md`](continuar-desde-otra-pc.md): qué viaja, cómo preparar la Mac, qué solo se puede hacer en la PC Linux (la ventana R81) y cómo relanzar la vigilancia.
+
 Las copias de esos archivos locales están en [`handoffs-2026-11-23/`](handoffs-2026-11-23/). Son una foto del 23 nov: rutas de `~/.cache/navori-rust/` y nombres de worktrees se refieren a la PC Linux.
 
 ## Puntas y fechas
@@ -73,7 +75,7 @@ Las copias de esos archivos locales están en [`handoffs-2026-11-23/`](handoffs-
 **Pendientes, en orden.**
 1. La mañana del 26: lista de comprobación del runbook y `navori gate full` sobre la punta, sin carga ajena (S3 lo corre).
 2. Tabla de cierre de la ventana R81 actual después de las 17:16 del 26, con la nota del lote C (33 filas de la prueba).
-3. Vigilancia: `s3-shadow-watch`, `s3-vigila` y `s3-target-watch` (unidades de usuario en la PC Linux).
+3. Vigilancia: `s3-shadow-watch`, `s3-vigila` y `s3-target-watch` (unidades de usuario en la PC Linux). **Al cierre estaban inactivas**; para relanzarlas, ver la guía, sección 5. La última ronda (19:03) dio `div=1 nf=0 sf=0 pend=5`, igual que la línea base.
 4. Autoría del `cargo test` del 21 nov: sin confirmar (S1 y S2 no respondieron); esa parte de #1774 sigue abierta.
 5. #1783: opción 2 y después la 5, después del 26.
 6. 0065: cada PR de la fase 1 se parte en a/b porque la spec pone el TS en `dev`. Clasificación: PR 1 nivel 2 (piso de contrato compartido), PR 2 nivel 1 (score 7), PR 3 nivel 2 (score 8 y piso PII). Ulises decide el orden; no se implementa antes de su aprobación.
