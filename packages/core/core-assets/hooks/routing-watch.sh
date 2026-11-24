@@ -254,7 +254,17 @@ if [ "$tool" = "Bash" ]; then
   if [ "${#payload}" -gt 1048576 ] && [ "${_nv_pf_loaded:-0}" = 1 ] && [ "$payload" = "${_nv_pf_src:-}" ]; then
     navori_has_write_token "${_nv_pf_tool_input__command:-}" || exit 0
   else
-    navori_has_write_token "${payload:-}" || exit 0
+    # The tool output is not the command: a `>` that only the output carries
+    # must not make this call pay the stamp path. Probe what precedes
+    # "tool_response": when that prefix holds "tool_input":; otherwise (Pi has
+    # no tool_response; some engine may order it first) the whole payload. Rung
+    # 2 still decides the verdict, so this only narrows who reaches it.
+    probe=${payload%%\"tool_response\":*}
+    case "$probe" in
+      *'"tool_input":'*) ;;
+      *) probe=${payload:-} ;;
+    esac
+    navori_has_write_token "$probe" || exit 0
   fi
 fi
 

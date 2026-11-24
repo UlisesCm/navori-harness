@@ -608,6 +608,56 @@ describe("shell writes reach the threshold too (#722)", () => {
     expect(runs.every((r) => r.stdout === "")).toBe(true);
   });
 
+  it("rung 1 sondea solo lo previo a tool_response (#1793)", () => {
+    const stampOf = (cwd: string): string => join(stampDirFor(cwd), SESSION);
+    const four = (
+      mk: (cmd: string, out: string) => Record<string, unknown>,
+      out: string,
+    ): HookRun[] =>
+      play([
+        mk("echo x > src/a.ts", out),
+        mk("echo x > src/b.ts", out),
+        mk("echo x > src/c.ts", out),
+        mk("echo x > src/d.ts", out),
+      ]);
+
+    // '>' only in the output: leaves at rung 1, no stamp is ever created.
+    acrossShells((shell) => {
+      const cwd = freshProject();
+      for (const cmd of ["git log --graph", "ls -la", "cat notas.txt"]) {
+        expect(runHook(shell, cwd, bashWithOutput(cmd, "| > merged\n")).stdout).toBe("");
+      }
+      expect(existsSync(stampOf(cwd))).toBe(false);
+      return [];
+    });
+
+    // '>' in the command and empty output: counted.
+    expect(four(bashWithOutput, "")[3]?.stdout).toContain("4 distinct files");
+    // '>' in both: counted.
+    expect(four(bashWithOutput, "a > b\n")[3]?.stdout).toContain("4 distinct files");
+
+    // tee / sed -i in the command, output carrying '>': counted.
+    const mixed = play([
+      bashWithOutput("cat p | tee src/a.ts", "x > y"),
+      bashWithOutput("sed -i '' 's/a/b/' src/b.ts", "> z"),
+      bashWithOutput("cat p | tee src/c.ts", "> w"),
+      bashWithOutput("sed -i '' 's/a/b/' src/d.ts", "->"),
+    ]);
+    expect(mixed[3]?.stdout).toContain("4 distinct files");
+
+    // No tool_response (Pi shape): same as today.
+    expect(four((c) => bash(c), "")[3]?.stdout).toContain("4 distinct files");
+
+    // tool_response BEFORE tool_input: the whole payload is probed, still counted.
+    const reordered = (cmd: string): Record<string, unknown> => ({
+      session_id: SESSION,
+      tool_name: "Bash",
+      tool_response: { stdout: "", stderr: "", interrupted: false },
+      tool_input: { command: cmd },
+    });
+    expect(four((c) => reordered(c), "")[3]?.stdout).toContain("4 distinct files");
+  });
+
   it("sigue contando las formas de escritura reales, una por una", () => {
     // The superset property of the probe, stated as cases: each of these MUST
     // survive both rungs, because each one names a source file the extraction
