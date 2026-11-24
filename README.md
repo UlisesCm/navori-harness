@@ -115,8 +115,10 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
 
 - Nothing to change in your repository. After `npm i -g navori@0.13`, `navori --version` must print `0.13.0`.
 - The CLI is now a native binary for macOS (arm64, x64) and Linux (arm64, x64). npm installs it through an optional platform package (`navori-<os>-<cpu>`). On other platforms the package runs the frozen TypeScript CLI that ships inside it.
-- `master`, `codex`, `workspace`, `ticket` and `registry` still run on that frozen TypeScript CLI, as do a few interactive forms (`sync` without a non-interactive flag, `remove` and the `restore` commands without `--yes`, `doctor --json`). You do not need to install anything else.
-- The hooks that `crates/ported.json` marks `active` decide natively in Claude Code and Pi when `navori-rust` is on `PATH` (the package installs it); otherwise their rendered shell body runs, with the same verdicts. The other hooks keep running their shell body.
+- Some commands still run on that frozen TypeScript CLI; you do not need to install anything else:
+  - for good: `master`, `codex`, `workspace`, `ticket` and `registry`, plus a few interactive forms (`sync` without a non-interactive flag, `remove` and the `restore` commands without `--yes`, `doctor --json`);
+  - for now, until they are ported: `init`, `add`, `configure`, `update`, `refresh`, `receipt`, most of `gate` and `tools`, `audit` except `--arm`/`--disarm`, and some flags of `render` and `sync` (`TRANSITIONAL_DELEGATION` in `scripts/js/rust-areas.mjs`).
+- The hooks that `crates/ported.json` marks `active` decide natively in Claude Code and Pi when the platform binary is installed; otherwise their rendered shell body runs, with the same verdicts. The other hooks keep running their shell body.
 
 ## Migrating to 0.12
 
@@ -186,7 +188,7 @@ cargo test --workspace --locked
 bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
 
-The Rust toolchain is pinned in `rust-toolchain.toml` (1.99.1, with the four release targets). After changing `crates/navori-hooks`, run `bun run rust:hooks-sync`: it rewrites the stale hashes in `crates/ported.json` and the native-hook headers, then re-renders; `bun run rust:hooks-sync --check` writes nothing and fails when something is stale.
+The Rust toolchain is pinned in `rust-toolchain.toml` (1.99.1, with the four release targets). After changing `crates/navori-hooks`, run `bun run rust:hooks-sync`: it rewrites the stale hashes in `crates/ported.json` and the native-hook headers, re-renders and runs `cargo install` (`--no-install` builds instead of installing); `bun run rust:hooks-sync --check` writes nothing and fails when something is stale.
 
 **Quality gate**: run `bun check` from the repository root. It aliases `qualityGate.full` in `navori.config.json`, the **only place** where the gate is defined. The managed blocks in `CLAUDE.md` and the command run by `publisher` come from there. Do not copy it into another file: a second copy will drift.
 

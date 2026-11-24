@@ -18,15 +18,17 @@
   on platforms without a binary and for the **permanent delegation** of
   [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs): `master`, `codex`, `workspace`,
   `ticket` and `registry`, `doctor --json`, and the interactive forms of `sync`, `remove`,
-  `backup restore` and `migrations restore`. A command not declared in
-  [crates/ported.json](../crates/ported.json) is delegated too.
+  `backup restore` and `migrations restore`. For now it also answers the **transitional
+  delegation** of the same file (`TRANSITIONAL_DELEGATION`: commands and flags not ported yet). An
+  invocation that matches no entry of [crates/ported.json](../crates/ported.json) is delegated too.
 - **Native hooks.** A hook rendered for a native implementation starts with a signed header,
   `# navori:native-hook v=1 file=sha256:<rendered script> impl=sha256:<implementation>`, where `impl`
   hashes the hook's sources under [crates/navori-hooks/src](../crates/navori-hooks/src). The
   `navori:native-runtime` block that follows runs `navori-rust hook --via-script "$0"` when the binary
   is on `PATH` and `NAVORI_HOOK_IMPL` is not `shell`:
   - exit 0, 1 or 2 is the native verdict;
-  - 3, 126 or 127 (deferred, or no binary) falls through to the shell body below;
+  - 3, 126 or 127 (deferred, or no binary) falls through to the shell body below, except with
+    `NAVORI_HOOK_IMPL=rust`, which fails instead;
   - any other exit gives the hook's safe verdict, so a gating hook never allows on a crash.
 
   In `shadow` mode the call carries `--shadow`: the shell body decides, and the comparison is

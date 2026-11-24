@@ -129,8 +129,10 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
 
 - No hay nada que cambiar en tu repo. Después de `npm i -g navori@0.13`, `navori --version` debe responder `0.13.0`.
 - El CLI ahora es un binario nativo para macOS (arm64, x64) y Linux (arm64, x64). npm lo instala con un paquete opcional por plataforma (`navori-<os>-<cpu>`). En otras plataformas, el paquete corre el CLI de TypeScript congelado que viaja dentro de él.
-- `master`, `codex`, `workspace`, `ticket` y `registry` siguen en ese CLI congelado, igual que algunas formas interactivas (`sync` sin una bandera no interactiva, `remove` y los comandos `restore` sin `--yes`, `doctor --json`). No necesitas instalar nada aparte.
-- Los hooks que `crates/ported.json` marca `active` deciden de forma nativa en Claude Code y Pi cuando `navori-rust` está en el `PATH` (el paquete lo instala); si no, corre su cuerpo shell renderizado, con los mismos veredictos. Los demás hooks siguen corriendo su cuerpo shell.
+- Algunos comandos siguen en ese CLI de TypeScript congelado; no necesitas instalar nada aparte:
+  - de forma permanente: `master`, `codex`, `workspace`, `ticket` y `registry`, más algunas formas interactivas (`sync` sin una bandera no interactiva, `remove` y los comandos `restore` sin `--yes`, `doctor --json`);
+  - por ahora, hasta portarlos: `init`, `add`, `configure`, `update`, `refresh`, `receipt`, casi todo `gate` y `tools`, `audit` salvo `--arm`/`--disarm`, y algunas banderas de `render` y `sync` (`TRANSITIONAL_DELEGATION` en `scripts/js/rust-areas.mjs`).
+- Los hooks que `crates/ported.json` marca `active` deciden de forma nativa en Claude Code y Pi cuando está instalado el binario de la plataforma; si no, corre su cuerpo shell renderizado, con los mismos veredictos. Los demás hooks siguen corriendo su cuerpo shell.
 
 ## Migrando a 0.12
 
@@ -206,7 +208,7 @@ cargo test --workspace --locked
 bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
 
-El toolchain de Rust está fijado en `rust-toolchain.toml` (1.99.1, con los cuatro targets del release). Después de cambiar `crates/navori-hooks`, corre `bun run rust:hooks-sync`: reescribe los hashes desactualizados de `crates/ported.json` y las cabeceras de los hooks nativos, y vuelve a renderizar. `bun run rust:hooks-sync --check` no escribe nada y falla si algo está desactualizado.
+El toolchain de Rust está fijado en `rust-toolchain.toml` (1.99.1, con los cuatro targets del release). Después de cambiar `crates/navori-hooks`, corre `bun run rust:hooks-sync`: reescribe los hashes desactualizados de `crates/ported.json` y las cabeceras de los hooks nativos, vuelve a renderizar y corre `cargo install` (`--no-install` compila en vez de instalar). `bun run rust:hooks-sync --check` no escribe nada y falla si algo está desactualizado.
 
 **Quality gate**: `bun check` desde la raíz. Es un alias de `qualityGate.full` en
 `navori.config.json`, que es **el único lugar** donde vive el gate — de ahí salen los bloques

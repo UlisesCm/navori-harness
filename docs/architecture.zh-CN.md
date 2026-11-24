@@ -14,13 +14,16 @@
   以 `legacy/` 随包发布。它负责无二进制的平台，以及
   [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs) 中的**永久委托**：`master`、`codex`、
   `workspace`、`ticket` 与 `registry`，`doctor --json`，以及 `sync`、`remove`、`backup restore`
-  和 `migrations restore` 的交互形式。未在 [crates/ported.json](../crates/ported.json) 中声明的命令也会被委托。
+  和 `migrations restore` 的交互形式。目前它还负责同一文件中的**过渡委托**
+  （`TRANSITIONAL_DELEGATION`：尚未移植的命令和标志）。与 [crates/ported.json](../crates/ported.json)
+  中任何条目都不匹配的调用也会被委托。
 - **原生钩子。** 为原生实现渲染的钩子以带签名的头部开头：
   `# navori:native-hook v=1 file=sha256:<渲染后的脚本> impl=sha256:<实现>`，其中 `impl` 是该钩子在
   [crates/navori-hooks/src](../crates/navori-hooks/src) 下源码的哈希。随后的 `navori:native-runtime` 块在
   二进制位于 `PATH` 且 `NAVORI_HOOK_IMPL` 不是 `shell` 时运行 `navori-rust hook --via-script "$0"`：
   - 退出码 0、1 或 2 是原生裁决；
-  - 3、126 或 127（延后处理或没有二进制）会继续执行下方的 shell 主体；
+  - 3、126 或 127（延后处理或没有二进制）会继续执行下方的 shell 主体，但设置
+    `NAVORI_HOOK_IMPL=rust` 时会直接失败；
   - 其他退出码给出该钩子的安全裁决，因此带门控的钩子在崩溃时绝不会放行。
 
   在 `shadow` 模式下，调用会带上 `--shadow`：由 shell 主体裁决，比对结果记录在

@@ -19,8 +19,10 @@
   en las plataformas sin binario y en la **delegación permanente** de
   [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs): `master`, `codex`, `workspace`,
   `ticket` y `registry`, `doctor --json`, y las formas interactivas de `sync`, `remove`,
-  `backup restore` y `migrations restore`. Un comando que no declara
-  [crates/ported.json](../crates/ported.json) también se delega.
+  `backup restore` y `migrations restore`. Por ahora también atiende la **delegación transitoria**
+  del mismo archivo (`TRANSITIONAL_DELEGATION`: comandos y banderas todavía sin portar). Una
+  invocación que no coincide con ninguna entrada de [crates/ported.json](../crates/ported.json)
+  también se delega.
 - **Hooks nativos.** Un hook renderizado para una implementación nativa empieza con una cabecera
   firmada, `# navori:native-hook v=1 file=sha256:<script renderizado> impl=sha256:<implementación>`,
   donde `impl` es el hash de las fuentes del hook en
@@ -28,7 +30,8 @@
   corre `navori-rust hook --via-script "$0"` cuando el binario está en el `PATH` y
   `NAVORI_HOOK_IMPL` no es `shell`:
   - la salida 0, 1 o 2 es el veredicto nativo;
-  - 3, 126 o 127 (diferido, o sin binario) deja seguir al cuerpo shell de abajo;
+  - 3, 126 o 127 (diferido, o sin binario) deja seguir al cuerpo shell de abajo, salvo con
+    `NAVORI_HOOK_IMPL=rust`, que falla;
   - cualquier otra salida da el veredicto seguro del hook, así que un hook con compuerta nunca
     permite ante un fallo.
 

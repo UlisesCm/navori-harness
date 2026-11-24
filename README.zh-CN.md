@@ -115,8 +115,10 @@ Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中�
 
 - 你的仓库无需任何改动。执行 `npm i -g navori@0.13` 后，`navori --version` 应输出 `0.13.0`。
 - CLI 现在是 macOS（arm64、x64）和 Linux（arm64、x64）上的原生二进制程序，npm 通过可选的平台包（`navori-<os>-<cpu>`）安装它。在其他平台上，该包会运行随包发布的冻结 TypeScript CLI。
-- `master`、`codex`、`workspace`、`ticket` 和 `registry` 仍由这个冻结的 CLI 处理，部分交互形式也是如此（不带非交互标志的 `sync`、不带 `--yes` 的 `remove` 和 `restore` 命令、`doctor --json`）。无需另行安装任何东西。
-- 当 `navori-rust` 位于 `PATH` 中时（该包会安装它），`crates/ported.json` 标记为 `active` 的钩子在 Claude Code 和 Pi 中以原生方式裁决；否则运行渲染出的 shell 主体，裁决相同。其余钩子继续运行其 shell 主体。
+- 部分命令仍由这个冻结的 TypeScript CLI 处理，无需另行安装任何东西：
+  - 永久委托：`master`、`codex`、`workspace`、`ticket` 和 `registry`，以及部分交互形式（不带非交互标志的 `sync`、不带 `--yes` 的 `remove` 和 `restore` 命令、`doctor --json`）；
+  - 暂时委托，直到完成移植：`init`、`add`、`configure`、`update`、`refresh`、`receipt`、`gate` 与 `tools` 的大部分功能、除 `--arm`/`--disarm` 之外的 `audit`，以及 `render` 和 `sync` 的部分标志（见 `scripts/js/rust-areas.mjs` 中的 `TRANSITIONAL_DELEGATION`）。
+- 安装了平台二进制时，`crates/ported.json` 标记为 `active` 的钩子在 Claude Code 和 Pi 中以原生方式裁决；否则运行渲染出的 shell 主体，裁决相同。其余钩子继续运行其 shell 主体。
 
 ## 迁移到 0.12
 
@@ -186,7 +188,7 @@ cargo test --workspace --locked
 bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
 
-Rust 工具链固定在 `rust-toolchain.toml` 中（1.99.1，含发布所需的四个 target）。修改 `crates/navori-hooks` 后，运行 `bun run rust:hooks-sync`：它会重写 `crates/ported.json` 中过时的哈希和原生钩子的头部，然后重新渲染。`bun run rust:hooks-sync --check` 不写入任何内容，发现过时内容时会失败。
+Rust 工具链固定在 `rust-toolchain.toml` 中（1.99.1，含发布所需的四个 target）。修改 `crates/navori-hooks` 后，运行 `bun run rust:hooks-sync`：它会重写 `crates/ported.json` 中过时的哈希和原生钩子的头部，重新渲染，并运行 `cargo install`（`--no-install` 只构建不安装）。`bun run rust:hooks-sync --check` 不写入任何内容，发现过时内容时会失败。
 
 **质量门**：在仓库根目录运行 `bun check`。它是 `navori.config.json` 中 `qualityGate.full` 的别名；该配置是质量门的**唯一来源**。`CLAUDE.md` 中的 managed blocks 和 `publisher` 执行的命令都由此生成。不要复制到其他文件：副本会逐渐与原配置不一致。
 
