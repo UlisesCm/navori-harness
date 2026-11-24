@@ -89,10 +89,46 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
   hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
   `@navori/<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
-- **`legacy/` es el paquete entero.** El tarball del último TS publicado (`packaging/legacy.json`
-  fija versión e `integrity`) se desempaca completo en `legacy/`, así que el TS congelado es
-  `legacy/dist/index.js` y no `legacy/index.js`: conserva su `package.json` y sus lecturas
-  relativas, y responde su propia versión.
+- **`legacy/` es el paquete legacy (enmienda del 2026-11-20, R22).** El TS congelado del commit
+  anterior al PR de corte se publica como paquete aparte, `LEGACY_PACKAGE` de `dist-assemble.mjs`
+  (`@navori/legacy`; `navori-legacy` sin org), con la versión del release.
+  `dist-assemble.mjs legacy --from <commit> --version <release> --write-pin` lo construye, lo
+  empaqueta y escribe `packaging/legacy.json` (`version`, `integrity`, `commit`); el ensamblado lo
+  baja de npm, verifica la `integrity` y desempaca `package/navori/` en `legacy/`.
+  El tarball replica el layout del checkout, porque el TS solo carga `crates/ported.json` desde
+  `<dir>/packages/cli/dist` con `<dir>/crates/ported.json`
+  (`packages/cli/src/lib/render/native-hook.ts:42-60`); sin él renderiza hooks shell y pelea con
+  los bloques `navori:native-runtime` del binario. Dentro de `package/navori/`:
+  `packages/cli/package.json` (con `name: "navori"`, que exige `readCliVersion`, y la versión del
+  release), `packages/cli/dist/**`, `crates/ported.json` del mismo commit, `dist/index.js` (una
+  línea que importa `../packages/cli/dist/index.js`) y un `package.json` sin nombre con
+  `type: module`. Así el lanzador y `delegate.rs` siguen ejecutando `legacy/dist/index.js`.
+  El ensamblado rechaza un legacy cuyo `crates/ported.json` difiera del checkout que compila los
+  binarios, y la versión del pin y la del TS anidado deben ser la de `packages/cli/package.json`
+  del checkout que ensambla (el `STAMP_VERSION` del binario), o los marcadores no coinciden; el
+  ensamblado rechaza cualquier diferencia. `--from-dir` rechaza un checkout con cambios sin
+  guardar, porque el pin registra su `HEAD`. El ensayo de `rust-release.yml` lo construye con
+  `legacy --from-pin`: el commit y la versión que fija `packaging/legacy.json`, o `HEAD` mientras
+  el pin esté vacío (después del corte, un pin vacío es un error, porque `HEAD` ya no tiene
+  `packages/cli/src/index.ts`); no acepta `--version`, exige que el commit fijado sea un SHA de 40
+  hex y, si el pin trae `integrity`, que el tarball reconstruido la reproduzca byte a byte (el build
+  del legacy es reproducible). `scripts/js/dist-legacy-cutover.mjs` (job `legacy-cutover`) lee el
+  comando de ese job del workflow y lo corre en un commit local que, como T10, borra el TS salvo las
+  suites de artefacto bajo `packages/cli/src` y fija el pin en el commit anterior: el job tiene que
+  construir el commit fijado, y el comando previo (`--from HEAD`) tiene que fallar en el build.
+  `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  **Antes de publicar,** `dist-assemble.mjs check-pin` falla si `packaging/legacy.json` no trae un
+  `commit` de 40 hex, una `integrity` sha512 y la versión de `packages/cli/package.json`; el ensayo
+  acepta el pin vacío, la publicación no.
+  Fuera de alcance: `doctor --json` (que sigue en el TS) reporta como `entrypointSha256` el hash del
+  shim `legacy/dist/index.js`, constante en cada release, no el del bundle; el `argv[1]` del shim y
+  el aviso de `update-notice` tampoco cambian. Son cosméticos.
+  **`crates/ported.json` queda fijado al commit del legacy:** después del corte, cualquier cambio
+  en `crates/ported.json` (una re-firma de hooks) obliga a publicar un legacy nuevo desde un commit
+  con ese manifiesto, o el ensamblado lo rechaza.
+  **Orden en el release:** como el pin debe llevar la versión que estampan los binarios, la versión
+  de `packages/cli/package.json` sube a la del release en el mismo PR que llena el pin (o antes);
+  si el pin entra antes, el job `package` del ensayo queda en rojo hasta el bump.
 - **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
   127, así el prólogo del hook corre su cuerpo shell.
 - **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS

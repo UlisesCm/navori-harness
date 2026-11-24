@@ -1,17 +1,22 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { classifyPath } from "../../../packages/cli/src/lib/diagnose/source-classify.ts";
-import {
-  classify,
-  declaredFlagsFromSignals,
-  matchesCriticalPaths,
-  normalizeRepoPath,
-} from "../../../packages/cli/src/lib/plan/classify.ts";
-import { parseExpected } from "../../../packages/cli/src/lib/plan/expected.ts";
-import { locateSpecDir } from "../../../packages/cli/src/lib/spec/locate.ts";
-import { parseTasks } from "../../../packages/cli/src/lib/spec/tasks.ts";
-import { NON_IMPLEMENTER_ROLES } from "../../../packages/cli/src/engines/shared/roster.ts";
+import { exitOnHelp } from "../script-help.mjs";
+
+// No entry guard: the help check is the first statement, and the TS modules load after it.
+exitOnHelp(
+  process.argv.slice(2),
+  "usage: node scripts/js/rust-oracle/plan-tables.mjs [--check]\n  (no flag)   rewrite crates/navori-core/tests/fixtures/plan_tables.json\n  --check     exit 1 when the committed table differs from a fresh one\n  -h, --help  print this text and exit",
+);
+
+const { classifyPath } = await import("../../../packages/cli/src/lib/diagnose/source-classify.ts");
+const { classify, declaredFlagsFromSignals, matchesCriticalPaths, normalizeRepoPath } = await import(
+  "../../../packages/cli/src/lib/plan/classify.ts"
+);
+const { parseExpected } = await import("../../../packages/cli/src/lib/plan/expected.ts");
+const { locateSpecDir } = await import("../../../packages/cli/src/lib/spec/locate.ts");
+const { parseTasks } = await import("../../../packages/cli/src/lib/spec/tasks.ts");
+const { NON_IMPLEMENTER_ROLES } = await import("../../../packages/cli/src/engines/shared/roster.ts");
 
 /**
  * Spec 0059 T10: the TS answers for the pure plan helpers `plan gate` uses, written as a table the

@@ -392,12 +392,14 @@ fn every_implementation_without_a_manifest_entry_is_delegated() -> TestResult {
             native.path
         );
         assert!(dispatch(&empty, &inv).is_none(), "{:?}", native.path);
-        let others: Vec<String> = embedded
+        // One bare entry per path: paths with several `requires` entries would be duplicates.
+        let mut others: Vec<String> = embedded
             .commands
             .iter()
             .filter(|c| c.path != native.path)
             .map(|c| format!(r#"{{"path":{:?}}}"#, c.path))
             .collect();
+        others.dedup();
         let without = manifest(&format!(
             r#"{{"schema":2,"commands":[{}]}}"#,
             others.join(",")
@@ -499,5 +501,145 @@ fn unlisted_commands_reach_the_ts_cli_not_a_native_stub() -> TestResult {
         .args(["--version", "extra"])
         .output()?;
     assert_eq!(output.status.code(), Some(5));
+    Ok(())
+}
+
+/// The `navori audit` argv the hooks (and their Rust equivalents) emit, verbatim:
+/// audit-log.sh:162, audit-arm.sh:39, audit-mode-trigger.sh:87, subagent-stop-handoff.sh:129.
+const HOOK_AUDIT_ARGVS: &[&[&str]] = &[
+    &[
+        "audit",
+        "--record-metadata",
+        "--host",
+        "claude",
+        "--root-session",
+        "sess-1",
+        "--repo",
+        "my-repo",
+        "--root",
+        "/tmp/audits",
+    ],
+    &[
+        "audit",
+        "--consume-arm",
+        "--start",
+        "sess-1",
+        "--cwd",
+        "/tmp/work dir",
+        "--host",
+        "codex",
+        "--root",
+        "/tmp/audits",
+    ],
+    &[
+        "audit",
+        "--start",
+        "sess-1",
+        "--cwd",
+        "/tmp/work",
+        "--host",
+        "claude",
+    ],
+    &[
+        "audit",
+        "--capture-child",
+        "child-1",
+        "--root-session",
+        "sess-1",
+        "--rollout",
+        "/tmp/rollout.jsonl",
+        "--cwd",
+        "/tmp/work",
+    ],
+];
+
+/// Flags the hooks pass that must never be natively selected for `audit`.
+const FORBIDDEN_AUDIT_FLAGS: &[&str] = &[
+    "record-metadata",
+    "consume-arm",
+    "start",
+    "capture-child",
+    "root-session",
+    "rollout",
+    "repo",
+    "root",
+];
+
+fn flags_of<'a>(argv: &[&'a str]) -> Vec<&'a str> {
+    argv.iter().filter_map(|a| a.strip_prefix("--")).collect()
+}
+
+// Covers: R7
+#[test]
+fn hook_audit_modes_are_not_selected_natively_even_combined_with_arm() -> TestResult {
+    let embedded = Manifest::embedded()?;
+    for argv in HOOK_AUDIT_ARGVS {
+        let flags = flags_of(argv);
+        assert!(
+            dispatch(&embedded, &invocation(&["audit"], &flags)).is_none(),
+            "{argv:?} must delegate"
+        );
+        for extra in ["arm", "disarm"] {
+            let mut combined = flags.clone();
+            combined.push(extra);
+            assert!(
+                dispatch(&embedded, &invocation(&["audit"], &combined)).is_none(),
+                "{argv:?} + --{extra} must delegate"
+            );
+        }
+    }
+    Ok(())
+}
+
+// Covers: R7
+#[test]
+fn no_audit_manifest_entry_declares_a_hook_audit_flag() -> TestResult {
+    let embedded = Manifest::embedded()?;
+    let mut seen = 0;
+    for entry in embedded.commands.iter().filter(|c| c.path == ["audit"]) {
+        seen += 1;
+        for flag in FORBIDDEN_AUDIT_FLAGS {
+            assert!(
+                !entry.flags.iter().any(|f| f == flag),
+                "audit entry {:?} declares forbidden flag --{flag}",
+                entry.flags
+            );
+        }
+    }
+    assert!(seen > 0, "no audit entry found; the guard would be vacuous");
+    Ok(())
+}
+
+// Covers: R5
+#[test]
+fn hook_audit_modes_reach_the_ts_with_the_same_argv_stdin_and_env() -> TestResult {
+    let dir = scratch("audit-hook-modes")?;
+    let ts = dir.join("ts.sh");
+    script(&ts, RECORDER)?;
+    for (n, argv) in HOOK_AUDIT_ARGVS.iter().enumerate() {
+        let out_file = dir.join(format!("record-{n}.txt"));
+        let output = run_with_stdin(
+            Command::new(BIN)
+                .current_dir(&dir)
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env("NAVORI_TS_CLI", &ts)
+                .env("NAVORI_AUDITS_ROOT", "/tmp/audits")
+                .env("OUT", &out_file)
+                .env("MARKER", "kept")
+                .args(*argv),
+            "{\"metadata\":1}\n",
+        )?;
+        assert_eq!(output.status.code(), Some(42), "{argv:?}");
+        let record = fs::read_to_string(&out_file)?;
+        let got: Vec<&str> = record
+            .lines()
+            .filter_map(|l| l.strip_prefix("arg:"))
+            .collect();
+        assert_eq!(&got, argv, "argv must be passed verbatim");
+        assert_eq!(line(&record, "stdin"), Some("{\"metadata\":1}"), "{argv:?}");
+        assert_eq!(line(&record, "marker"), Some("kept"), "{argv:?}");
+        assert_eq!(line(&record, "delegated"), line(&record, "pid"), "{argv:?}");
+    }
     Ok(())
 }

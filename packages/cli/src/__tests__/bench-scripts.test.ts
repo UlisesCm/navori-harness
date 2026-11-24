@@ -197,6 +197,7 @@ function nativeBenchFixture(event = "SessionStart"): {
     "bench-provenance.mjs",
     "git-env.mjs",
     "rust-hook-adapter.mjs",
+    "script-help.mjs",
   ]) {
     copyFileSync(fileURLToPath(scriptUrl(file)), join(scripts, file));
   }

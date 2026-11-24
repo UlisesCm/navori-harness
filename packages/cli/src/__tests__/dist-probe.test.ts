@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -20,6 +21,9 @@ interface Probe {
   isScript: (file: string) => boolean;
   hookPath: (node?: string) => string;
   afterWarmUp: <T>(run: () => T) => T;
+  STUB_MARK: string;
+  writeStubCli: (dir: string) => string;
+  laneFailure: (native: boolean, output: string) => string | undefined;
 }
 
 const repo = resolve(import.meta.dirname, "..", "..", "..", "..");
@@ -96,5 +100,25 @@ describe("dist-probe", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+  // Covers: R84
+  it("distingue el binario del TS congelado sin depender de la versión", () => {
+    const dir = mkdtempSync(join(tmpdir(), "navori-dist-probe-stub-"));
+    try {
+      const stub = probe.writeStubCli(dir);
+      const ran = spawnSync(process.execPath, [stub, "master", "--help"], { encoding: "utf8" });
+      expect(ran.status).toBe(0);
+      expect(ran.stdout).toContain(probe.STUB_MARK);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const viaStub = `${probe.STUB_MARK}\n`;
+    const viaLegacy = "Usage: navori master [options]\n";
+    expect(probe.laneFailure(true, viaStub)).toBeUndefined();
+    expect(probe.laneFailure(false, viaLegacy)).toBeUndefined();
+    // a launcher that fell back to the frozen TS on a platform with a binary
+    expect(probe.laneFailure(true, viaLegacy)).toContain("ignored NAVORI_TS_CLI");
+    // without a binary, the stub must never run
+    expect(probe.laneFailure(false, viaStub)).toContain("without a binary");
   });
 });

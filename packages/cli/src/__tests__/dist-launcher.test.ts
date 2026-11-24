@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -25,7 +26,7 @@ interface Launcher {
   platformPackage: (platform?: string, arch?: string) => string | undefined;
   callerEnv: (env: Env) => Env;
   plan: (
-    name: "navori" | "navori-native-hook",
+    name: "navori" | "navori-native-hook" | "navori-rust",
     options: { root: string; binary?: string; argv: string[]; env: Env },
   ) => Step;
 }
@@ -34,12 +35,40 @@ interface Install {
 }
 interface Assemble {
   PLATFORMS: string[];
+  LEGACY_PACKAGE: string;
+  LEGACY_SHIM: string;
   integrityOf: (file: string) => string;
   unpackLegacy: (
     tarball: string,
-    pin: { version: string; integrity: string },
+    pin: { version: string; integrity: string | null },
     target: string,
+    ported?: string,
+    stamp?: string,
   ) => void;
+  legacySource: (
+    pin: { version: string; commit?: string | null },
+    tree: { hasTsSources: boolean },
+  ) => { from: string; version: string | undefined };
+  assertCleanCheckout: (porcelain: string, dir: string) => void;
+  assertCommitSha: (commit: unknown) => void;
+  assertRebuiltIntegrity: (pin: { integrity?: string | null }, integrity: string) => void;
+  assertPublishablePin: (
+    pin: { version?: string; integrity?: string | null; commit?: string | null },
+    stamp: string,
+  ) => void;
+  assertReleaseVersions: (workspace: string, stamp: string) => void;
+  legacyManifest: (
+    version: string,
+    ts: Record<string, unknown>,
+  ) => {
+    name: string;
+    version: string;
+    bin: Record<string, string>;
+    files: string[];
+    engines: unknown;
+    scripts?: unknown;
+  };
+  nestedManifest: (version: string, ts: Record<string, unknown>) => Record<string, unknown>;
   mainManifest: (
     version: string,
     ts: Record<string, unknown>,
@@ -64,6 +93,9 @@ const install = require(join(npmDir, "lib", "install.js")) as Install;
 const assemble = (await import(
   pathToFileURL(join(repo, "scripts", "js", "dist-assemble.mjs")).href
 )) as Assemble;
+const cutover = (await import(
+  pathToFileURL(join(repo, "scripts", "js", "dist-legacy-cutover.mjs")).href
+)) as { jobArgs: (workflow: string) => string[] };
 
 const host = `${process.platform}-${process.arch}`;
 const dirs: string[] = [];
@@ -152,6 +184,10 @@ describe("lanzador del paquete navori", () => {
     expect(launcher.plan("navori-native-hook", { root: "/pkg", argv: [], env })).toEqual({
       exit: 127,
     });
+    expect(launcher.plan("navori-rust", { root: "/pkg", argv: [], env })).toEqual({ exit: 127 });
+    expect(
+      launcher.plan("navori-rust", { root: "/pkg", binary: "/b/navori", argv: ["hook"], env }),
+    ).toMatchObject({ program: "/b/navori", args: ["hook"] });
     expect(launcher.callerEnv({ NODE_PATH: "/a/.pnpm/b:/a/.pnpm" })).toEqual({});
     expect(launcher.platformPackage("linux", "x64")).toBe("@navori/linux-x64");
     expect(launcher.platformPackage("win32", "x64")).toBeUndefined();
@@ -167,6 +203,7 @@ describe("lanzador del paquete navori", () => {
       expect(run.status).toBe(7);
       expect(run.stdout).toBe(`binary x y ts=${join(withBinary, "legacy", "dist", "index.js")}\n`);
       expect(bin(withBinary, "navori-native-hook", ["hook"]).stdout).toMatch(/^binary hook /);
+      expect(bin(withBinary, "navori-rust", ["hook"]).stdout).toMatch(/^binary hook /);
 
       const killed = installed("kill -TERM $$");
       expect(bin(killed, "navori").signal).toBe("SIGTERM");
@@ -176,6 +213,7 @@ describe("lanzador del paquete navori", () => {
       expect(legacy.stdout).toBe("legacy --version\n");
       expect(legacy.status).toBe(3);
       expect(bin(without, "navori-native-hook", ["hook"]).status).toBe(launcher.NO_NATIVE_HOOK);
+      expect(bin(without, "navori-rust", ["hook"]).status).toBe(launcher.NO_NATIVE_HOOK);
     },
   );
 });
@@ -200,7 +238,7 @@ describe("postinstall", () => {
     expect(readFileSync(join(root, "bin", "navori"), "utf8")).toBe(original);
 
     expect(install.linkBinary({ root, binary, env: npmAgent })).toBe(`linked ${binary}`);
-    for (const name of ["navori", "navori-native-hook"])
+    for (const name of ["navori", "navori-native-hook", "navori-rust"])
       expect(readFileSync(join(root, "bin", name), "utf8")).toBe(readFileSync(binary, "utf8"));
 
     // the entry point reports and never fails the install
@@ -224,6 +262,7 @@ describe("ensamblado", () => {
     expect(main.bin).toEqual({
       navori: "bin/navori",
       "navori-native-hook": "bin/navori-native-hook",
+      "navori-rust": "bin/navori-rust",
     });
     expect(main.scripts).toEqual({ postinstall: "node postinstall.js" });
     expect(main.files).toContain("legacy");
@@ -232,22 +271,204 @@ describe("ensamblado", () => {
       os: ["linux"],
       cpu: ["arm64"],
     });
+  });
 
-    const dir = scratch();
-    mkdirSync(join(dir, "package", "dist"), { recursive: true });
-    writeFileSync(join(dir, "package", "package.json"), '{"name":"navori","version":"0.12.3"}\n');
-    writeFileSync(join(dir, "package", "dist", "index.js"), "// frozen\n");
-    const tarball = join(dir, "navori-0.12.3.tgz");
-    expect(spawnSync("tar", ["-czf", tarball, "-C", dir, "package"]).status).toBe(0);
-    const pin = { version: "0.12.3", integrity: assemble.integrityOf(tarball) };
+  // Covers: R22
+  it("el manifest del legacy usa el nombre de la constante, no trae scripts y expone navori-legacy", () => {
+    const ts = {
+      license: "MIT",
+      engines: { node: ">=22.12" },
+      scripts: { build: "x" },
+      devDependencies: { a: "1" },
+    };
+    const legacy = assemble.legacyManifest("1.2.3", ts);
+    expect(legacy.name).toBe(assemble.LEGACY_PACKAGE);
+    expect(legacy.version).toBe("1.2.3");
+    expect(legacy.bin).toEqual({ "navori-legacy": "navori/dist/index.js" });
+    expect(legacy.files).toEqual(["navori"]);
+    expect(legacy.engines).toEqual({ node: ">=22.12" });
+    expect(legacy).not.toHaveProperty("scripts");
+    // the bin target runs on its own (npx, an installed navori-legacy), not only through node
+    expect(assemble.LEGACY_SHIM.startsWith("#!/usr/bin/env node\n")).toBe(true);
+
+    const nested = assemble.nestedManifest("1.2.3", ts);
+    expect(nested).toMatchObject({ name: "navori", version: "1.2.3", license: "MIT" });
+    expect(nested).not.toHaveProperty("scripts");
+    expect(nested).not.toHaveProperty("devDependencies");
+  });
+
+  // Covers: R22
+  describe("unpackLegacy", () => {
+    interface Fixture {
+      outer?: Record<string, unknown>;
+      inner?: Record<string, unknown>;
+      omit?: "ported";
+    }
+    /** A legacy tarball: the outer manifest and the nested frozen TS. */
+    function legacyTarball(fixture: Fixture = {}): {
+      dir: string;
+      tarball: string;
+      pin: { version: string; integrity: string };
+    } {
+      const dir = scratch();
+      const nested = join(dir, "package", "navori");
+      mkdirSync(join(nested, "dist"), { recursive: true });
+      mkdirSync(join(nested, "packages", "cli"), { recursive: true });
+      mkdirSync(join(nested, "crates"), { recursive: true });
+      if (fixture.omit !== "ported") writeFileSync(join(nested, "crates", "ported.json"), "{}\n");
+      const outer = fixture.outer ?? { name: assemble.LEGACY_PACKAGE, version: "0.12.3" };
+      const inner = fixture.inner ?? { name: "navori", version: "0.12.3" };
+      writeFileSync(join(dir, "package", "package.json"), `${JSON.stringify(outer)}\n`);
+      writeFileSync(join(nested, "packages", "cli", "package.json"), `${JSON.stringify(inner)}\n`);
+      writeFileSync(join(nested, "dist", "index.js"), "// frozen\n");
+      const tarball = join(dir, "legacy-0.12.3.tgz");
+      expect(spawnSync("tar", ["-czf", tarball, "-C", dir, "package"]).status).toBe(0);
+      return { dir, tarball, pin: { version: "0.12.3", integrity: assemble.integrityOf(tarball) } };
+    }
+
+    it("deja el TS congelado en legacy con el layout del checkout y ported.json", () => {
+      const { dir, tarball, pin } = legacyTarball();
+      assemble.unpackLegacy(tarball, pin, join(dir, "legacy"));
+      expect(readFileSync(join(dir, "legacy", "dist", "index.js"), "utf8")).toBe("// frozen\n");
+      const manifest = JSON.parse(
+        readFileSync(join(dir, "legacy", "packages", "cli", "package.json"), "utf8"),
+      ) as { name: string; version: string };
+      expect(manifest).toEqual({ name: "navori", version: "0.12.3" });
+      expect(existsSync(join(dir, "legacy", "crates", "ported.json"))).toBe(true);
+    });
+
+    it("rechaza integrity distinta, nula, nombre externo, versión, ported.json ajeno y nombre anidado incorrectos", () => {
+      const { dir, tarball, pin } = legacyTarball();
+      const target = join(dir, "out");
+      expect(() =>
+        assemble.unpackLegacy(tarball, { ...pin, integrity: "sha512-AAAA" }, target),
+      ).toThrow("does not match the pinned");
+      expect(() => assemble.unpackLegacy(tarball, { ...pin, integrity: null }, target)).toThrow(
+        "has no integrity yet",
+      );
+      expect(() => assemble.unpackLegacy(tarball, { ...pin, version: "0.12.2" }, target)).toThrow(
+        `expected ${assemble.LEGACY_PACKAGE}@0.12.2`,
+      );
+
+      const wrongOuter = legacyTarball({ outer: { name: "navori", version: "0.12.3" } });
+      expect(() => assemble.unpackLegacy(wrongOuter.tarball, wrongOuter.pin, target)).toThrow(
+        `expected ${assemble.LEGACY_PACKAGE}@`,
+      );
+
+      const noPorted = legacyTarball({ omit: "ported" });
+      expect(() => assemble.unpackLegacy(noPorted.tarball, noPorted.pin, target)).toThrow(
+        "navori/crates/ported.json",
+      );
+
+      const ported = join(dir, "ported.json");
+      writeFileSync(ported, '{"schema":2}\n');
+      expect(() => assemble.unpackLegacy(tarball, pin, target, ported)).toThrow("differs from");
+      writeFileSync(ported, "{}\n");
+      expect(() => assemble.unpackLegacy(tarball, pin, join(dir, "same"), ported)).not.toThrow();
+
+      const wrongInner = legacyTarball({ inner: { name: "other", version: "0.12.3" } });
+      expect(() => assemble.unpackLegacy(wrongInner.tarball, wrongInner.pin, target)).toThrow(
+        "expected navori",
+      );
+
+      // the frozen TS reports the nested version, not the outer one
+      const innerVersion = legacyTarball({ inner: { name: "navori", version: "0.12.2" } });
+      expect(() => assemble.unpackLegacy(innerVersion.tarball, innerVersion.pin, target)).toThrow(
+        "inside the legacy tarball is 0.12.2, expected 0.12.3",
+      );
+    });
+
+    it("exige que el pin lleve la versión que estampan los binarios", () => {
+      const { dir, tarball, pin } = legacyTarball();
+      expect(() =>
+        assemble.unpackLegacy(tarball, pin, join(dir, "stamp"), undefined, "0.13.0"),
+      ).toThrow("the binaries stamp 0.13.0");
+      expect(() =>
+        assemble.unpackLegacy(tarball, pin, join(dir, "same"), undefined, "0.12.3"),
+      ).not.toThrow();
+    });
+  });
+
+  // Covers: R22
+  it("--from-pin construye el commit fijado y, sin pin, HEAD solo antes del corte", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const pinned = { version: "0.13.0", commit: sha };
+    expect(assemble.legacySource(pinned, { hasTsSources: false })).toEqual({
+      from: sha,
+      version: "0.13.0",
+    });
+    expect(assemble.legacySource(pinned, { hasTsSources: true })).toEqual({
+      from: sha,
+      version: "0.13.0",
+    });
+    for (const commit of ["abc123", "HEAD", "--output=/tmp/x", sha.toUpperCase()]) {
+      expect(() =>
+        assemble.legacySource({ version: "0.13.0", commit }, { hasTsSources: true }),
+      ).toThrow("expected a 40-hex commit SHA");
+    }
+    const empty = { version: "0.13.0", commit: null };
+    expect(assemble.legacySource(empty, { hasTsSources: true })).toEqual({
+      from: "HEAD",
+      version: undefined,
+    });
+    expect(() => assemble.legacySource(empty, { hasTsSources: false })).toThrow("pins no commit");
+  });
+
+  // Covers: R22
+  it("--from-pin exige que el legacy reconstruido tenga la integrity fijada", () => {
+    expect(() => assemble.assertRebuiltIntegrity({ integrity: null }, "sha512-A")).not.toThrow();
     expect(() =>
-      assemble.unpackLegacy(tarball, { ...pin, integrity: "sha512-AAAA" }, join(dir, "bad")),
-    ).toThrow("does not match the pinned");
+      assemble.assertRebuiltIntegrity({ integrity: "sha512-A" }, "sha512-A"),
+    ).not.toThrow();
+    expect(() => assemble.assertRebuiltIntegrity({ integrity: "sha512-A" }, "sha512-B")).toThrow(
+      "the rebuilt legacy is sha512-B, but packaging/legacy.json pins sha512-A",
+    );
+  });
+
+  // Covers: R22
+  it("check-pin rechaza un pin incompleto antes de publicar", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const full = { version: "0.13.0", integrity: "sha512-AAAA", commit: sha };
+    expect(() => assemble.assertPublishablePin(full, "0.13.0")).not.toThrow();
+    expect(() => assemble.assertPublishablePin({ ...full, commit: null }, "0.13.0")).toThrow(
+      "40-hex",
+    );
+    expect(() => assemble.assertPublishablePin({ ...full, integrity: null }, "0.13.0")).toThrow(
+      "expected the sha512",
+    );
+    expect(() => assemble.assertPublishablePin(full, "0.13.1")).toThrow(
+      "packages/cli/package.json is 0.13.1",
+    );
+  });
+
+  // Covers: R22
+  it("check-pin rechaza publicar si la versión de Cargo no es la de packages/cli", () => {
+    expect(() => assemble.assertReleaseVersions("0.13.0", "0.13.0")).not.toThrow();
+    expect(() => assemble.assertReleaseVersions("0.13.0-rust.1", "0.12.5")).toThrow(
+      "Cargo.toml is 0.13.0-rust.1 but packages/cli/package.json is 0.12.5",
+    );
+    expect(() => assemble.assertReleaseVersions("0.13.0-rust.1", "0.12.5")).toThrow(
+      "in-process lane would never run",
+    );
+  });
+
+  // Covers: R22
+  it("el ensayo del corte corre el comando del job legacy tal como lo trae el workflow", () => {
+    const workflow = readFileSync(join(repo, ".github", "workflows", "rust-release.yml"), "utf8");
+    const args = cutover.jobArgs(workflow);
+    expect(args.slice(0, 3)).toEqual(["scripts/js/dist-assemble.mjs", "legacy", "--from-pin"]);
     expect(() =>
-      assemble.unpackLegacy(tarball, { ...pin, version: "0.12.2" }, join(dir, "old")),
-    ).toThrow("expected navori@0.12.2");
-    assemble.unpackLegacy(tarball, pin, join(dir, "legacy"));
-    expect(readFileSync(join(dir, "legacy", "dist", "index.js"), "utf8")).toBe("// frozen\n");
-    expect(readFileSync(join(dir, "legacy", "package.json"), "utf8")).toContain('"0.12.3"');
+      cutover.jobArgs(
+        `${workflow}\n      - run: node scripts/js/dist-assemble.mjs legacy --from HEAD\n`,
+      ),
+    ).toThrow("exactly once, found 2");
+  });
+
+  // Covers: R22
+  it("--from-dir rechaza un checkout con cambios sin guardar", () => {
+    expect(() => assemble.assertCleanCheckout("", "/repo")).not.toThrow();
+    expect(() => assemble.assertCleanCheckout(" M packages/cli/src/a.ts\n", "/repo")).toThrow(
+      "/repo has uncommitted changes",
+    );
   });
 });

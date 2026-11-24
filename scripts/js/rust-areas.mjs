@@ -80,8 +80,10 @@ export const AREAS = {
  * whole segments, so `master` does not cover `masterx`); it cannot be combined with `flags`.
  * `unless` records a runtime delegation of a subcommand the manifest declares: it delegates only
  * when none of those flags is present (e.g. `restore` without `--yes` asks with clack's prompt).
- * Such an entry excuses nothing in `cutover:check` (the subcommand and its flags stay declared) and
- * cannot be combined with `flags` or `subtree`.
+ * Such an entry excuses neither the subcommand nor its flags in `cutover:check`; when the manifest
+ * gates the subcommand with `requires` of single flags and `unless` names exactly those flags, it
+ * excuses the `requires` finding (the invocations left to the TS are the prompt). It cannot be
+ * combined with `flags` or `subtree`.
  * Entries arrive by PR and the cross review validates them (F46).
  * @typedef {{ path: string[], flags?: string[], subtree?: boolean, unless?: string[], reason: string }} Delegation
  */
@@ -127,6 +129,18 @@ export const PERMANENT_DELEGATION = [
     unless: ["yes"],
     reason:
       "prompt interactivo de clack: sin --yes el TS confirma con p.confirm; con --yes es nativo (T24, decisión de Ulises del 18 nov, #262)",
+  },
+  {
+    path: ["sync"],
+    unless: ["apply", "yes", "dry-run", "json", "accept-new", "keep-mine", "accept-new-files"],
+    reason:
+      "prompt interactivo de clack: sin una de esas banderas el TS pregunta con p.select/p.confirm; con una es nativo (mismo motivo que restore, T24; decisión de Ulises del 22 nov)",
+  },
+  {
+    path: ["remove"],
+    unless: ["yes"],
+    reason:
+      "prompt interactivo de clack: sin --yes el TS confirma con p.confirm; con --yes es nativo (mismo motivo que restore, T24; decisión de Ulises del 22 nov)",
   },
 ];
 validateDelegation(PERMANENT_DELEGATION);

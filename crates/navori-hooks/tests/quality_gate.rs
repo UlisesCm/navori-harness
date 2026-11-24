@@ -14,7 +14,7 @@ use navori_hooks::shell::Locale;
 use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::hook_input::Host;
 use navori_hooks::shell::payload::{Extractor, Profile};
-use navori_hooks::shell::repo::{Loss, Repo};
+use navori_hooks::shell::repo::{Holding, Loss, Repo};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -25,8 +25,8 @@ impl Repo for NoRepo {
     fn is_dir(&self, dir: &str) -> bool {
         dir == "/work"
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
-        false
+    fn holds(&self, _: &str, _: Loss) -> Holding {
+        Holding::Clear
     }
     fn toplevel(&self, _: &str) -> Option<String> {
         None

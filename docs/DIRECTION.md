@@ -99,6 +99,15 @@ navori is being migrated from TypeScript to Rust, subcommand by subcommand, on t
   no coexistence notice. Cutover happens only after explicit approval.
 - **Every TS behavior change is born on `dev`.** `migration/rust` adds only the Rust workspace and
   the minimal wiring needed for coexistence.
+  Exceptions in force, granted by the maintainer:
+  - `packages/cli/src/engines/pi/bridge-source.ts` and its tests change on `migration/rust`
+    (#1773 and its follow-ups), because the direct call to `navori-rust` exists only there. `dev`
+    keeps the bash bridge. A change born on `dev` reaches `migration/rust` through the regular sync
+    merge, which resolves the conflict there; the `migration/rust` version reaches `dev` only at
+    cutover.
+  - Spec 0065: `crates/navori-core/src/config.rs`, `crates/navori-core/assets/pi/extension.ts.in`,
+    `scripts/js/gen-pi-extension-asset.mjs`, the oracle cases, `scripts/js/rust-manifest-check.mjs`
+    and `.github/workflows/rust.yml` change on `migration/rust`, because they do not exist on `dev`.
 - **The internal prerelease `0.13.0-rust.<n>` lives only in the cargo workspace.** It is declared in
   the workspace `Cargo.toml`, reported only by `navori-rust --version`, and never published to npm
   (R25). `packages/cli` keeps the version `dev` carries, and the oracle compares `--version`

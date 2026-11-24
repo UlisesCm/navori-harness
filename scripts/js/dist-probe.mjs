@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, openSync, readSync, closeSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PLATFORMS, assemble, legacyPin, pack, workspaceVersion } from "./dist-assemble.mjs";
+import { LEGACY_PACKAGE, PLATFORMS, assemble, fetchLegacy, integrityOf, legacyPin, pack, workspaceVersion } from "./dist-assemble.mjs";
 import { readCorpus } from "./hook-verdict-replay.mjs";
 import { runRustHook } from "./rust-hook-adapter.mjs";
 import { writeSignedAssets } from "./rust-replay-assets.mjs";
@@ -17,12 +17,19 @@ import { PERMANENT_DELEGATION } from "./rust-areas.mjs";
  *     postinstall linked it, or through the JS launcher and Node when it did not;
  *   - `navori-native-hook` blocks a destructive command (a `guard-destructive` case of the corpus
  *     whose recorded verdict is a block);
- *   - a delegated subcommand reaches the frozen TS shipped in `legacy/`.
+ *   - a delegated subcommand reaches the frozen TS shipped in `legacy/`;
+ *   - the binary, not the frozen TS, answered: with `NAVORI_TS_CLI` set to a stub, a delegated
+ *     subcommand reaches the stub (`--version` alone cannot tell them apart in a release, where
+ *     Cargo and the legacy carry the same version).
  *
  * One more scenario installs without the platform package (`--omit=optional`): `navori` is then the
  * frozen TS and `navori-native-hook` exits 127 so the hook prologue runs its shell body (R22).
  *
  *   node scripts/js/dist-probe.mjs [--binary <path>] [--managers npm,pnpm,bun] [--keep]
+ *                                  [--legacy-tarball <tgz> --legacy-pin <json>]
+ *
+ * The legacy package is the pinned one (`packaging/legacy.json`), downloaded from npm; a rehearsal
+ * passes the tarball it just built with its pin, and the probe asserts the integrity matches.
  *
  * The binary defaults to NAVORI_RUST_BIN, else `target/debug/navori-rust`. Without pnpm on PATH it
  * runs the pinned `pnpm@PNPM_VERSION` through npx.
@@ -84,6 +91,40 @@ export function isScript(file) {
   }
 }
 
+/** What the stub TS of the lane check prints. */
+export const STUB_MARK = "navori-dist-probe-stub-ts";
+
+/**
+ * Writes a stand-in TS CLI that only prints {@link STUB_MARK}, for `NAVORI_TS_CLI`.
+ * @param {string} dir
+ * @returns {string} the script path
+ */
+export function writeStubCli(dir) {
+  const file = join(dir, "stub-ts.js");
+  writeFileSync(file, `process.stdout.write(${JSON.stringify(`${STUB_MARK}\n`)});\n`);
+  return file;
+}
+
+/**
+ * Who answered a delegated subcommand run with `NAVORI_TS_CLI` set to the stub, independent of the
+ * versions (which are equal in a release): the binary delegates to `NAVORI_TS_CLI` (the launcher
+ * keeps a value the caller set), while the launcher without a binary runs the packaged frozen TS
+ * directly and never reads it.
+ * @param {boolean} native whether this install has the binary
+ * @param {string} output stdout and stderr of that run
+ * @returns {string | undefined} the failure, if the wrong lane answered
+ */
+export function laneFailure(native, output) {
+  const stub = output.includes(STUB_MARK);
+  if (native && !stub) {
+    return "a delegated subcommand ignored NAVORI_TS_CLI: the frozen TS answered instead of the binary";
+  }
+  if (!native && stub) {
+    return "without a binary, a delegated subcommand ran NAVORI_TS_CLI instead of the packaged frozen TS";
+  }
+  return undefined;
+}
+
 /** The subcommand that must delegate: a permanent delegation entry, else an unknown one (F45). */
 export function delegationProbe(list = PERMANENT_DELEGATION) {
   const entry = list[0];
@@ -129,6 +170,37 @@ export function afterWarmUp(run) {
   return run();
 }
 
+/**
+ * Runs the RENDERED hook script (its native-runtime prologue looks up `navori-rust` on PATH) with
+ * `node_modules/.bin` first, `NAVORI_HOOK_IMPL=rust`, and checks that the native runtime answered:
+ * the block verdict, and not the "unavailable or deferred" message. Times the second (warm) run.
+ * @returns {{ failures: string[], ms: number }}
+ */
+export function hookPrologue({ bins, script, input }) {
+  const cwd = mkdtempSync(join(tmpdir(), "navori-probe-prologue-"));
+  try {
+    const run = () => {
+      const started = performance.now();
+      const result = spawnSync("bash", [script], {
+        cwd,
+        input,
+        encoding: "utf8",
+        env: { PATH: [bins, hookPath()].join(delimiter), NAVORI_HOOK_IMPL: "rust", NAVORI_AUDITS_ROOT: join(cwd, "no-audits") },
+        timeout: 60_000,
+      });
+      return { result, ms: performance.now() - started };
+    };
+    const { result, ms } = afterWarmUp(run);
+    const failures = [];
+    if (result.stderr.includes("native runtime unavailable or deferred") || result.status !== 2) {
+      failures.push(`the rendered hook prologue did not reach the native runtime (exit ${result.status}): ${result.stderr.trim().slice(0, 300)}`);
+    }
+    return { failures, ms };
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 /** The program and leading arguments for a manager, with pnpm through npx when not installed. */
 function managerCommand(argv) {
   const [name, ...rest] = argv;
@@ -150,7 +222,7 @@ function onPath(name) {
  * Checks one installed project. Returns the failures (empty when it answers as expected).
  * @param {{ project: string, version: string, legacyVersion: string, native: boolean, linked: boolean, hooks: string }} s
  */
-export function checkInstall({ project, version, legacyVersion, native, linked, hooks }) {
+export function checkInstall({ project, version, legacyVersion, native, linked, hooks, timings = [] }) {
   const failures = [];
   const bins = join(project, "node_modules", ".bin");
   // The installed package alone decides where delegation goes.
@@ -166,9 +238,26 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
   if (own.status !== 0 || own.stdout.trim().split(/\s+/).at(-1) !== expected) {
     failures.push(`navori --version answered ${JSON.stringify(own.stdout.trim())} (exit ${own.status}), expected ${expected}`);
   }
-  const launcher = join(project, "node_modules", "navori", "bin", "navori");
-  if (native && isScript(launcher) === linked) {
-    failures.push(linked ? "the postinstall did not link the binary" : "the bin is not the JS launcher");
+  // `--version` cannot tell the binary from the frozen TS once both carry the release version.
+  const stubDir = mkdtempSync(join(tmpdir(), "navori-probe-stub-"));
+  try {
+    const lane = spawnSync(join(bins, "navori"), delegationProbe(), {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...env, NAVORI_TS_CLI: writeStubCli(stubDir) },
+      timeout: 60_000,
+    });
+    const wrong = laneFailure(native, `${lane.stdout}${lane.stderr}`);
+    if (wrong !== undefined) failures.push(wrong);
+  } finally {
+    rmSync(stubDir, { recursive: true, force: true });
+  }
+  // Linked (npm/bun with scripts): every bin, `navori-rust` included, IS the binary, not a script.
+  for (const name of ["navori", "navori-native-hook", "navori-rust"]) {
+    const launcher = join(project, "node_modules", "navori", "bin", name);
+    if (native && isScript(launcher) === linked) {
+      failures.push(linked ? `the postinstall did not link the binary into ${name}` : `${name} is not the JS launcher`);
+    }
   }
 
   const hook = join(project, "node_modules", ".bin", "navori-native-hook");
@@ -200,20 +289,25 @@ export function checkInstall({ project, version, legacyVersion, native, linked, 
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+    const prologue = hookPrologue({ bins, script: join(hooks, ".claude", "hooks", c.hook), input: c.input });
+    failures.push(...prologue.failures);
+    timings.push(`${prologue.ms.toFixed(1)} ms per rendered hook`);
     const delegated = run("navori", delegationProbe());
     const text = `${delegated.stdout}${delegated.stderr}`;
     if ([69, 70].includes(delegated.status ?? -1) || !text.includes(`v${legacyVersion}`)) {
       failures.push(`a delegated subcommand did not reach the frozen TS v${legacyVersion} (exit ${delegated.status})`);
     }
   } else {
-    const result = spawnSync(hook, ["hook"], { cwd: project, input: "", encoding: "utf8" });
-    if (result.status !== 127) failures.push(`navori-native-hook without a binary exited ${result.status}, expected 127`);
+    for (const name of ["navori-native-hook", "navori-rust"]) {
+      const result = spawnSync(join(bins, name), ["hook"], { cwd: project, input: "", encoding: "utf8" });
+      if (result.status !== 127) failures.push(`${name} without a binary exited ${result.status}, expected 127`);
+    }
   }
   return failures;
 }
 
 function parseArgs(argv) {
-  const options = { binary: process.env.NAVORI_RUST_BIN || join(REPO_ROOT, "target", "debug", "navori-rust"), managers: MANAGERS, keep: false };
+  const options = { binary: process.env.NAVORI_RUST_BIN || join(REPO_ROOT, "target", "debug", "navori-rust"), managers: MANAGERS, keep: false, legacyTarball: undefined, legacyPin: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (flag === "--keep") {
@@ -223,6 +317,8 @@ function parseArgs(argv) {
     const value = argv[++i];
     if (value === undefined || value.startsWith("--")) throw new Error(`${flag} needs a value`);
     if (flag === "--binary") options.binary = resolve(value);
+    else if (flag === "--legacy-tarball") options.legacyTarball = resolve(value);
+    else if (flag === "--legacy-pin") options.legacyPin = resolve(value);
     else if (flag === "--managers") {
       options.managers = value.split(",");
       const unknown = options.managers.filter((m) => !MANAGERS.includes(m));
@@ -236,15 +332,17 @@ function main(argv) {
   const options = parseArgs(argv);
   const platform = `${process.platform}-${process.arch}`;
   if (!PLATFORMS.includes(platform)) throw new Error(`${platform} has no binary package; run the probe on ${PLATFORMS.join(", ")}`);
-  const pin = legacyPin();
+  if ((options.legacyTarball === undefined) !== (options.legacyPin === undefined)) {
+    throw new Error("--legacy-tarball and --legacy-pin go together");
+  }
+  const pin = legacyPin(options.legacyPin);
   const version = workspaceVersion();
   const root = mkdtempSync(join(tmpdir(), "navori-dist-probe-"));
   try {
     const dist = join(root, "dist");
     mkdirSync(dist);
-    const fetched = spawnSync("npm", ["pack", `navori@${pin.version}`, "--pack-destination", dist, "--json"], { encoding: "utf8" });
-    if (fetched.status !== 0) throw new Error(`npm pack navori@${pin.version} failed: ${fetched.stderr}`);
-    const legacyTarball = join(dist, JSON.parse(fetched.stdout)[0].filename);
+    const legacyTarball = options.legacyTarball ?? fetchLegacy(pin, dist);
+    const legacyIntegrity = integrityOf(legacyTarball);
     const dirs = assemble({ out: dist, binaries: { [platform]: options.binary }, legacyTarball, pin, version });
     const main = pack(dirs.main, dist);
     const plat = pack(dirs.platforms[platform], dist);
@@ -252,6 +350,7 @@ function main(argv) {
 
     /** @type {Array<{ name: string, failures: string[] }>} */
     const results = [];
+    const timingsBy = {};
     const scenario = (name, argv, manifest, check, extraEnv = {}) => {
       const project = join(root, name);
       mkdirSync(project);
@@ -268,7 +367,7 @@ function main(argv) {
           `${manager}-${scripts ? "scripts" : "no-scripts"}`,
           plan.argv,
           plan.manifest,
-          (project) => checkInstall({ project, version, legacyVersion: pin.version, native: true, linked: plan.linked, hooks }),
+          (project) => checkInstall({ project, version, legacyVersion: pin.version, native: true, linked: plan.linked, hooks, timings: (timingsBy[`${manager}-${scripts ? "scripts" : "no-scripts"}`] ??= []) }),
           plan.env,
         );
       }
@@ -280,7 +379,14 @@ function main(argv) {
     for (const r of results) {
       process.stdout.write(`  ${r.failures.length === 0 ? "ok  " : "FAIL"} ${r.name}\n`);
       for (const f of r.failures) process.stdout.write(`       ${f}\n`);
+      for (const t of timingsBy[r.name] ?? []) process.stdout.write(`       ${t}\n`);
     }
+    // assemble() already refuses a mismatch; the report states it.
+    results.push({
+      name: `legacy ${LEGACY_PACKAGE}@${pin.version} integrity matches the pin`,
+      failures: legacyIntegrity === pin.integrity ? [] : [`integrity ${legacyIntegrity} != pinned ${pin.integrity}`],
+    });
+    process.stdout.write(`  ${results.at(-1).failures.length === 0 ? "ok  " : "FAIL"} ${results.at(-1).name}\n`);
     const ok = results.every((r) => r.failures.length === 0);
     process.stdout.write(`dist-probe: ${platform} ${ok ? "green" : "red"} (${results.length} installs)\n`);
     return ok ? 0 : 1;

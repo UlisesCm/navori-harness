@@ -1373,6 +1373,58 @@ pub fn scan_stale_global_cli(
     }))
 }
 
+/// The bins a hook can run: `navori` and `navori-rust` (the name the native-runtime prologue looks up).
+const LAUNCHER_BINS: [&str; 2] = ["navori", "navori-rust"];
+/// How much of a bin `doctor` reads to tell the package's JS launcher from anything else. pnpm 12's
+/// shell shim is ~4 KiB and names its target at the end; 16 KiB leaves room for deeper paths.
+const LAUNCHER_HEAD_BYTES: u64 = 16 * 1024;
+
+/// Whether the first bytes of a bin are the 0.13 `navori` package's Node launcher: a script that
+/// requires `lib/launcher.js`, carries the "Replaced by the platform binary" marker, or is pnpm's
+/// shell shim that runs `.../navori/bin/<name>` through `node`. The old global TS CLI
+/// (`dist/index.js`) and the native binary match none of those.
+fn is_package_launcher(head: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(head);
+    text.starts_with("#!")
+        && (text.contains("lib/launcher.js")
+            || text.contains("Replaced by the platform binary")
+            || (text.contains("node") && text.contains("/navori/bin/navori")))
+}
+
+/// The bins among `navori` and `navori-rust` whose first match on `PATH` is the package's Node
+/// launcher: hooks run through it pay a Node start (~30 ms) on every call. Reads only the first
+/// bytes of the file and spawns nothing; a bin that is not on `PATH`, the native binary and the
+/// old global TS CLI all read as fine.
+#[must_use]
+pub fn scan_js_launcher_on_path(host: &Host<'_>) -> Vec<&'static str> {
+    use std::io::Read as _;
+    use std::os::unix::fs::PermissionsExt as _;
+    let Some(path) = host.var("PATH").ok().flatten() else {
+        return Vec::new();
+    };
+    LAUNCHER_BINS
+        .into_iter()
+        .filter(|name| {
+            let Some(file) = path
+                .split(':')
+                .filter(|dir| !dir.is_empty())
+                .map(|dir| host.process_cwd.join(dir).join(name))
+                .find(|file| {
+                    std::fs::metadata(file)
+                        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+                })
+            else {
+                return false;
+            };
+            let mut head = Vec::new();
+            std::fs::File::open(file)
+                .and_then(|f| f.take(LAUNCHER_HEAD_BYTES).read_to_end(&mut head))
+                .is_ok()
+                && is_package_launcher(&head)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1489,6 +1541,52 @@ mod tests {
             process_cwd: cwd,
             runner,
         }
+    }
+
+    // Covers: R76
+    #[test]
+    fn js_launcher_on_path_only_flags_the_package_launcher() {
+        let launcher = "#!/usr/bin/env node\n\"use strict\";\n// Replaced by the platform binary when the postinstall runs.\nrequire(\"../lib/launcher.js\").launch(\"navori\", \"/p\");\n";
+        let pnpm_shim = "#!/bin/sh\nbasedir=$(dirname \"$0\")\nexec node \"$basedir/../navori/bin/navori\" \"$@\"\n";
+        // pnpm 12: ~4 KiB of path resolution before the `exec node .../navori/bin/navori-rust`.
+        let pnpm12_shim = format!(
+            "#!/bin/sh\n{}exec node \"$basedir_abs/../.pnpm/navori@1/node_modules/navori/bin/navori-rust\" \"$@\"\n",
+            "# resolve $0 through symlinks\n".repeat(150)
+        );
+        let old_ts = "#!/usr/bin/env node\nimport(\"../dist/index.js\");\n";
+        let fake = Fake::none();
+        let scan = |t: &Temp, path: &str| {
+            let e = env(&[("PATH", path)]);
+            scan_js_launcher_on_path(&host(&e, &t.0, &fake))
+        };
+
+        let t = Temp::new("launcher");
+        // A native binary: ELF magic.
+        t.write("native/navori", "\u{7f}ELF\u{2}\u{1}\u{1}");
+        t.write("native/navori-rust", "\u{7f}ELF\u{2}\u{1}\u{1}");
+        t.write("js/navori", launcher);
+        t.write("js/navori-rust", launcher);
+        t.write("shim/navori", pnpm_shim);
+        t.write("shim/navori-rust", &pnpm12_shim);
+        t.write("old/navori", old_ts);
+        for name in ["navori", "navori-rust"] {
+            for dir in ["native", "js", "shim", "old"] {
+                std::fs::set_permissions(
+                    t.0.join(dir).join(name),
+                    std::fs::Permissions::from_mode(0o755),
+                )
+                .ok();
+            }
+        }
+        assert!(scan(&t, "native").is_empty());
+        assert_eq!(scan(&t, "js"), ["navori", "navori-rust"]);
+        assert!(pnpm12_shim.len() > 4096);
+        assert_eq!(scan(&t, "shim"), ["navori", "navori-rust"]);
+        assert!(scan(&t, "old").is_empty());
+        assert!(scan(&t, "missing").is_empty());
+        // Only the first match on PATH counts: a binary ahead of the launcher hides it.
+        assert!(scan(&t, "native:js").is_empty());
+        assert_eq!(scan(&t, "old:js"), ["navori-rust"]);
     }
 
     // Covers: R76

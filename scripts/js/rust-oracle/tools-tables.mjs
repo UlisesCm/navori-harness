@@ -2,9 +2,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { tc } from "../../../packages/cli/src/lib/i18n.ts";
-import { readEntry } from "../../../packages/cli/src/lib/workspace/dominio.ts";
-import { WorkspaceConfigSchema } from "../../../packages/cli/src/lib/workspace/workspace.ts";
+import { exitOnHelp } from "../script-help.mjs";
+
+// No entry guard: the help check is the first statement, and the TS modules load after it.
+exitOnHelp(
+  process.argv.slice(2),
+  "usage: node scripts/js/rust-oracle/tools-tables.mjs [--check]\n  (no flag)   rewrite crates/navori-core/tests/fixtures/tools_tables.json\n  --check     exit 1 when the committed table differs from a fresh one\n  -h, --help  print this text and exit",
+);
+
+const { tc } = await import("../../../packages/cli/src/lib/i18n.ts");
+const { readEntry } = await import("../../../packages/cli/src/lib/workspace/dominio.ts");
+const { WorkspaceConfigSchema } = await import("../../../packages/cli/src/lib/workspace/workspace.ts");
 
 /**
  * Spec 0059 T13: the TS answers for the pure helpers of `dominio inject`, `tools notice` and

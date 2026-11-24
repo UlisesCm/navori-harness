@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { createScratch, firstDifference, runMode, signedAssets } from "./hook-verdict-replay.mjs";
 import { prepareRustReplay } from "./rust-hook-adapter.mjs";
+import { exitOnHelp } from "./script-help.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MAX_CASES = 100_000;
@@ -829,7 +830,14 @@ export async function main(argv) {
   return 0;
 }
 
+const USAGE = `usage: node scripts/js/hook-fuzz.mjs --seed <n> --cases <n> [--hook <id>.sh] [--engine claude|codex|pi]
+         [--shell bash|zsh] [--audit off|active] [--jobs N] [--cache on|off] [--priority low|normal]
+         [--shard i/n] [--timeout-ms N]
+  Deterministic differential fuzz of a ported hook (shell oracle vs native).
+  -h, --help  print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exit(await main(process.argv.slice(2)));
   } catch (error) {

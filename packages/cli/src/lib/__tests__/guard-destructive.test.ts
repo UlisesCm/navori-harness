@@ -7,6 +7,8 @@ import {
   readFileSync,
   writeFileSync,
   chmodSync,
+  readdirSync,
+  rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -2302,6 +2304,67 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
     it("does not treat untracked files as lost by reset, nor tracked changes as lost by clean", () => {
       expect(verdict("git reset --hard", untrackedRepo())).toBe(0);
       expect(verdict("git clean -fd", dirtyRepo())).toBe(0);
+    });
+
+    /**
+     * #1776: PATH variants where git cannot inspect the repo. `base` holds every /usr/bin and
+     * /bin tool but git; the variants prepend a non-executable or a failing git to it.
+     */
+    const unusableGitPaths = (root: string): Record<string, string> => {
+      const base = join(root, "base");
+      mkdirSync(base);
+      for (const d of ["/usr/bin", "/bin"]) {
+        for (const name of readdirSync(d)) {
+          if (name === "git" || name.startsWith("git-")) continue;
+          try {
+            symlinkSync(join(d, name), join(base, name));
+          } catch {
+            // Already linked from the other directory.
+          }
+        }
+      }
+      const variant = (dirName: string, body: string, mode: number): string => {
+        const dir = join(root, dirName);
+        mkdirSync(dir);
+        writeFileSync(join(dir, "git"), body);
+        chmodSync(join(dir, "git"), mode);
+        return `${dir}:${base}`;
+      };
+      return {
+        "no git": base,
+        "non-executable git": variant("noexec", '#!/bin/sh\nexec /usr/bin/git "$@"\n', 0o644),
+        "git exiting 128": variant("fails", "#!/bin/sh\nexit 128\n", 0o755),
+      };
+    };
+
+    // Covers: A1
+    it("blocks a discard when git cannot inspect the repo, and still allows a non-repo with a working git (#1776)", () => {
+      const dirty = dirtyRepo();
+      const plain = mkdtempSync(join(tmpdir(), "navori-guard-plain-"));
+      const root = mkdtempSync(join(tmpdir(), "navori-guard-nogit-"));
+      try {
+        for (const [label, path] of Object.entries(unusableGitPaths(root))) {
+          const payload = JSON.stringify({
+            cwd: dirty,
+            tool_input: { command: "git reset --hard" },
+          });
+          const outcome = acrossShells((shell) => {
+            const r = spawnSync(resolveBin(shell), [guardPath], {
+              input: payload,
+              cwd: dirty,
+              encoding: "utf-8",
+              env: { ...process.env, PATH: path },
+            });
+            const pinned = r.stderr.includes("cannot be inspected (the repository tool is missing");
+            return `${r.status ?? -1}:${pinned}`;
+          });
+          expect(outcome, label).toBe("2:true");
+        }
+        expect(verdict("git reset --hard", plain)).toBe(0);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(plain, { recursive: true, force: true });
+      }
     });
 
     // Covers: A1

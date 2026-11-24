@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
+import { exitOnHelp } from "./script-help.mjs";
 
 /**
  * Spec 0055 R13 / D2 — hook verdict corpus: generation, replay and coverage.
@@ -747,7 +748,14 @@ export async function main(argv) {
   return 0;
 }
 
+const USAGE = `usage: node scripts/js/hook-verdict-replay.mjs [--shell bash|zsh] [--coverage]
+         [--impl rust [--only hook.sh | --registered] [--shard i/n]]
+         [--generate <dir> [--hook a.sh,b.sh]]
+  Replays the hook verdict corpus; --generate writes a new corpus into <dir>.
+  -h, --help  print this text and exit`;
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exit(await main(process.argv.slice(2)));
   } catch (error) {

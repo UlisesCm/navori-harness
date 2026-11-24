@@ -7,7 +7,7 @@ use regex::Regex;
 use super::tr;
 use crate::shell::Locale;
 use crate::shell::hook_input::Host;
-use crate::shell::repo::{Loss, Repo};
+use crate::shell::repo::{Holding, Loss, Repo};
 
 /// Candidate segments past this count are not inspected: the command blocks.
 const CANDIDATES_MAX: usize = 16;
@@ -217,12 +217,24 @@ pub(super) fn evaluate(
                 route: UNRESOLVED_ROUTE,
             });
         }
-        if repo.holds(&dir, loss) {
-            return Some(Block {
-                message: format!("git {sub} would discard uncommitted work"),
-                reason: "unspecified",
-                route: ROUTE,
-            });
+        match repo.holds(&dir, loss) {
+            Holding::Holds => {
+                return Some(Block {
+                    message: format!("git {sub} would discard uncommitted work"),
+                    reason: "unspecified",
+                    route: ROUTE,
+                });
+            }
+            Holding::Unknown => {
+                return Some(Block {
+                    message: format!(
+                        "git {sub} discards work and its target directory cannot be inspected (the repository tool is missing, not executable or failing)"
+                    ),
+                    reason: "unspecified",
+                    route: UNRESOLVED_ROUTE,
+                });
+            }
+            Holding::Clear => {}
         }
     }
     None

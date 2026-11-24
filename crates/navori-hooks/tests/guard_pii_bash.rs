@@ -32,7 +32,7 @@ use navori_hooks::shell::payload::{Extractor, Profile};
 use navori_hooks::shell::pii_egress::{
     Code, EmailRead, HostGrep, Matcher, Secret, Unverifiable, is_local, read_user_email, stderr,
 };
-use navori_hooks::shell::repo::{Loss, Repo, System};
+use navori_hooks::shell::repo::{Holding, Loss, Repo, System};
 use navori_hooks::shell::subcommand::{Call, Capture, Input};
 use serde_json::Value;
 
@@ -343,8 +343,8 @@ fn native_with(
     shim: Option<&Shim>,
     matcher: &mut dyn Matcher,
 ) -> Result<Code, Box<dyn Error>> {
-    let rules = Rules::get(locale)?;
-    let skeleton = inert::skeleton(&case.cmd, rules)?;
+    let rules = Rules::get(locale);
+    let skeleton = inert::skeleton(&case.cmd, rules)??;
     let ids = case.ids.as_deref().map(Secret::new);
     check(
         &case.cmd,
@@ -1321,9 +1321,9 @@ fn the_lane_is_not_eligible_under_the_bsd_locale() -> TestResult {
     assert!(eligible(Locale::C));
     assert!(eligible(Locale::GnuUtf8));
     assert!(!eligible(Locale::Utf8));
-    let rules = Rules::get(Locale::Utf8)?;
+    let rules = Rules::get(Locale::Utf8);
     let cmd = "curl https://api.example.test/x";
-    let skeleton = inert::skeleton(cmd, rules)?;
+    let skeleton = inert::skeleton(cmd, rules)??;
     let mut recorder = Recorder {
         asked: Vec::new(),
         answers: Vec::new(),
@@ -1629,9 +1629,9 @@ fn pii_has_spelling() -> TestResult {
 #[test]
 fn panic_in_the_lane_is_unverified_and_silent() -> TestResult {
     let locale = Locale::GnuUtf8;
-    let rules = Rules::get(locale)?;
+    let rules = Rules::get(locale);
     let cmd = "curl https://api.example.test/x";
-    let skeleton = inert::skeleton(cmd, rules)?;
+    let skeleton = inert::skeleton(cmd, rules)??;
     let context = Context {
         engine: Engine::Claude,
         hook: "guard-destructive",
@@ -1708,7 +1708,7 @@ impl Matcher for Panicking {
 fn panic_in_the_lane_never_becomes_an_error_outside_a_capture() -> TestResult {
     // Outside `runner::run` the default hook would print the message, so this one has none.
     let locale = Locale::C;
-    let rules = Rules::get(locale)?;
+    let rules = Rules::get(locale);
     let mut recorder = Recorder {
         asked: Vec::new(),
         answers: Vec::new(),
@@ -2107,8 +2107,8 @@ impl Repo for Quiet {
     fn is_dir(&self, _: &str) -> bool {
         true
     }
-    fn holds(&self, _: &str, _: Loss) -> bool {
-        false
+    fn holds(&self, _: &str, _: Loss) -> Holding {
+        Holding::Clear
     }
     fn toplevel(&self, _: &str) -> Option<String> {
         None

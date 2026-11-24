@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -235,6 +236,33 @@ describe("rust oracle", () => {
     ]);
   });
 
+  it("@AUDITS@, el paso chmod y la máscara de ts sobre la raíz de auditorías aislada", () => {
+    const dir = tmp();
+    const base = tmp();
+    const body = (stamp: string, extra = ""): string =>
+      `test "$1" = "$NAVORI_AUDITS_ROOT" || exit 3; test "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" = 700 || exit 4; printf '{"ts":"'%s'"}' '${stamp}' > "$1/.armed"; ${extra}`;
+    const testCase: OracleCase = {
+      id: "audits",
+      fixture: "empty",
+      args: ["@AUDITS@"],
+      setup: [{ chmod: ".", mode: 0o700, in: "audits" }],
+    };
+    const run = (rustBody: string) =>
+      oracle.runCase(testCase, {
+        ts: stub(dir, "ts.sh", body("2020-01-01T00:00:00.000Z")),
+        rust: stub(dir, "rust.sh", rustBody),
+        tsCli: "/unused/index.js",
+        base,
+      });
+    // The marker expands to the root, the chmod applied, and a different ts is only masked.
+    expect(run(body("2031-12-31T23:59:59.999Z")).differences).toEqual([]);
+    // A real difference in the audit tree still shows: another format, another mode.
+    expect(run(body("2031-12-31 23:59:59")).differences).toMatchObject([{ kind: "tree:audits" }]);
+    expect(
+      run(body("2020-01-01T00:00:00.000Z", `chmod 600 "$1/.armed"`)).differences,
+    ).toMatchObject([{ kind: "tree:audits" }]);
+  });
+
   it("una diferencia conocida solo tolera sus tipos y falla cuando deja de diferir (#1750)", () => {
     const dir = tmp();
     const base = tmp();
@@ -362,6 +390,13 @@ describe("rust oracle", () => {
       variantA: "took 1.2ms",
       variantB: "took 97.5ms",
     },
+    FOREIGN_LOG: {
+      a: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-20261121T123456789Z.log\n",
+      b: "log /w/tmp/navori-gate-foreign-Zy8xW2/fast-20271202T010203004Z.log\n",
+      outside: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-20261121T123456789Z.logs\n",
+      variantA: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-2026-11-21T12:34:56.789Z.log\n",
+      variantB: "log /w/tmp/navori-gate-foreign-Zy8xW2/fast-2027-12-02T01:02:03.004Z.log\n",
+    },
   };
 
   // Covers: R8, R9
@@ -381,6 +416,20 @@ describe("rust oracle", () => {
       expect(n(m.variantA), `${rule.name}: format variant`).not.toBe(n(m.variantB));
       expect(n(m.variantA)).not.toContain(rule.token);
     }
+  });
+
+  // Covers: R8
+  it("FOREIGN_LOG no oculta una diferencia real del gate foreign", () => {
+    const n = oracle.normalizeText;
+    const out = (base: string, exit: number, tail: string, rand = "aB3dE9"): string =>
+      `navori gate foreign: exit ${exit} — log ${base}/navori-gate-foreign-${rand}/fast-20261121T123456789Z.log\n${tail}\n`;
+    const same = out("/w/tmp", 3, "--- tail ---\nboom");
+    // only the mkdtemp suffix differs: equal
+    expect(n(same)).toBe(n(out("/w/tmp", 3, "--- tail ---\nboom", "Zy8xW2")));
+    // a different exit, a different tail line and a different base directory stay visible
+    expect(n(same)).not.toBe(n(out("/w/tmp", 0, "--- tail ---\nboom")));
+    expect(n(same)).not.toBe(n(out("/w/tmp", 3, "--- tail ---\nBOOM")));
+    expect(n(same)).not.toBe(n(out("/w/other", 3, "--- tail ---\nboom")));
   });
 
   // Covers: R8
@@ -469,9 +518,9 @@ describe("rust oracle", () => {
       for (const fixture of fixtures) {
         const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
         if (!existsSync(configPath)) continue;
-        // The fixtures of the `spec`, `master` and `handoff` commands (spec 0060) exist to exercise those
+        // The fixtures of the `spec`, `master`, `handoff` and `gate` (`gate-symlink`) commands exist to exercise those
         // commands: they carry a config because every command reads one, not to cover `render`.
-        if (/^(spec|master|chk|handoff)-/.test(fixture)) continue;
+        if (/^(spec|master|chk|handoff|gate)-/.test(fixture)) continue;
         const config = JSON.parse(readFileSync(configPath, "utf8")) as {
           engines?: string[];
           language?: string;
@@ -552,6 +601,7 @@ describe("rust oracle", () => {
           { name: "old", mtime: "-40d", files: { "a/b.txt": "old" } },
           { name: "big", mtime: "-2d", sparse: { "big.bin": 3 * 1024 * 1024 * 1024 } },
         ],
+        symlinks: { "sub/link": "../file.txt" },
       }),
     );
     const work = tmp();
@@ -563,6 +613,9 @@ describe("rust oracle", () => {
     expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
     expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
     expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
+    // symlinks are created in the repo copy, verbatim, not committed in the fixture
+    expect(readlinkSync(join(work, "repo", "sub", "link"))).toBe("../file.txt");
+    expect(readFileSync(join(work, "repo", "sub", "link"), "utf8")).toBe("x");
   });
 
   // Covers: R76
@@ -1134,5 +1187,29 @@ describe("rust oracle", () => {
     expect(oracle.selectsNative(manifest, ["spec", "check", "--no-json"])).toBe(true);
     expect(oracle.selectsNative(manifest, ["spec", "check", "--cwd=x"])).toBe(false);
     expect(oracle.selectsNative(manifest, ["spec", "classify"])).toBe(false);
+  });
+
+  // Covers: R7
+  it("selectsNative respeta requires como Manifest::select, entrada por entrada", () => {
+    const manifest = {
+      commands: [
+        { path: ["sync"], flags: ["cwd", "apply", "json"], requires: [["apply"], ["json"]] },
+        { path: ["remove"], flags: ["cwd", "yes"], requires: [["yes"]] },
+        { path: ["audit"], flags: ["arm", "cwd", "host"], requires: [["arm"]] },
+        { path: ["audit"], flags: ["disarm", "cwd"], requires: [["disarm"]] },
+      ],
+    };
+    expect(oracle.selectsNative(manifest, ["sync"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--cwd", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--apply"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["remove", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["remove", "x", "--yes"])).toBe(true);
+    // Two entries of one path: each one is checked on its own, flags and requires together.
+    expect(oracle.selectsNative(manifest, ["audit"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--host", "pi"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm", "--host", "pi"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--disarm"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--start", "s"])).toBe(false);
   });
 });

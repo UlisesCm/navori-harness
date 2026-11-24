@@ -1,6 +1,7 @@
 //! `navori-rust`: parser, native command table and delegation to the TS CLI.
 
 pub mod adopt;
+pub mod audit_arm;
 pub(crate) mod audit_target;
 pub mod backup;
 pub(crate) mod clack;
@@ -10,6 +11,7 @@ pub mod doctor;
 pub mod dominio;
 pub mod dominio_inject;
 pub mod facts_cache;
+pub mod gate_foreign;
 pub mod gate_probe;
 pub mod handoff;
 pub mod help;
@@ -99,6 +101,14 @@ pub const NATIVE: &[NativeCommand] = &[
     NativeCommand {
         path: &["--help"],
         run: print_root_help,
+    },
+    NativeCommand {
+        path: &["audit"],
+        run: audit_arm::run,
+    },
+    NativeCommand {
+        path: &["gate", "foreign"],
+        run: gate_foreign::run,
     },
     NativeCommand {
         path: &["gate", "probe"],
