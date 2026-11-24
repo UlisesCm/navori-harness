@@ -273,7 +273,8 @@ describe("native hook fail-closed wrapper", (): void => {
   // Covers: R50
   it("quality-gate-pre-commit nunca permite ante SIGSEGV, 101 o stdout cerrado", (): void => {
     const { dir, descriptor } = hookProject(QUALITY_GATE);
-    expect(descriptor).toMatchObject({ mode: "shadow", gating: true });
+    // Fail-closed holds in shadow and after activation (R50, T4: the matrix grows with each batch).
+    expect(descriptor).toMatchObject({ gating: true });
     const failures = [
       { body: "printf 'partial'; kill -SEGV $$", closeStdout: false },
       { body: "printf 'partial'; exit 101", closeStdout: false },
