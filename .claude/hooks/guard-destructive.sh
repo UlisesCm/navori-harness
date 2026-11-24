@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:4eef44c314e745d13eb716daaf0698f45777e9caab84fc2d36b72353ed3c9005 impl=sha256:31efcf552c1e15af3422a7613fa66dace3dc40273c5c7e82f125d901ed2abd42
-# navori:managed start id="guard-destructive-base" hash="0f6cc415" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:f56a944b8cfd2e9c90e39185317c08706fcd0aecf5f535e0bd50a05e990278c3 impl=sha256:9f552f75026991674fb652909e2187aba6c6dc25ca1d2d91b0ba8fc4f9f2a807
+# navori:managed start id="guard-destructive-base" hash="d493c188" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
@@ -3222,14 +3222,19 @@ _dsc_route="commit the work first (a WIP commit is enough: 'git add -A && git co
 # assignments and a `…/git` path as the `git` word; and when `GIT_DIR=`/`GIT_WORK_TREE=` is
 # a prefix of the segment, or an EARLIER segment assigns/exports them (hold space), injects
 # `--git-dir=?` right after `git` — the token walk then blocks it like the real flag.
-# Out of scope, allowed as before: inherited env, sudo, sh -c, eval.
+# A segment that is not git is then RE-PEELED (leading `VAR=value` stripped, as `segments`
+# did), so the `cd` walk still follows `FOO=1 cd <dir>`. Exception: `tr -d` runs before the
+# peel here (needed to see `"GIT_DIR=x" git`), so `"FOO"=1 cd x` and `F"O"O=1 cd x` now peel
+# too (base did not); shell and native agree.
+# Out of scope, allowed as before: inherited env, sudo, sh -c, eval, and `env` with options
+# (`env -i`, `env -u NAME`, `env --`): known limitation.
 _dsc_w='[[:space:]]'
 _dsc_a='[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*'
 _dsc_g='(GIT_DIR|GIT_WORK_TREE)='
 _dsc_pre="^((env|${_dsc_a})${_dsc_w}+)*"
 _dsc_word='([^[:space:]=]*\/)?git([[:space:]]|$)'
 _dsc_sed="s/^${_dsc_w}+//
-/^(export|declare|typeset|readonly|local)${_dsc_w}.*(.*${_dsc_w})?${_dsc_g}/H
+/^(export|declare|typeset|readonly|local)(${_dsc_w}+[^[:space:]]+)*${_dsc_w}+${_dsc_g}/H
 /^(${_dsc_a}${_dsc_w}+)*${_dsc_g}[^[:space:]]*(${_dsc_w}+${_dsc_a})*${_dsc_w}*\$/H
 /${_dsc_pre}${_dsc_g}/s/${_dsc_pre}${_dsc_word}/git --git-dir=?\\4/
 s/${_dsc_pre}${_dsc_word}/git\\4/
@@ -3241,7 +3246,10 @@ s/^git/git --git-dir=?/
 b
 }
 x
-}"
+}
+:p
+s/^${_dsc_a}(${_dsc_w}+|\$)//
+tp"
 segments_dq=$(printf '%s' "$_split" | tr -d "'\")" | sed -E -e "$_dsc_sed")
 _dsc_cands=$(printf '%s' "$segments_dq" | grep -E "$_dsc_re" || true)
 if [ -n "$_dsc_cands" ]; then

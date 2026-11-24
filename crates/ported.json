@@ -112,13 +112,13 @@
       "mode": "shadow",
       "gating": true,
       "blocks": {
-        "guard-destructive-base": "sha256:7051bde7e9ff2efa2b13f0efc92c6f22dc367f85359a4d39b4f3586e39417dc3",
+        "guard-destructive-base": "sha256:c8dcda5ec6fc4d533785ffb60a0c959344c45a5020d71b0b16ef9be24271a4f3",
         "tgrep-search-lane": "sha256:40c5028ff66f79e674daa948e7ad0c5e5a21fe1001cdcd8054179b3a66d0d484"
       },
       "deps": {
         "scripts/guard-search-routing.sh": "sha256:ae09f92a67ec3e6c796fbcf64fb59828f040ae71f57334341f9d1bdb90116b21"
       },
-      "impl": "sha256:31efcf552c1e15af3422a7613fa66dace3dc40273c5c7e82f125d901ed2abd42"
+      "impl": "sha256:9f552f75026991674fb652909e2187aba6c6dc25ca1d2d91b0ba8fc4f9f2a807"
     },
     "subagent-no-background": {
       "mode": "shadow",
