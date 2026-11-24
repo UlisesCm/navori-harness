@@ -157,7 +157,8 @@ la paridad.
    trae su propia config navori y nunca degrada lo que el repo ya trae. *Por qué*: instalar base
    por-workspace no debe romper repos existentes.
 9. **navori genera, no ejecuta** — el harness enseña al agente qué herramienta usar; navori no
-   corre esas herramientas. Excepción opt-in por proyecto: una integración nativa de Codex
+   corre esas herramientas. La regla sigue siendo una decisión humana por cada publicación.
+   Excepción opt-in por proyecto: una integración nativa de Codex
    puede observar perfiles y evaluación del host y autorizar una sola publicación fija de PR,
    con decisión humana autenticada y alcance inmutable. El engine conserva la ejecución normal;
    la excepción no admite API genérica de ejecución, runner, broker de modelos, dependencia nueva,
@@ -167,6 +168,18 @@ la paridad.
    ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
    satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
    y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   Un proyecto también puede activar `autonomy.mode: "routine"` (solo Pi,
+   [Spec 0065](../specs/0065-autonomia/spec.md)): con el consentimiento vigente del usuario, la
+   extensión de Pi responde ella misma la confirmación de cuatro operaciones en el repo propio
+   (abrir un PR hacia una rama de integración declarada, comentar, revisar sin aprobar, crear un
+   issue), solo en la sesión interactiva, solo con un archivo de cuerpo que leyó, y registrando la
+   sesión antes de ejecutar. El consentimiento caduca si cambian la política, el harness de Pi
+   instalado, las extensiones de Pi del host o el binario `navori-rust`. El merge y toda otra
+   publicación conservan la decisión por operación; con la clave presente, publicar paquetes,
+   releases, tags, merges de administrador y escrituras a `main` se bloquean. Es un cinturón contra
+   saltarse un paso por descuido, no un límite: el agente corre como el mismo usuario y puede
+   falsificar una marca o publicar con un script; los rulesets y las credenciales siguen siendo el
+   límite.
    *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos
