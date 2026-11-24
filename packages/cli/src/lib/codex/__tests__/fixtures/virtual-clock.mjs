@@ -33,8 +33,8 @@ if (role && !globalThis.__navoriVirtualClock) {
   const realNow = RealDate.now.bind(RealDate);
   const start = realNow();
   let calls = 0;
+  // Only the cli role installs this clock; the supervisor keeps the real one.
   const now = () => {
-    if (role !== "cli") return realNow();
     if (!expired) return start;
     return start + (calls++ === 0 ? 0 : 3_600_000);
   };
