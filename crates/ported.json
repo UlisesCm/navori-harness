@@ -109,7 +109,7 @@
   ],
   "hooks": {
     "guard-destructive": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": true,
       "blocks": {
         "guard-destructive-base": "sha256:c8dcda5ec6fc4d533785ffb60a0c959344c45a5020d71b0b16ef9be24271a4f3",
