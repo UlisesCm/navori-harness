@@ -608,8 +608,7 @@ describe("shell writes reach the threshold too (#722)", () => {
     expect(runs.every((r) => r.stdout === "")).toBe(true);
   });
 
-  it("rung 1 sondea solo lo previo a tool_response (#1793)", () => {
-    const stampOf = (cwd: string): string => join(stampDirFor(cwd), SESSION);
+  it("rung 1 sondea el comando cargado, no la salida (#1793)", () => {
     const four = (
       mk: (cmd: string, out: string) => Record<string, unknown>,
       out: string,
@@ -621,15 +620,35 @@ describe("shell writes reach the threshold too (#722)", () => {
         mk("echo x > src/d.ts", out),
       ]);
 
-    // '>' only in the output: leaves at rung 1, no stamp is ever created.
-    acrossShells((shell) => {
-      const cwd = freshProject();
-      for (const cmd of ["git log --graph", "ls -la", "cat notas.txt"]) {
-        expect(runHook(shell, cwd, bashWithOutput(cmd, "| > merged\n")).stdout).toBe("");
-      }
-      expect(existsSync(stampOf(cwd))).toBe(false);
-      return [];
-    });
+    // '>' only in the output / description / cwd: leaves at rung 1, so the
+    // stamp DIRECTORY is never created (it did not exist before the run).
+    const leavesAtRung1 = (payloads: Record<string, unknown>[]): void => {
+      acrossShells((shell) => {
+        const cwd = freshProject();
+        expect(existsSync(stampDirFor(cwd))).toBe(false);
+        for (const p of payloads) expect(runHook(shell, cwd, p).stdout).toBe("");
+        expect(existsSync(stampDirFor(cwd))).toBe(false);
+        return [];
+      });
+    };
+    leavesAtRung1(
+      ["git log --graph", "ls -la", "cat notas.txt"].map((c) => bashWithOutput(c, "| > merged\n")),
+    );
+    leavesAtRung1([
+      {
+        session_id: SESSION,
+        tool_name: "Bash",
+        tool_input: { command: "ls -la", description: "list files > to check" },
+      },
+    ]);
+    leavesAtRung1([
+      {
+        session_id: SESSION,
+        tool_name: "Bash",
+        tool_input: { command: "ls -la" },
+        cwd: "/tmp/a>b",
+      },
+    ]);
 
     // '>' in the command and empty output: counted.
     expect(four(bashWithOutput, "")[3]?.stdout).toContain("4 distinct files");
@@ -645,10 +664,10 @@ describe("shell writes reach the threshold too (#722)", () => {
     ]);
     expect(mixed[3]?.stdout).toContain("4 distinct files");
 
-    // No tool_response (Pi shape): same as today.
+    // No tool_response (Pi shape): counted.
     expect(four((c) => bash(c), "")[3]?.stdout).toContain("4 distinct files");
 
-    // tool_response BEFORE tool_input: the whole payload is probed, still counted.
+    // tool_response BEFORE tool_input: still counted.
     const reordered = (cmd: string): Record<string, unknown> => ({
       session_id: SESSION,
       tool_name: "Bash",
@@ -656,6 +675,25 @@ describe("shell writes reach the threshold too (#722)", () => {
       tool_input: { command: cmd },
     });
     expect(four((c) => reordered(c), "")[3]?.stdout).toContain("4 distinct files");
+  });
+
+  it("cost guard: un comando de ~300 KB no es cuadratico (#1793)", () => {
+    const big = "echo " + "a".repeat(300_000);
+    const timed = (payload: Record<string, unknown>, shell: HookShell): number => {
+      const t0 = Date.now();
+      runHook(shell, freshProject(), payload);
+      return Date.now() - t0;
+    };
+    acrossShells((shell) => {
+      // No write token: leaves at rung 1. Claude shape and Pi shape (no tool_response).
+      expect(timed(bashWithOutput(big, "x"), shell)).toBeLessThan(5000);
+      expect(timed(bash(big), shell)).toBeLessThan(5000);
+      return [];
+    });
+    // A large command that writes is still counted.
+    const writing = (n: string): string => `echo ${"a".repeat(300_000)} > src/${n}.ts`;
+    const runs = play(["a", "b", "c", "d"].map((n) => bash(writing(n))));
+    expect(runs[3]?.stdout).toContain("4 distinct files");
   });
 
   it("sigue contando las formas de escritura reales, una por una", () => {
