@@ -19,6 +19,10 @@ interface ShellHook {
   hook: string;
   reason: string;
 }
+interface Transitional {
+  commands: Delegation[];
+  hooks: ShellHook[];
+}
 interface Input {
   manifest: {
     commands: Array<{ path: string[]; flags?: string[]; requires?: string[][] }>;
@@ -29,6 +33,7 @@ interface Input {
   history: Array<{ date: string; op: string; id: string }>;
   delegation?: Delegation[];
   shellHooks?: ShellHook[];
+  transitional?: Transitional;
   bench: {
     comparable?: boolean;
     measurements?: Array<{ engine?: string; hook?: string; wallMsP95: number }>;
@@ -59,6 +64,8 @@ interface Areas {
   PERMANENT_SHELL_HOOKS: ShellHook[];
   permanentShellHook: (id: string, list?: ShellHook[]) => boolean;
   hookInventory: () => string[];
+  TRANSITIONAL_DELEGATION: Transitional;
+  validateTransitional: (list: Transitional) => void;
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -85,6 +92,7 @@ const ready = (): Input => ({
   history: [{ date: "2026-10-29", op: "port", id: "render" }],
   delegation: [],
   shellHooks: [],
+  transitional: { commands: [], hooks: [] },
   bench: {
     comparable: true,
     measurements: [{ engine: "claude", hook: "plan-gate", wallMsP95: 2 }],
@@ -448,5 +456,62 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(cutover.cutoverFindings(input)).toEqual([
       { check: "unport", detail: "masterx (since 2026-11-10)" },
     ]);
+  });
+
+  // Covers: R20
+  it("la delegación transitoria no bloquea: lo que cubre sale aparte con su motivo y lo demás sigue bloqueando", () => {
+    const input = ready();
+    input.manifest.hooks["plan-gate"] = { mode: "shadow" };
+    input.manifest.hooks["guard-destructive"] = { mode: "shadow" };
+    input.manifest.commands.push({ path: ["audit"], flags: ["arm"], requires: [["arm"]] });
+    input.commands.push(
+      { path: ["init"], flags: [] },
+      { path: ["audit"], flags: ["arm", "session"] },
+    );
+    input.commands[0]?.flags.push("prune");
+    input.transitional = {
+      commands: [
+        { path: ["init"], reason: "sin portar" },
+        { path: ["render"], flags: ["prune"], reason: "flag sin portar" },
+        { path: ["audit"], unless: ["arm"], reason: "solo --arm" },
+        { path: ["audit"], flags: ["session"], reason: "modo sin portar" },
+      ],
+      hooks: [{ hook: "plan-gate", reason: "sin tráfico" }],
+    };
+    expect(cutover.cutoverFindings(input)).toEqual([
+      { check: "transitional", detail: "flag: render --prune (flag sin portar)" },
+      { check: "transitional", detail: "command: init (sin portar)" },
+      { check: "transitional", detail: "requires: audit (sin --arm) (solo --arm)" },
+      { check: "transitional", detail: "flag: audit --session (modo sin portar)" },
+      { check: "shadow", detail: "guard-destructive" },
+      { check: "transitional", detail: "shadow: plan-gate (sin tráfico)" },
+    ]);
+
+    // The window close edits only the data: dropping a hook from the list makes it block again.
+    input.transitional.hooks = [];
+    expect(cutover.cutoverFindings(input)).toContainEqual({ check: "shadow", detail: "plan-gate" });
+  });
+
+  // Covers: R20
+  it("la lista transitoria real lleva motivo en cada entrada, no repite la permanente y deja en sombra solo hooks de Claude", () => {
+    const list = areas.TRANSITIONAL_DELEGATION;
+    for (const entry of [...list.commands, ...list.hooks]) expect(entry.reason.trim()).not.toBe("");
+    expect(list.hooks.map((h) => h.hook).sort()).toEqual([
+      "general-purpose-confirm",
+      "model-advisor",
+      "pii-egress-guard",
+      "plan-gate",
+      "session-start-context",
+      "subagent-stop-handoff",
+    ]);
+    expect(() =>
+      areas.validateTransitional({ commands: [{ path: ["master"], reason: "r" }], hooks: [] }),
+    ).toThrow(/repeats PERMANENT_DELEGATION/);
+    expect(() =>
+      areas.validateTransitional({ commands: [], hooks: [{ hook: "routing-watch", reason: "r" }] }),
+    ).toThrow(/repeats PERMANENT_SHELL_HOOKS/);
+    expect(() =>
+      areas.validateTransitional({ commands: [{ path: ["init"], reason: " " }], hooks: [] }),
+    ).toThrow(/has no reason/);
   });
 });

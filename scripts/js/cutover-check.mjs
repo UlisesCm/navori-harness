@@ -6,6 +6,7 @@ import {
   AREAS,
   PERMANENT_DELEGATION,
   PERMANENT_SHELL_HOOKS,
+  TRANSITIONAL_DELEGATION,
   areaOf,
   commandInventory,
   hookInventory,
@@ -29,6 +30,9 @@ import {
  *     or `navori-rust --version` slower than 10 ms;
  *   - R18: the last `check:post-cutover` missing, red or over its host's budget (300 s on the
  *     reference machine, 600 s on CI).
+ *
+ * What the transitional delegation of `rust-areas.mjs` covers (amendment of R20 and T10, 23 Nov)
+ * is reported apart as `transitional`, with its reason, and does not block: it is debt of 0.13.x.
  *
  * The command tree is read from `packages/cli/src/cli.ts`, as the per-area inventory test does
  * (`dist/index.js` runs the CLI on import), so it runs under bun.
@@ -95,6 +99,7 @@ function excusedRequires(path, requires, delegation) {
  *   history: HistoryEvent[],
  *   delegation?: ReadonlyArray<import("./rust-areas.mjs").Delegation>,
  *   shellHooks?: ReadonlyArray<{ hook: string, reason: string }>,
+ *   transitional?: typeof TRANSITIONAL_DELEGATION,
  *   bench: BenchReport | null,
  *   versionMs: number | null,
  *   postCutover: PostCutoverReport | null,
@@ -104,8 +109,22 @@ function excusedRequires(path, requires, delegation) {
 export function cutoverFindings(input) {
   const delegation = input.delegation ?? PERMANENT_DELEGATION;
   const shellHooks = input.shellHooks ?? PERMANENT_SHELL_HOOKS;
+  const transitional = input.transitional ?? TRANSITIONAL_DELEGATION;
   /** @type {Finding[]} */
   const findings = [];
+  /**
+   * A finding, or its transitional twin when the transitional delegation covers it.
+   * @param {string} check
+   * @param {string} detail
+   * @param {string | undefined} reason the covering transitional entry's reason, if any
+   */
+  const push = (check, detail, reason) =>
+    findings.push(
+      reason === undefined ? { check, detail } : { check: "transitional", detail: `${check}: ${detail} (${reason})` },
+    );
+  /** The reason of the transitional command entry covering `path` (and `flag`), if any. */
+  const coveredBy = (path, flag) =>
+    transitional.commands.find((entry) => permanentlyDelegated(path, flag, [entry]))?.reason;
   // Entries of one path differ in `requires` (manifest.rs validate): their flags add up, and the
   // path is native without flags only if one of them has no `requires`.
   /** @type {Map<string, { flags: Set<string>, requires: string[][] | null }>} */
@@ -123,18 +142,21 @@ export function cutoverFindings(input) {
     const native = declared.get(key);
     if (native === undefined) {
       if (!permanentlyDelegated(entry.path, undefined, delegation))
-        findings.push({ check: "command", detail: key });
+        push("command", key, coveredBy(entry.path, undefined));
       continue;
     }
-    if (native.requires !== null && !excusedRequires(entry.path, native.requires, delegation))
-      findings.push({
-        check: "requires",
-        detail: `${key} (sin ${native.requires.map((needed) => needed.map((f) => `--${f}`).join(" ")).join(" | ")})`,
-      });
+    if (native.requires !== null && !excusedRequires(entry.path, native.requires, delegation)) {
+      const excuse = transitional.commands.find((t) => excusedRequires(entry.path, native.requires ?? [], [t]));
+      push(
+        "requires",
+        `${key} (sin ${native.requires.map((needed) => needed.map((f) => `--${f}`).join(" ")).join(" | ")})`,
+        excuse?.reason,
+      );
+    }
     const flags = [...native.flags];
     for (const flag of entry.flags)
       if (!flags.includes(flag) && !permanentlyDelegated(entry.path, flag, delegation))
-        findings.push({ check: "flag", detail: `${key} --${flag}` });
+        push("flag", `${key} --${flag}`, coveredBy(entry.path, flag));
   }
   for (const id of input.hooks) {
     areaOf({ hook: id });
@@ -142,7 +164,8 @@ export function cutoverFindings(input) {
     if (hook === undefined) {
       if (!permanentShellHook(id, shellHooks)) findings.push({ check: "hook", detail: id });
     }
-    else if (hook.mode === "shadow") findings.push({ check: "shadow", detail: id });
+    else if (hook.mode === "shadow")
+      push("shadow", id, transitional.hooks.find((entry) => entry.hook === id)?.reason);
   }
   const latest = new Map(
     input.history.filter((e) => e.op === "port" || e.op === "unport").map((e) => [e.id, e]),
@@ -231,13 +254,19 @@ async function main(argv) {
     versionMs: bin === null ? null : timeVersion(bin),
     postCutover: readJson(join(BENCH_DIR, "post-cutover-latest.json")),
   });
-  if (findings.length === 0) {
+  const blocking = findings.filter((f) => f.check !== "transitional");
+  const debt = findings.filter((f) => f.check === "transitional");
+  if (blocking.length === 0) {
     process.stdout.write(`cutover-check: ready (${Object.keys(AREAS).length} areas)\n`);
-    return 0;
+  } else {
+    process.stdout.write(`cutover-check: ${blocking.length} finding(s)\n`);
+    for (const f of blocking) process.stdout.write(`  ${f.check}: ${f.detail}\n`);
   }
-  process.stdout.write(`cutover-check: ${findings.length} finding(s)\n`);
-  for (const f of findings) process.stdout.write(`  ${f.check}: ${f.detail}\n`);
-  return report ? 0 : 1;
+  if (debt.length > 0) {
+    process.stdout.write(`cutover-check: ${debt.length} transitional (not blocking; rust-areas.mjs TRANSITIONAL_DELEGATION)\n`);
+    for (const f of debt) process.stdout.write(`  ${f.detail}\n`);
+  }
+  return blocking.length === 0 || report ? 0 : 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

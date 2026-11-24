@@ -10,7 +10,7 @@
  *        --legacy-tarball <tgz> --legacy-pin <json> [--managers npm,pnpm,npm-ignore-scripts]
  *        [--alias] [--keep] [--json <file>]
  *
- * It assembles and packs `navori` and `@navori/linux-x64` (dist-assemble; the checkout's
+ * It assembles and packs `navori` and its linux-x64 platform package (dist-assemble; the checkout's
  * `crates/ported.json` must be the binary's), builds a `node:<.nvmrc>` image with git and jq and
  * pnpm, and per manager installs the main, platform and legacy tarballs in a fresh project. Files
  * reach the container through `docker exec -i ... tar` (a snap docker cannot read hidden paths).
@@ -41,6 +41,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFERRED, FAILED, decisionOf } from "./activation-verify.mjs";
+import { platformPackage } from "./dist-assemble.mjs";
 
 /** @typedef {{ name: string, ok: boolean, gate: boolean, detail: string }} Check */
 /** @typedef {{ scenario: string, alias: boolean, facts: Record<string, unknown>, checks: Check[] }} ScenarioResult */
@@ -220,7 +221,7 @@ function inner(scenario, { version, alias }) {
   const pkg = join(project, "node_modules", "navori");
   facts.navoriBin = kindOf(join(pkg, "bin", "navori"));
   facts.nativeHookBin = kindOf(join(pkg, "bin", "navori-native-hook"));
-  const platformBinary = join(project, "node_modules", "@navori", "linux-x64", "bin", "navori");
+  const platformBinary = join(project, "node_modules", platformPackage("linux-x64"), "bin", "navori");
   facts.platformBinary = kindOf(platformBinary);
   if (alias) symlinkSync(facts.navoriBin === "binary" ? join(pkg, "bin", "navori") : platformBinary, join(bin, "navori-rust"));
   const started = process.hrtime.bigint();
