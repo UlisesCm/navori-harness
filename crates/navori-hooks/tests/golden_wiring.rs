@@ -1,6 +1,7 @@
 //! Spec 0059 T17 (R50): the native wiring of the session hooks in the mode `crates/ported.json`
-//! declares (`shadow` until 0062 activates them), as this repository renders it, against `golden/session-wiring.snap` (reviewed by hand) and against the Rust
-//! generator. `golden/wiring.snap` keeps the generic gating example the 0058 suites compare whole.
+//! declares (`shadow` until 0062 activates them), as this repository renders it, against
+//! `golden/session-wiring.snap` (reviewed by hand) and against the Rust generator.
+//! `golden/wiring.snap` keeps the generic gating example the 0058 suites compare whole.
 
 use std::path::{Path, PathBuf};
 
