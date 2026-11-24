@@ -146,8 +146,11 @@ Decidido por Ulises el 23 nov (`decisiones-ulises/2026-11-23-0910`). Reemplaza, 
   - git detrás de `sudo`. Ejemplo: `sudo git reset --hard`.
   - git dentro de un shell anidado. Ejemplo: `sh -c 'git reset --hard'`.
   - git dentro de `eval`. Ejemplo: `eval git reset --hard`.
+  - git detrás de `env` con opciones. Ejemplo: `env -i git reset --hard`, `env -u X git …` o `env -- git …`.
 
-  Cada una necesita otro modelo (leer el entorno del shell del agente o interpretar un comando anidado), así que van después del release. Las formas de #1801 (`GIT_DIR`/`GIT_WORK_TREE` como prefijo o exportadas en el mismo comando, y git con ruta o detrás de `env`) entran en 0.13 solo si el arreglo queda revisado, en verde y con recibo el 25 nov a las 12:00. Si no, se suman a esta lista.
+  Cada una necesita otro modelo (leer el entorno del shell del agente o interpretar un comando anidado), así que van después del release. Las formas de #1801 entraron en 0.13 con #1818: `GIT_DIR`/`GIT_WORK_TREE` como prefijo o exportadas en el mismo comando, y git con ruta, escapado o detrás de `env` sin opciones.
+
+  Bloqueo de más, en fallo cerrado (segunda revisión de #1818; verificado el 24 nov en el shell y en el nativo): un `GIT_DIR` exportado o asignado en un segmento anterior sigue contando aunque un segmento posterior lo quite. Ejemplo: `export GIT_DIR=x; unset GIT_DIR; git reset --hard` (o `GIT_DIR=;` en lugar de `unset`) bloquea en un repo limpio. El arreglo, si hace falta, va después del release.
 
 ## Deuda de `audit` tras 0.13
 
