@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -21,7 +29,8 @@ const THRESHOLD = 1000;
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "navori-compact-"));
+  // Real path: `handoff render` rejects a symlinked --cwd, and macOS tmpdir() is one (#1816).
+  dir = realpathSync(mkdtempSync(join(tmpdir(), "navori-compact-")));
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 

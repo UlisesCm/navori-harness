@@ -240,7 +240,7 @@ describe("rust oracle", () => {
     const dir = tmp();
     const base = tmp();
     const body = (stamp: string, extra = ""): string =>
-      `test "$1" = "$NAVORI_AUDITS_ROOT" || exit 3; test "$(stat -c %a "$1")" = 700 || exit 4; printf '{"ts":"'%s'"}' '${stamp}' > "$1/.armed"; ${extra}`;
+      `test "$1" = "$NAVORI_AUDITS_ROOT" || exit 3; test "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" = 700 || exit 4; printf '{"ts":"'%s'"}' '${stamp}' > "$1/.armed"; ${extra}`;
     const testCase: OracleCase = {
       id: "audits",
       fixture: "empty",
