@@ -151,7 +151,100 @@ fn candidate(
     Some((sub.to_owned(), dir, loss))
 }
 
-/// Rule 7 over the segments. `None` lets the command through.
+/// `NAME=value`, the shape of an environment assignment.
+fn is_assignment(token: &str) -> bool {
+    let Some((name, _)) = token.split_once('=') else {
+        return false;
+    };
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// An assignment of `GIT_DIR` or `GIT_WORK_TREE`: it moves the repository the command touches.
+fn is_git_location(token: &str) -> bool {
+    token.starts_with("GIT_DIR=") || token.starts_with("GIT_WORK_TREE=")
+}
+
+/// `git` written bare or as a path (`/usr/bin/git`, `./git`); `=` cannot be part of the path.
+fn is_git_word(token: &str) -> bool {
+    token
+        .strip_suffix("git")
+        .is_some_and(|dir| dir.is_empty() || (dir.ends_with('/') && !dir.contains('=')))
+}
+
+/// The `[start, end)` of the first token at or after `from`.
+fn next_token(text: &str, from: usize, locale: Locale) -> Option<(usize, usize)> {
+    let mut start = None;
+    for (i, c) in text[from..].char_indices() {
+        let blank = locale.whitespace(c);
+        match (start, blank) {
+            (None, false) => start = Some(from + i),
+            (Some(a), true) => return Some((a, from + i)),
+            _ => {}
+        }
+    }
+    start.map(|a| (a, text.len()))
+}
+
+/// The shell's forms-of-git pass (#1801): `env`, assignment prefixes and a `…/git` path read as
+/// the bare `git` word, and a `GIT_DIR=`/`GIT_WORK_TREE=` prefix, or one assigned or exported by
+/// an earlier segment (`sticky`), injects `--git-dir=?` so the walk blocks it like the flag.
+fn normalize(segment: &str, sticky: &mut bool, locale: Locale) -> String {
+    let text = segment.trim_start_matches(|c| locale.whitespace(c));
+    let mut words = Vec::new();
+    let mut at = 0;
+    while let Some((a, b)) = next_token(text, at, locale) {
+        words.push(&text[a..b]);
+        at = b;
+    }
+    let exports = words
+        .first()
+        .is_some_and(|w| matches!(*w, "export" | "declare" | "typeset" | "readonly" | "local"))
+        && words.iter().skip(1).any(|w| is_git_location(w));
+    let only_assignments =
+        words.iter().all(|w| is_assignment(w)) && words.iter().any(|w| is_git_location(w));
+    if exports || only_assignments {
+        *sticky = true;
+    }
+    let mut tainted = false;
+    let mut line = text.to_owned();
+    let mut at = 0;
+    while let Some((a, b)) = next_token(text, at, locale) {
+        let token = &text[a..b];
+        if token == "env" || is_assignment(token) {
+            tainted |= is_git_location(token);
+            at = b;
+        } else {
+            if is_git_word(token) {
+                line = format!("git{}", &text[b..]);
+            }
+            break;
+        }
+    }
+    let git = line
+        .strip_prefix("git")
+        .is_some_and(|rest| rest.chars().next().is_none_or(|c| locale.whitespace(c)));
+    if git && (tainted || *sticky) {
+        line = format!("git --git-dir=?{}", &line[3..]);
+    } else if !git {
+        // Re-peel: leading assignments go, as `inert::segments` peels them.
+        let mut rest = line.as_str();
+        while let Some((a, b)) = next_token(rest, 0, locale) {
+            if a == 0 && is_assignment(&rest[a..b]) {
+                rest = rest[b..].trim_start_matches(|c| locale.whitespace(c));
+            } else {
+                break;
+            }
+        }
+        line = rest.trim_start_matches(|c| locale.whitespace(c)).to_owned();
+    }
+    line
+}
+
+/// Rule 7 over the unpeeled segments. `None` lets the command through.
 pub(super) fn evaluate(
     segments: &[String],
     candidate_re: &Regex,
@@ -159,13 +252,16 @@ pub(super) fn evaluate(
     repo: &dyn Repo,
     locale: Locale,
 ) -> Option<Block> {
-    // `tr -d "'\")"` over the segment list.
+    // `tr -d "'\")"` over the segment list, then the forms-of-git pass.
+    let mut sticky = false;
     let segments: Vec<String> = segments
         .iter()
         .map(|s| {
-            s.chars()
+            let dropped: String = s
+                .chars()
                 .filter(|c| !matches!(c, '\'' | '"' | ')'))
-                .collect()
+                .collect();
+            normalize(&dropped, &mut sticky, locale)
         })
         .collect();
     let count = segments.iter().filter(|s| candidate_re.is_match(s)).count();
@@ -238,4 +334,39 @@ pub(super) fn evaluate(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::inert::{self, Rules};
+
+    /// For non-git, unquoted segments, `normalize` peels exactly what `inert::segments` peels.
+    #[test]
+    fn normalize_peels_like_inert_segments() -> Result<(), String> {
+        let inputs = [
+            "FOO=1 cd x",
+            "FOO=1 BAR=2 cd x",
+            "  FOO=1   cd x",
+            "env FOO=1 cd x",
+            "FOO=1",
+            "FOO=1 BAR=",
+            "cd x",
+            "MY_GIT_DIR=x ls",
+            "FOO=GIT_DIR=x ls",
+            "1FOO=1 ls",
+            "FOO=1\u{2000}ls",
+            "ls -la",
+            "",
+        ];
+        for locale in [Locale::Utf8, Locale::GnuUtf8, Locale::C] {
+            let rules = Rules::get(locale);
+            for input in inputs {
+                let peeled = inert::segments(input, rules)?;
+                let got = normalize(input, &mut false, locale);
+                assert_eq!(Some(&got), peeled.first(), "{locale:?} {input:?}");
+            }
+        }
+        Ok(())
+    }
 }

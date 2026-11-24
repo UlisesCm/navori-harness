@@ -329,6 +329,17 @@ pub fn scan(live: &str, rules: &Rules) -> Result<String, String> {
     Ok(scan.replace('(', " "))
 }
 
+/// `_split` of `navori_inert_segments`: one segment per separator, nothing peeled.
+#[must_use]
+pub fn split(scan: &str) -> Vec<String> {
+    scan.replace("&&", "\n")
+        .replace("||", "\n")
+        .replace([';', '|'], "\n")
+        .split('\n')
+        .map(str::to_owned)
+        .collect()
+}
+
 /// `segments` of `navori_inert_segments`: one per separator, leading blanks and `VAR=value`
 /// prefixes peeled so each starts with its command word.
 ///
@@ -336,11 +347,8 @@ pub fn scan(live: &str, rules: &Rules) -> Result<String, String> {
 /// Returns the message of an invalid pattern (a build defect, see [`Rules`]).
 pub fn segments(scan: &str, rules: &Rules) -> Result<Vec<String>, String> {
     let assignment = rules.assignment()?;
-    Ok(scan
-        .replace("&&", "\n")
-        .replace("||", "\n")
-        .replace([';', '|'], "\n")
-        .split('\n')
+    Ok(split(scan)
+        .into_iter()
         .map(|segment| {
             let mut segment = segment
                 .trim_start_matches(|c| rules.locale.whitespace(c))
