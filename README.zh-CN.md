@@ -104,7 +104,7 @@ Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中�
 | `codex trust` | 批准 `~/.codex/config.toml` 中的项目 hooks。 |
 | `receipt <sign\|check\|gate\|review>` | 发布前为已审阅内容生成凭据；`gate` 决定每个里程碑需要范围受限的质量门还是完整质量门。 |
 | `tools notice` | 为启动 hook 发出待处理的外部工具版本通知（`--ack` 将其标记为已送达）。 |
-| `master <sub>` | 分阶段总体规划（`init`、`ux`、`mode`、`advance`、`check` 等）和交付（`delivery-*`，须通过 `--approved-by` 门控）。 |
+| `master <sub>` | 主计划 v2：由用户验收 slice 的 PLAN.md（`init`、`status`、`check --incoming --base`、`accept`/`reject`、`migrate`、`template`）。v1 阶段命令为只读；请运行 `master migrate`。 |
 | `adopt` | 将你手动编写的 harness 文件纳入 Navori 管理（添加管理标记，不重写内容）。 |
 | `workspace` / `ticket` / `dominio` | 管理跨仓库配置和 tickets，以及工作区的持久知识库。 |
 | `preset` / `scan` / `backup` / `migrations` | 本地预设、monorepo、恢复和迁移。 |

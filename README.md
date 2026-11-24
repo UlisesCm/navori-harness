@@ -104,7 +104,7 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
 | `codex trust` | Approves project hooks in `~/.codex/config.toml`. |
 | `receipt <sign\|check\|gate\|review>` | Receipt for reviewed content before publishing; `gate` decides whether each milestone needs the scoped or full gate. |
 | `tools notice` | Emits pending external-tool version notices for the startup hook (`--ack` marks them as delivered). |
-| `master <sub>` | Master plan by stages (`init`, `ux`, `mode`, `advance`, `check`, …) and deliveries (`delivery-*`, gated with `--approved-by`). |
+| `master <sub>` | Master plan v2: a PLAN.md of slices the user accepts (`init`, `status`, `check --incoming --base`, `accept`/`reject`, `migrate`, `template`). v1 stage commands are read-only; run `master migrate`. |
 | `adopt` | Brings a harness file you wrote by hand under Navori management (wraps it, does not rewrite it). |
 | `workspace` / `ticket` / `dominio` | Cross-repository config and tickets, plus the durable workspace knowledge base. |
 | `preset` / `scan` / `backup` / `migrations` | Local presets, monorepos, restore, and migrations. |

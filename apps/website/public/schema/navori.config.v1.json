@@ -586,6 +586,16 @@
         "additionalProperties": false
       }
     },
+    "claudePlugins": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[^@\\s]+@[^@\\s]+$"
+      },
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
     "blocks": {
       "type": "object",
       "properties": {

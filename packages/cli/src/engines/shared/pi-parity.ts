@@ -223,7 +223,7 @@ const hookEntries = (): Array<[string, PiParity]> => {
       "master-accept-confirm",
       seatbelt(
         "the extension's tool_call handler runs the Pi copy of the script (`.pi/navori/hooks/master-accept-confirm.sh`) under bash for the parent and every child; its `ask` needs the operator's confirmation in the interactive parent (the native dialog), and is refused without UI or on denial. A child is refused and the exact command is relayed to the parent (PI_HOOK_BINDINGS). The extension additionally asks for any command that carries `--approved-by`",
-        "covers `navori master part|delivery-baseline|delivery-queue|delivery-criterion … --approved-by`, `master close`, `delivery-review|decision|publication|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox",
+        "covers `navori master accept` and `master reject`, and direct writes to `navori/acceptance`; the v1 write forms no longer write; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox",
         "pi-extension:tool_call",
       ),
     ),

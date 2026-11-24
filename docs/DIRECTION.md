@@ -127,6 +127,7 @@ Today both are opt-in plugins again, with routing
    repository has its own Navori config and never degrades what that repository already has.
    *Why*: a workspace-level foundation must not disrupt existing repositories.
 9. **Navori generates; it does not execute** — the harness teaches agents which tools to use.
+   A human decision for each publication remains the rule.
    A project may opt into a narrowly scoped native Codex integration that observes host profiles
    and evaluations and can authorize one fixed PR publication, following an authenticated human
    decision and immutable scope. The engine retains its normal execution model. This exception
@@ -136,7 +137,18 @@ Today both are opt-in plugins again, with routing
    that the controller, publication effect, or profile observation already exists or is accepted.
    Prefer existing supported host ownership when it meets the guarantees. Any new parent client
    must enforce the same immutable scope and human-entry limit
-   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). Navori may run the
+   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). A project may also opt into
+   `autonomy.mode: "routine"` (Pi only, [Spec 0065](../specs/0065-autonomia/spec.md)): with the
+   user's standing consent, the Pi extension answers the confirmation itself for four operations in
+   the project's own repository (opening a PR into a declared integration branch, commenting,
+   reviewing without approving, creating an issue), only in the interactive session, only with a
+   body file it read, and recording the session before the command runs. Consent lapses when the
+   policy, the installed Pi harness, the host's Pi extensions or the `navori-rust` binary change.
+   Merging and every other publication keep the per-operation decision; with the key present,
+   publishing packages, releases, tags, administrator merges and writes to `main` are blocked.
+   This is a seatbelt against skipping a step by accident, not a boundary: the agent runs as the
+   same user and can forge a marker or publish through a script; rulesets and credentials remain
+   the boundary. Navori may run the
    `qualityGate.fast` of **another** repository only when the user registered it with
    `navori workspace link`, the chain is flat (`isSafeGateChain`), and it runs without a shell
    (`navori gate foreign`); otherwise the commit only warns (#1097). *Why*: keep the CLI simple and
@@ -265,7 +277,7 @@ a spec** on `specs/` and get it approved; only then is it implemented.
 
    Details not apparent from the command—the mirror re-render triggers, golden snapshots, and
    what qualifies as a documentation-only change—are in `CONTRIBUTING.md`.
-4. **Commits**: use Conventional Commits, write them in Mexican Spanish, and keep each commit atomic.
+4. **Commits**: use Conventional Commits, write them in neutral Spanish, and keep each commit atomic.
 5. **Branches and PRs**: start each ticket on a new branch based on `dev` and open a PR to `dev`.
    Only release PRs from `dev` go to `main`, using a merge commit (`branchBase`/`prTarget` in
    `navori.config.json`). Never commit a `/bonum` repository's local harness.

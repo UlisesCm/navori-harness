@@ -448,8 +448,10 @@ function resolveSessionLog(
   return found;
 }
 
-/** Revalidates the exact start marker and horizon with at most one MiB retained per line. */
-function inspectLog(fd: number, sessionId: string, receiverId: string): boolean {
+/** Revalidates the exact start marker and horizon with at most one MiB retained per line.
+ * Reads only up to `limit` (the settled size): a foreign line still in flight beyond it
+ * must not be mistaken for a corrupt tail (#1717). */
+function inspectLog(fd: number, limit: number, sessionId: string, receiverId: string): boolean {
   const buffer = Buffer.alloc(64 * 1024);
   let parts: Buffer[] = [];
   let lineBytes = 0;
@@ -470,7 +472,7 @@ function inspectLog(fd: number, sessionId: string, receiverId: string): boolean 
   };
   let position = 0;
   for (;;) {
-    const bytes = readSync(fd, buffer, 0, buffer.length, position);
+    const bytes = readSync(fd, buffer, 0, Math.min(buffer.length, limit - position), position);
     if (bytes === 0) break;
     position += bytes;
     let start = 0;
@@ -526,11 +528,11 @@ function appendEvents(
     }
     try {
       let alreadyMarked = false;
-      const result = appendPrivateAuditFile(logFile, (fd) => {
+      const result = appendPrivateAuditFile(logFile, (fd, settledSize) => {
         const lines: string[] = [];
         // Keep the bounded LRU/TTL accounting, never use it to authorize a write.
         cacheGet(marked, sessionId);
-        alreadyMarked = inspectLog(fd, sessionId, receiverId);
+        alreadyMarked = inspectLog(fd, settledSize, sessionId, receiverId);
         if (!alreadyMarked) {
           // R4: the horizon. Same reason `hookLogFrom` exists — without it "no
           // manual approvals" and "nobody was listening" render identically. It

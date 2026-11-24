@@ -14,6 +14,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -115,6 +116,8 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
+
+vi.mock(import("node:fs"), { spy: true });
 
 describe("startReceiver (#0021)", () => {
   // Covers: R13
@@ -267,6 +270,32 @@ describe("startReceiver (#0021)", () => {
     });
     expect(readFileSync(file)).toEqual(incomplete);
     expect(r.stats()).toMatchObject({ written: 0, discarded: 2 });
+  });
+
+  // #1717: bytes past the settled size are another writer's in-flight line.
+  it("ignores a foreign line in flight past the settled size but refuses a corrupt one within it", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const file = markSession("in-flight");
+    const settled = statSync(file).size;
+    const ino = statSync(file).ino;
+    const r = await receiver();
+    const body = otlpBatch([{ "event.name": "tool_decision", "session.id": "in-flight" }]);
+    writeFileSync(file, Buffer.concat([readFileSync(file), Buffer.from('{"event":"hook')]));
+    vi.mocked(fs.fstatSync).mockImplementation(((fd: number) => {
+      const stat = actual.fstatSync(fd);
+      return stat.ino === ino ? Object.assign(Object.create(stat), { size: settled }) : stat;
+    }) as typeof fs.fstatSync);
+    await post(r.url, body);
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 0 });
+    expect(readFileSync(file, "utf-8")).toContain('{"event":"hook{"ts"');
+
+    const corrupt = markSession("corrupt-line");
+    writeFileSync(corrupt, Buffer.concat([readFileSync(corrupt), Buffer.from("{broken\n")]));
+    const before = readFileSync(corrupt);
+    vi.mocked(fs.fstatSync).mockImplementation(actual.fstatSync);
+    await post(r.url, otlpBatch([{ "event.name": "tool_decision", "session.id": "corrupt-line" }]));
+    expect(readFileSync(corrupt)).toEqual(before);
+    expect(r.stats()).toMatchObject({ written: 1, discarded: 1 });
   });
 
   // Covers: R10, R11, R13

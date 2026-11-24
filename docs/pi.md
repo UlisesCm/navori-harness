@@ -65,7 +65,7 @@ permission boundary; `unsupported` means Navori does not provide the control on 
 | `handoff-consumer` | enforced | Reviewer `navori_subagent` calls with an explicit feature are checked. Direct shell and tool calls bypass it. |
 | `analytic-write-tools` | advisory | Role tool allowlists are model-visible capabilities, not OS, filesystem, or network sandboxes. Scout and reviewer retain `write`. |
 | `local-skill-discovery` | enforced | `project.localSkills` are projected as pointers under `.agents/skills/<id>`, written only when Codex is not enabled. |
-| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Delivery-bound criteria (`navori master delivery-slice`) are recorded with their binding and fingerprint v2, as on Claude; `navori master delivery-criterion` recomputes the binding. Fails closed: a replaced bash tool, a missing `exit_code` or an uncontained stage records nothing. |
+| `acceptance-evidence` | enforced | The extension records host-observed exits of Pi's built-in bash (parent, child, and nested calls, Pi 1.1.0+) as workplan evidence. `plan update` refuses `cumplido` without it when `PI_SESSION_ID` is set. Fails closed: a replaced bash tool, a missing `exit_code` or an uncontained stage records nothing. |
 | `repeat-failure-advice` | advisory | After three identical built-in bash failures, one advisory is appended. It never blocks, never alters the result, and is silent when `exit_code` is absent. |
 | `compact-advice` | unsupported | No Pi binding runs compact-advice, so no context-size advice is injected; Pi publishes in the parent, with no publisher dispatch. |
 | `general-purpose-confirm` | unsupported | Pi's `navori_subagent` roster has six fixed roles and no general-purpose role to confirm. |
@@ -300,7 +300,7 @@ are `PI_ROLE_TIMEOUT_MS` in `packages/cli/src/engines/pi/role-tools.ts`: `implem
 
 - `pr-publisher-confirm` asks on every `gh pr create` (Pi has no host prompt, so the Pi copy always asks).
 - `comment-draft-confirm` asks for comment and review drafts, and `master-accept-confirm` for master
-  accept and close.
+  accept and reject.
 - An approval for a body file is bound to the sha256 of that file. The extension re-checks the digests after
   the confirmation and before it allows the call. A body that is changed, created or removed after the
   confirmation, or that cannot be read, is refused.
@@ -406,7 +406,7 @@ interactive session. The failed child then reports the provider's `errorMessage`
   or a local model), then run `navori render`.
 - **Run each role in its own interactive Pi session.** The parent session produces; the user opens a
   second `pi` in the same worktree for the reviewer, which follows `.pi/agents/reviewer.md` and writes its
-  report. Gates that need a separate reviewer (for example `navori master delivery-review`) are operator
+  report. Gates that need a separate reviewer are operator
   attestations: the user states that a different session reviewed, with distinct producer and reviewer
   labels. Navori cannot verify that independence.
 
@@ -595,7 +595,7 @@ Bypass classes of every seatbelt row (a seatbelt is a textual check, not a sandb
 | `hook:guard-destructive` | enforced | seatbelt (bypass classes above) | textual policy over the command string: the destructive rules of the shared script, its PII-egress lane (a `curl`/`wget` request to an external host that carries the git email or a `NAVORI_PERSONAL_IDS` entry; never echoes either), the shared `deny` permission rules, writes to the Pi control plane (`.pi/navori/**`, `.pi/extensions/**`, `.pi/settings.json`, `.pi/navori.json`) and `pi --no-extensions`. The shared `ask` rules answer `ask` (their own row) |
 | `hook:implementer-no-markdown` | enforced | control `markdown-ownership` | Shared script via tool_call for child bash/edit/write when scribeOwnsMarkdown is enabled. Edit/write retain AI-doctrine exceptions; Bash is a textual seatbelt, not a sandbox: dynamic destinations, external scripts, ambient writes and unrecognized runners remain outside it. |
 | `hook:managed-drift-watch` | advisory | — | never blocks, and only sees blocks with a hash marker (AGENTS.md, skills, hook copies); the extension, manifest and role files have no per-block hash and are protected by the guard and the edit/write lane instead. A drift it cannot evaluate is silent |
-| `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`, `master close`, `delivery-review\|decision\|publication\|revoke` and `delivery-slice --refresh`; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
+| `hook:master-accept-confirm` | enforced | seatbelt (bypass classes above) | covers `navori master accept` and `master reject`, and direct writes to `navori/acceptance`; the v1 write forms no longer write; indirect shell forms (`sh -c`, a script on disk) bypass it. The confirmation is a seatbelt, not a sandbox |
 | `hook:master-plan-context` | advisory | control `master-plan` | — |
 | `hook:model-advisor` | unsupported | — | A Pi port needs a Pi mode in the script and a binding; not planned (the model is chosen with `/model` and passed to children, spec 0047 R17) |
 | `hook:pii-egress-guard` | n/a | — | Claude-only: it guards WebFetch and WebSearch, which Pi does not have. Pi's `bash` is covered by the PII-egress lane inside guard-destructive (its row) |

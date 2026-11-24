@@ -849,7 +849,19 @@ export function buildClaudeSettings(
   // evaluations). Collapse buckets sharing an event+matcher into one so Claude
   // sees a single bucket per matcher — same intent as pluginHooksToClaudeShape,
   // now across all layers.
-  return coalesceHookMatchers(settings);
+  const coalesced = coalesceHookMatchers(settings);
+
+  // `claudePlugins` -> Claude Code's `enabledPlugins`. A separate top-level key
+  // added AFTER the permissions/hooks work, so it cannot affect either. Keys are
+  // sorted so the output does not depend on the order the user wrote them in
+  // (false values are kept: an explicit disable). Absent or empty -> no key.
+  // The config is the single source for the key: it replaces, not merges, any
+  // `enabledPlugins` a navori plugin's settingsFragment may have set above.
+  const claudePlugins = Object.entries(config.claudePlugins ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  if (claudePlugins.length === 0) return coalesced;
+  return { ...coalesced, enabledPlugins: Object.fromEntries(claudePlugins) };
 }
 
 /** Inventory for callers that only have plugins: the full Claude plan for `config`, filtered. */

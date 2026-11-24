@@ -47,7 +47,7 @@ navori render --apply
 | `handoff-consumer` | enforced | 会检查带有明确 feature 的 reviewer `navori_subagent` 调用。直接 shell 和工具调用可以绕过它。 |
 | `analytic-write-tools` | advisory | 按角色设置的工具允许列表只是模型可见的能力，并不是操作系统、文件系统或网络沙箱。Scout 和 reviewer 仍保留 `write`。 |
 | `local-skill-discovery` | enforced | `project.localSkills` 会投影为 `.agents/skills/<id>` 下的指针；仅在未启用 Codex 时写入。 |
-| `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。绑定到交付的验收标准（`navori master delivery-slice`）会连同其绑定和 v2 指纹一起记录，与 Claude 相同；`navori master delivery-criterion` 会重新计算该绑定。此机制会关闭失败：若 bash 工具被替换、缺少 `exit_code` 或阶段目录不受包含，则不会记录任何内容。 |
+| `acceptance-evidence` | enforced | 扩展会将宿主观察到的 Pi 内置 bash 退出结果（父会话、子会话及嵌套调用；Pi 1.1.0+）记录为 workplan 证据。设置了 `PI_SESSION_ID` 时，若没有该证据，`plan update` 会拒绝将状态设为 `cumplido`。此机制会关闭失败：若 bash 工具被替换、缺少 `exit_code` 或阶段目录不受包含，则不会记录任何内容。 |
 | `repeat-failure-advice` | advisory | 内置 bash 连续出现三次相同失败后，会附加一条建议。它不会阻止操作或更改结果；缺少 `exit_code` 时也不会显示。 |
 | `compact-advice` | unsupported | 没有任何 Pi 绑定运行 compact-advice，因此不会注入上下文大小建议；Pi 在父会话中发布，没有 publisher 派发。 |
 | `general-purpose-confirm` | unsupported | Pi 的 `navori_subagent` 角色列表有六个固定角色，没有可确认的 general-purpose 角色。 |
@@ -200,7 +200,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 **发布确认。** 在任何发布操作前，这些脚本都会询问，并在询问中显示正文：
 
 - 每次执行 `gh pr create` 时，`pr-publisher-confirm` 都会询问（Pi 没有宿主提示，因此 Pi 副本总会询问）。
-- `comment-draft-confirm` 会询问评论草稿和 review 草稿；`master-accept-confirm` 会询问 master 的接受和关闭操作。
+- `comment-draft-confirm` 会询问评论草稿和 review 草稿；`master-accept-confirm` 会询问 master 的接受和驳回操作。
 - 对正文文件的批准会绑定到该文件的 sha256。扩展会在确认后、允许调用前重新检查摘要。如果确认后正文被修改、创建或删除，或者无法读取，就会拒绝操作。
 - 通过 shell 构建的正文、stdin 和内联正文会显示在确认中，但不绑定哈希。
 
@@ -264,7 +264,7 @@ Pi 副本额外增加三条仅适用于 Pi 的规则：
 
 - **映射角色**：用 `models.piMap` 将角色映射到接受子进程的提供方（例如 API key 或本地模型），然后运行 `navori render`。
 - **每个角色使用独立的交互式 Pi 会话**：主会话负责产出；用户在同一 worktree 中再打开一个 `pi` 作为审查者，
-  按 `.pi/agents/reviewer.md` 工作并写出报告。需要独立审查者的关卡（例如 `navori master delivery-review`）
+  按 `.pi/agents/reviewer.md` 工作并写出报告。需要独立审查者的关卡
   属于操作者声明：由用户声明是另一个会话进行了审查，并使用不同的产出者与审查者标签。Navori 无法验证这种独立性。
 
 验收证据不依赖子进程：由主会话的内置 bash 记录。请在包含 workplan 的检出根目录（包括 worktree）启动 Pi，
@@ -422,7 +422,7 @@ bun scripts/bench/run-live.ts collect --root "$NAVORI_BENCH_ROOT"
 | `hook:guard-destructive` | enforced | 安全带（上述绕过方式类别） | 对命令字符串实施文本策略：共享脚本中的破坏性规则、其 PII 外泄通道（发往外部主机且携带 git 邮箱或 `NAVORI_PERSONAL_IDS` 条目的 `curl`/`wget` 请求；从不回显两者中的任何一个）、共享 `deny` 权限规则、对 Pi 控制平面（`.pi/navori/**`、`.pi/extensions/**`、`.pi/settings.json`、`.pi/navori.json`）的写入，以及 `pi --no-extensions`。共享 `ask` 规则会给出 `ask`（见对应行）。 |
 | `hook:implementer-no-markdown` | advisory | 控制项 `markdown-ownership` | — |
 | `hook:managed-drift-watch` | advisory | — | 不会阻止操作；只会检查带有哈希标记的区块（AGENTS.md、skills、hook 副本）。扩展、manifest 和角色文件没有逐区块哈希，因此改由防护规则和 edit/write 通道保护。无法评估的漂移会静默处理。 |
-| `hook:master-accept-confirm` | enforced | 安全带（上述绕过方式类别） | 覆盖 `navori master part\|delivery-baseline\|delivery-queue\|delivery-criterion … --approved-by`、`master close`、`delivery-review\|decision\|publication\|revoke` 和 `delivery-slice --refresh`；间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过。该确认是安全带，不是沙箱。 |
+| `hook:master-accept-confirm` | enforced | 安全带（上述绕过方式类别） | 覆盖 `navori master accept` 和 `master reject`，以及对 `navori/acceptance` 的直接写入；v1 写入形式已不再写入；间接 shell 形式（`sh -c`、磁盘上的脚本）可以绕过。该确认是安全带，不是沙箱。 |
 | `hook:master-plan-context` | advisory | 控制项 `master-plan` | — |
 | `hook:model-advisor` | unsupported | — | 移植到 Pi 需要脚本提供 Pi 模式并添加绑定；目前没有计划（模型通过 `/model` 选择并传给子进程，spec 0047 R17）。 |
 | `hook:pii-egress-guard` | n/a | — | 仅 Claude：它防护 WebFetch 和 WebSearch，而 Pi 没有这些工具。Pi 的 `bash` 由 guard-destructive 中的 PII 外泄通道覆盖（见其所在行） |
