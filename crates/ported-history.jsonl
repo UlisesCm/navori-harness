@@ -34,6 +34,11 @@
 {"date":"2026-11-12","op":"port","id":"status","reason":"status nativo, re-land de E3 (0060, #1473)","pr":1689}
 {"date":"2026-11-22","op":"port","id":"gate foreign","reason":"gate foreign nativo, ayudante de quality-gate-pre-commit (0062, inventario post-0.13)","pr":1775}
 {"date":"2026-11-22","op":"port","id":"audit","reason":"audit --arm y --disarm nativos; los cuatro modos que llaman los hooks siguen delegando (0062, inventario post-0.13)","pr":1791}
+{"date":"2026-11-26","op":"activate","id":"plan-gate","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"general-purpose-confirm","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"session-start-context","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"model-advisor","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 11 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"pii-egress-guard","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"quality-gate-pre-commit","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"subagent-no-background","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"implementer-no-markdown","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}

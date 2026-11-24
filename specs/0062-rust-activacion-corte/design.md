@@ -1,6 +1,6 @@
 # Migración a Rust, fase 5: activación, distribución y corte — Design
 
-**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; R18 resuelta el 2026-11-02; Q24 aplazada) · **Fecha:**
+**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; R18 resuelta el 2026-11-02; Q24 resuelta el 2026-11-24, plan B) · **Fecha:**
 2026-10-31 · **Base:** `migration/rust` en `e8859f49` (merge de #1465).
 
 **Alcance del documento:** activación de los 22 hooks, ensayo de distribución y corte. Sale de E4–E6
@@ -59,15 +59,14 @@ Se conserva sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
 `legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
 estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover` cronometrado.
 
-### D51 — Nombres provisionales de los paquetes de plataforma (Q24 aplazada; R21)
+### D51 — Nombres de los paquetes de plataforma (Q24 resuelta: plan B; R21)
 
-- El ensayo de E2 arma `@navori/darwin-arm64`, `@navori/darwin-x64`, `@navori/linux-arm64` y
-  `@navori/linux-x64`, y `navori` los declara en `optionalDependencies`. Los nombres son
-  provisionales: no se publican, y cambiarlos toca `SCOPE` de `dist-assemble.mjs` y
-  `platformPackage` del lanzador.
-- La forma de publicar queda para después del ensayo (Q24): paquetes de plataforma con scope (que
-  exige una org o un usuario dueño del scope), sin scope, o un solo paquete `navori` con los cuatro
-  binarios.
+- **Enmienda del 2026-11-24 (Ulises mergeó #1808).** Los paquetes de plataforma se publican sin
+  scope: `navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64` y `navori-linux-x64`,
+  y `navori` los declara en `optionalDependencies`. El legacy es `navori-legacy`. Los nombres
+  viven en `dist-assemble.mjs` y en `platformPackage` del lanzador.
+- Antes (ensayo de E2) eran provisionales con scope, `@navori/<os>-<cpu>`. La decisión del
+  2026-11-20 (crear la org `navori` en npm, plan A) queda reemplazada.
 
 ### D52 — R18 por host y oráculo de hooks en paralelo (R18; enmienda D17 de 0057)
 
@@ -88,10 +87,10 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   artefactos Rust ni `postinstall` (R4). El paquete del corte se arma aparte:
   `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
   hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
-  `@navori/<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
+  `navori-<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
 - **`legacy/` es el paquete legacy (enmienda del 2026-11-20, R22).** El TS congelado del commit
   anterior al PR de corte se publica como paquete aparte, `LEGACY_PACKAGE` de `dist-assemble.mjs`
-  (`@navori/legacy`; `navori-legacy` sin org), con la versión del release.
+  (`navori-legacy`, D51), con la versión del release.
   `dist-assemble.mjs legacy --from <commit> --version <release> --write-pin` lo construye, lo
   empaqueta y escribe `packaging/legacy.json` (`version`, `integrity`, `commit`); el ensamblado lo
   baja de npm, verifica la `integrity` y desempaca `package/navori/` en `legacy/`.
@@ -182,7 +181,6 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
 
 ## Preguntas (abiertas)
 
-- **Q24 [human] — Cómo publicar los binarios.** Aplazada por el usuario el 2026-11-02: no se
-  crea una org `navori` en npm. Opciones: paquetes de plataforma sin scope, con el scope del
-  usuario, o un solo paquete con los cuatro binarios. No bloquea E2 (no publica); bloquea el
-  publish posterior a E3.
+- **Q24 [human] — Cómo publicar los binarios.** Resuelta el 2026-11-24: plan B, paquetes de
+  plataforma sin scope (D51, #1808). Historial: aplazada el 2026-11-02; el 2026-11-20 se eligió
+  el plan A (org `navori`), reemplazado por el B.
