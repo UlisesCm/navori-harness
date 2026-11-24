@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:5c73ce1fd1bb45314b736f2a8836935864df83fc645abeb4983fa5b06666231c impl=sha256:d4376269796260e6a1ad4ad738644cd3556180e65b18b9567ce471f124c8070a
-# navori:managed start id="plan-gate-base" hash="6e4798d0" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:7dcaa60b01b92667536172545e3945f34007b8e641274a346e670e5da47305f9 impl=sha256:d4376269796260e6a1ad4ad738644cd3556180e65b18b9567ce471f124c8070a
+# navori:managed start id="plan-gate-base" hash="6e4798d0" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
