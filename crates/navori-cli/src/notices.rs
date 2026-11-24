@@ -18,7 +18,7 @@ use navori_core::tools::cache::now_ms;
 use navori_core::tools::notice::{self, Plugins};
 use navori_core::tools::update_notice;
 
-/// R85: off until the cutover.
+/// R85: on from 0.13.0.
 pub const ENABLED: bool = true;
 
 /// The binary a reserved refresh runs: this one once the notices are native, the TS on `PATH`
