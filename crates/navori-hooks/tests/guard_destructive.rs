@@ -1085,6 +1085,74 @@ fn rule_7_fails_closed_when_git_cannot_inspect() -> TestResult {
     Ok(())
 }
 
+/// `command` in an existing directory, rule 7 reading `holding`: whether it is blocked.
+fn blocked(command: &str, holding: Holding) -> Result<bool, Box<dyn Error>> {
+    let context = plain_context()?;
+    let payload = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": "/work",
+        "tool_input": { "command": command },
+    })
+    .to_string();
+    let evaluation = entry::evaluate_until(
+        payload.as_bytes(),
+        &context,
+        Fixed(holding),
+        Deadline::from_env(None, Instant::now()),
+    )?;
+    Ok(evaluation.verdict == Verdict::Block)
+}
+
+/// #1801: git as a path, behind `env` or escaped is a rule-7 candidate, and a `GIT_DIR`/
+/// `GIT_WORK_TREE` written in the command (prefix or an earlier segment) makes the directory
+/// uninspectable, so it blocks even when the inspected directory is clean.
+#[test]
+fn rule_7_reads_other_forms_of_git() -> TestResult {
+    let uninspectable = [
+        "GIT_DIR=/r/.git GIT_WORK_TREE=/r git -C /n reset --hard",
+        "GIT_WORK_TREE=/r GIT_DIR=/r/.git git -C /n checkout -- .",
+        "export GIT_DIR=/r/.git; git -C /n reset --hard",
+        "GIT_DIR=/r/.git; git -C /n reset --hard",
+        "declare -x GIT_WORK_TREE=/r && git -C /n clean -fd",
+        "env GIT_DIR=/r/.git git -C /n reset --hard",
+        "GIT_DIR=/r/.git /usr/bin/git -C /n reset --hard",
+        "git -C /n --git-dir=/r/.git reset --hard",
+    ];
+    for command in uninspectable {
+        assert!(blocked(command, Holding::Clear)?, "{command}");
+    }
+    let holds = [
+        "git reset --hard",
+        "/usr/bin/git reset --hard",
+        "./git reset --hard",
+        "/usr/bin/git -C /r clean -fd",
+        "env git reset --hard",
+        "env FOO=1 git reset --hard",
+        "\\git reset --hard",
+        "FOO=1 git reset --hard",
+        "command git reset --hard",
+    ];
+    for command in holds {
+        assert!(blocked(command, Holding::Holds)?, "{command}");
+        assert!(!blocked(command, Holding::Clear)?, "{command} on clean");
+    }
+    let allowed = [
+        "/usr/bin/git status",
+        "env git status",
+        "GIT_DIR=/r/.git git status",
+        "export GIT_DIR=/r/.git; git status",
+        "export FOO=1; git reset --soft HEAD~1",
+        "sudo git reset --hard",
+        "sh -c 'git reset --hard'",
+        "eval git reset --hard",
+        "/usr/bin/mygit reset --hard",
+    ];
+    for command in allowed {
+        assert!(!blocked(command, Holding::Holds)?, "{command}");
+    }
+    Ok(())
+}
+
 const PROBE_DIR: &str = "NAVORI_HOLDS_PROBE_DIR";
 
 /// Child half of [`system_holds_under`]: `System` caches its `git` per process, so each PATH

@@ -601,7 +601,8 @@ pub(super) fn evaluate(
         }
     }
     // 7. Whole-tree discards, decided by the target repository's state.
-    if let Some(found) = discard::evaluate(&segments, patterns.discard()?, host, repo, locale) {
+    let split = inert::split(&scan);
+    if let Some(found) = discard::evaluate(&split, patterns.discard()?, host, repo, locale) {
         return Ok(block(found.message, found.reason, Some(found.route)));
     }
     Ok(Outcome::Allow { copy_only, ask })

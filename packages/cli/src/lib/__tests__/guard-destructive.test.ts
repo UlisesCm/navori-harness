@@ -2437,6 +2437,49 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
     });
 
     // Covers: A1
+    it("reads git written as a path, behind env, and GIT_DIR/GIT_WORK_TREE set in the command (#1801)", () => {
+      const repo = dirtyRepo();
+      writeFileSync(join(repo, "new.txt"), "x\n");
+      const nonrepo = mkdtempSync(join(tmpdir(), "navori-guard-nonrepo-"));
+      const loc = `GIT_DIR=${repo}/.git GIT_WORK_TREE=${repo}`;
+      const blocked = [
+        `${loc} git -C ${nonrepo} reset --hard`,
+        `GIT_WORK_TREE=${repo} GIT_DIR=${repo}/.git git -C ${nonrepo} checkout -- .`,
+        `export GIT_DIR=${repo}/.git; git -C ${nonrepo} reset --hard`,
+        `GIT_DIR=${repo}/.git; git -C ${nonrepo} reset --hard`,
+        `env ${loc} git -C ${nonrepo} reset --hard`,
+        `/usr/bin/git reset --hard`,
+        `./git reset --hard`,
+        `/usr/bin/git -C ${repo} clean -fd`,
+        `env git reset --hard`,
+        `env FOO=1 git reset --hard`,
+        `\\git reset --hard`,
+        `FOO=1 git reset --hard`,
+        `command git reset --hard`,
+        `git -C ${nonrepo} --git-dir=${repo}/.git reset --hard`,
+      ];
+      for (const command of blocked) {
+        // A dirty cwd for the path forms, a clean one for the GIT_DIR forms: the block must come
+        // from the form, not from the directory the command names.
+        const cwd = command.includes(nonrepo) ? nonrepo : repo;
+        expect(verdict(command, cwd), command).toBe(2);
+      }
+      const allowed = [
+        "/usr/bin/git status",
+        "env git status",
+        `GIT_DIR=${repo}/.git git status`,
+        `export GIT_DIR=${repo}/.git; git status`,
+        "sudo git reset --hard",
+        "sh -c 'git reset --hard'",
+        "eval git reset --hard",
+      ];
+      for (const command of allowed) {
+        expect(verdict(command, repo), command).toBe(0);
+      }
+      expect(verdict("/usr/bin/git reset --hard", nonrepo)).toBe(0);
+    });
+
+    // Covers: A1
     it("names an actionable route and never needs to run outside the agent only", () => {
       const dir = dirtyRepo();
       const r = spawnSync(resolveBin("bash"), [guardPath], {
