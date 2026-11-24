@@ -40,3 +40,6 @@
 {"date":"2026-11-26","op":"activate","id":"model-advisor","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 11 llamadas hasta el 20 nov","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"pii-egress-guard","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"guard-destructive","reason":"lote del guard de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias en Claude y Pi","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"quality-gate-pre-commit","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"subagent-no-background","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"implementer-no-markdown","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
