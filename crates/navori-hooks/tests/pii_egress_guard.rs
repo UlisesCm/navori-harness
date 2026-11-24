@@ -132,6 +132,10 @@ fn code(verdict: Verdict) -> i32 {
 }
 
 /// The rendered script run under bash in `dir` with exactly `env`: its status and stderr.
+///
+/// `NAVORI_HOOK_IMPL=shell` keeps the script's native block from calling the installed
+/// `navori-rust` in shadow mode: that call journals into the checkout the test was compiled from,
+/// and a run from the shadow checkout wrote 33 rows into the live R81 journal (#1774).
 fn shell(
     payload: &[u8],
     env: &[(OsString, OsString)],
@@ -142,6 +146,7 @@ fn shell(
         .current_dir(dir)
         .env_clear()
         .envs(env.iter().map(|(key, value)| (key, value)))
+        .env("NAVORI_HOOK_IMPL", "shell")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
