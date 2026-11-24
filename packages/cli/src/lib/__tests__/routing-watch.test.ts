@@ -108,9 +108,10 @@ function bash(command: string): Record<string, unknown> {
 
 /**
  * The same, with the `tool_response` the host really sends — the command's own
- * output. It exists to drive rung 2 of the write probe: rung 1 can only test
- * the whole payload, so a `>` printed by `git log --graph` reaches it, and only
- * the extracted COMMAND can settle the question.
+ * output. It checks that a `>` printed by `git log --graph` does not count:
+ * rung 1 probes the loaded COMMAND, so the output never reaches the stamp
+ * path (#1793); without the loaded command it falls back to the whole payload
+ * and rung 2 settles it on the extracted command.
  */
 function bashWithOutput(command: string, output: string): Record<string, unknown> {
   return {

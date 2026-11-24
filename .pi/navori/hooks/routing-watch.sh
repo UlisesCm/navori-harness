@@ -1,4 +1,4 @@
-# navori:managed start id="routing-watch-base" hash="c17a4d6c" version="0.12.5" source="@navori/core"
+# navori:managed start id="routing-watch-base" hash="228b61d0" version="0.12.5" source="@navori/core"
 #!/usr/bin/env bash
 #
 # PostToolUse routing watcher (spec 0020).
@@ -1247,8 +1247,8 @@ if [ "$tool" = "Bash" ] && [ "$nv_engine" = codex ]; then
 fi
 
 # Rung 1 of the Bash lane, and the earliest point at which it can end. No write
-# token anywhere in the payload means no redirect, no `tee` and no `sed -i`, so
-# there is nothing here this hook could ever count. It costs no fork and it runs
+# token in the command means no redirect, no `tee` and no `sed -i`, so there is
+# nothing here this hook could ever count. It costs no fork and it runs
 # BEFORE `session_id`: a shell command that writes nothing must not pay to
 # locate a stamp it will never open, for the same reason a `Read` does not pay
 # for the `case` above.
@@ -1259,7 +1259,8 @@ fi
 # output, the description or the cwd must not make this call pay the stamp
 # path. That relies on `tool_input.command` being listed in `nv_payload_fields`.
 # No string surgery on the payload: cutting it at "tool_response" was quadratic
-# on multi-MiB output under bash 3.2. Otherwise (no cache, or a payload that was
+# under bash 3.2 in the text before that key (a long command, or a whole Pi
+# payload, which has no `tool_response`). Otherwise (no cache, or a payload that was
 # rewritten above) the whole payload is probed, as before. Rung 2 reads the same
 # cache and still decides the verdict, so this only narrows who reaches it.
 if [ "$tool" = "Bash" ]; then
@@ -1330,8 +1331,8 @@ grep -q -E '^#(delegated|notified)$' "$stamp" 2>/dev/null && exit 0
 # conversation). Incidental: a subagent Bash with a `>` outside the command
 # (description, cwd, output) no longer pre-marks `#delegated` through rung 1;
 # the `Agent` return and any subagent edit still do. And the `#delegated` mark
-# from the `Agent` case above only
-# lands when that tool RETURNS, i.e. after the subagent already finished. So
+# from the `Agent` case above only lands when that tool RETURNS, i.e. after the
+# subagent already finished. So
 # without this check a delegated implementer's own 4th edit would fire the
 # notice INTO THE SUBAGENT'S context — "no subagent has been invoked" is false
 # there, the advice is unactionable there (no Agent tool in its allowlist) —
