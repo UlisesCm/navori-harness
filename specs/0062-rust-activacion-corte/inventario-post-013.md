@@ -6,6 +6,8 @@ Revisión 2 (20 nov): incluye las correcciones de la revisión de S3 (`coordinac
 
 Revisión 3 (23 nov): agrega lo que queda fuera de 0.13 (sección "Fuera de 0.13"), según `decisiones-ulises/2026-11-23-0910` y `decisiones-ulises/2026-11-23-0925`.
 
+Cierre del 23 nov: el estado de las tres sesiones, los PRs abiertos y los seguimientos posteriores a 0.13 (#1776, #1774, #1783, #1794) están en [`estado-sesiones-2026-11-23.md`](estado-sesiones-2026-11-23.md).
+
 Fuentes:
 - `scripts/js/rust-areas.mjs` (`AREAS`, `PERMANENT_DELEGATION`, `PERMANENT_SHELL_HOOKS`);
 - `scripts/js/cutover-check.mjs`;
