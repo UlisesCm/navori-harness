@@ -4,6 +4,33 @@
 
 > 可导航图表：在 GitHub 上，**点击节点**即可跳转到源文件。navori 从唯一事实来源（`navori.config.json`）幂等地重建所选 engine 的资源，不会覆盖你的手动修改。
 
+## CLI 运行方式（0.13）：Rust 二进制与冻结的 TypeScript
+
+- **CLI 是 `navori-rust`**（[crates/navori-cli](../crates/navori-cli)），以 npm 包 `navori` 发布。
+  当平台二进制（`navori-<os>-<cpu>`）对 `--version` 的回答与包版本一致时，其 postinstall 会用它替换
+  `navori`、`navori-native-hook` 和 `navori-rust` 这几个 bin
+  （[packaging/npm/lib/install.js](../packaging/npm/lib/install.js)）；否则保留 JS bins，由 Node 启动它。
+- **冻结的 TypeScript CLI**（`navori-legacy`，固定于 [packaging/legacy.json](../packaging/legacy.json)）
+  以 `legacy/` 随包发布。它负责无二进制的平台，以及
+  [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs) 中的**永久委托**：`master`、`codex`、
+  `workspace`、`ticket` 与 `registry`，`doctor --json`，以及 `sync`、`remove`、`backup restore`
+  和 `migrations restore` 的交互形式。目前它还负责同一文件中的**过渡委托**
+  （`TRANSITIONAL_DELEGATION`：尚未移植的命令和标志）。与 [crates/ported.json](../crates/ported.json)
+  中任何条目都不匹配的调用也会被委托。
+- **原生钩子。** 为原生实现渲染的钩子以带签名的头部开头：
+  `# navori:native-hook v=1 file=sha256:<渲染后的脚本> impl=sha256:<实现>`，其中 `impl` 是该钩子在
+  [crates/navori-hooks/src](../crates/navori-hooks/src) 下源码的哈希。随后的 `navori:native-runtime` 块在
+  二进制位于 `PATH` 且 `NAVORI_HOOK_IMPL` 不是 `shell` 时运行 `navori-rust hook --via-script "$0"`：
+  - 退出码 0、1 或 2 是原生裁决；
+  - 3、126 或 127（延后处理或没有二进制）会继续执行下方的 shell 主体，但设置
+    `NAVORI_HOOK_IMPL=rust` 时会直接失败；
+  - 其他退出码给出该钩子的安全裁决，因此带门控的钩子在崩溃时绝不会放行。
+
+  在 `shadow` 模式下，调用会带上 `--shadow`：由 shell 主体裁决，比对结果记录在
+  `.navori/state/rust-shadow/`。`crates/ported.json` 保存每个钩子的模式；`rust-manifest-check.mjs`
+  会对照只追加的 `crates/ported-history.jsonl` 中的 `activate` 行，校验每一次 `shadow` → `active`
+  的变更。头部和哈希用 `bun run rust:hooks-sync` 重新生成。
+
 ## 1. 分层模型 — 内容来源
 
 五层级联（项目的设计决策），每一层都在上一层的基础上组合。`navori.config.json` 是签入仓库的事实来源，体现**第 4 层（Project config）**：声明使用哪个 preset、继承哪个 workspace，以及启用哪些**插件**。插件是 Project config *内部*的 opt-in 扩展，不是单独的一层。第 5 层（Engine adapters）为选定的 engine 渲染资源。CLI 目前包含 Claude Code、Codex、Pi、AGENTS.md、Cursor 和 Copilot 的 adapters；各 adapter 有自己的输出和支持的控制项，因此本文不表示它们具备功能对等性。（在 monorepo 中，`monorepo.workspaces[]` 会在 Project 层内为每个 app 应用覆盖值。）

@@ -221,10 +221,26 @@ o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara l
 - **`NAVORI_TEST_WORKERS`** (entero positivo) fija los workers de Vitest. Sin él, el número es
   `min(CPUs - 1, 4, presupuesto de file descriptors)`.
 
+## CLI en Rust (0.13)
+
+- **Build y pruebas con cargo, además de bun:** `cargo fmt --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace --locked`.
+  El toolchain está fijado en `rust-toolchain.toml`.
+- **Hooks:** `crates/navori-hooks` es la fuente de un hook nativo. Sus copias renderizadas en
+  `.claude/hooks` y `.pi/navori/hooks`, su cabecera firmada `navori:native-hook` y los hashes de
+  `crates/ported.json` se regeneran con `bun run rust:hooks-sync`, nunca a mano. Después de un merge
+  o de un conflicto en esos archivos, sigue la skill `rebase-rerender`.
+- **`packages/cli/src` está congelado:** es el CLI de TypeScript que se publica como `navori-legacy`
+  para la delegación permanente y las plataformas sin binario. El corte (spec 0062 T10) borra sus
+  fuentes y deja solo las suites de artefacto en `packages/cli/src`.
+- **Historial:** `crates/ported-history.jsonl` es de solo agregar (`rust-manifest-check.mjs`): una
+  línea equivocada no se edita; la corrección queda en una línea posterior o en la spec.
+
 ## Rama de migración a Rust (`navori-rust` local)
 
-Solo en `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md)); `dev` y npm
-siguen siendo solo TypeScript.
+Estas notas describen la convivencia en `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md))
+hasta que el corte (spec 0062 T10) llegue a `dev`; hasta entonces, `dev` y npm siguen siendo solo
+TypeScript.
 
 - **Instalar junto al CLI TS:** `cargo install --path crates/navori-cli --locked` instala
   `navori-rust` y nunca reemplaza `navori` (`command -v navori` conserva su ruta).

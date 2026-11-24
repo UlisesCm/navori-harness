@@ -111,6 +111,15 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
 
 → Full command table, presets, and plugins: [`packages/cli/README.md`](./packages/cli/README.md).
 
+## Migrating to 0.13
+
+- Nothing to change in your repository. After `npm i -g navori@0.13`, `navori --version` must print `0.13.0`.
+- The CLI is now a native binary for macOS (arm64, x64) and Linux (arm64, x64). npm installs it through an optional platform package (`navori-<os>-<cpu>`). On other platforms the package runs the frozen TypeScript CLI that ships inside it.
+- Some commands still run on that frozen TypeScript CLI; you do not need to install anything else:
+  - for good: `master`, `codex`, `workspace`, `ticket` and `registry`, plus a few interactive forms (`sync` without a non-interactive flag, `remove` and the `restore` commands without `--yes`, `doctor --json`);
+  - for now, until they are ported: `init`, `add`, `configure`, `update`, `refresh`, `receipt`, most of `gate` and `tools`, `audit` except `--arm`/`--disarm`, and some flags of `render` and `sync` (`TRANSITIONAL_DELEGATION` in `scripts/js/rust-areas.mjs`).
+- The hooks that `crates/ported.json` marks `active` decide natively in Claude Code and Pi when the platform binary is installed; otherwise their rendered shell body runs, with the same verdicts. The other hooks keep running their shell body.
+
 ## Migrating to 0.12
 
 - The `global` command and launchd collector were removed (`audit --collect` remains). `doctor --json` no longer emits `globalScope`.
@@ -138,16 +147,25 @@ Navori installs a baseline; what makes it valuable in **your** repository is the
 
 ```
 navori-harness/
+├─ crates/
+│  ├─ navori-cli/     # the `navori-rust` binary (published as `navori`)
+│  ├─ navori-core/    # render, config, manifest and embedded assets
+│  ├─ navori-hooks/   # native hooks (source of their signed implementation)
+│  ├─ ported.json     # what runs natively, and each hook's mode (shadow / active)
+│  └─ ported-history.jsonl  # append-only port/activate history
+├─ packaging/
+│  ├─ npm/            # JS bins, launcher and postinstall of the `navori` package
+│  └─ legacy.json     # pin of the frozen TS (`navori-legacy`)
 ├─ packages/
-│  ├─ cli/            # el CLI `navori` (publicado a npm)
-│  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
+│  ├─ cli/            # the frozen TypeScript CLI (delegation and platforms without a binary)
+│  ├─ core/           # @navori/core — managed assets (agents, skills, presets, hooks)
 │  └─ plugins/        # acli · codegraph · engram · gh · tgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ package.json      # workspaces + trustedDependencies (bun)
 ```
 
-`@navori/core` and the plugins are **bundled into the CLI** at build time (they are not published separately): a single `npm i -g navori` includes everything.
+`@navori/core` and the plugins are **bundled at build time** (they are not published separately): a single `npm i -g navori` includes everything.
 
 ## Development
 
@@ -163,7 +181,14 @@ bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
+
+# CLI en Rust (toolchain fijado en rust-toolchain.toml)
+cargo build --release -p navori-cli   # target/release/navori-rust
+cargo test --workspace --locked
+bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
+
+The Rust toolchain is pinned in `rust-toolchain.toml` (1.99.1, with the four release targets). After changing `crates/navori-hooks`, run `bun run rust:hooks-sync`: it rewrites the stale hashes in `crates/ported.json` and the native-hook headers, re-renders and runs `cargo install` (`--no-install` builds instead of installing); `bun run rust:hooks-sync --check` writes nothing and fails when something is stale.
 
 **Quality gate**: run `bun check` from the repository root. It aliases `qualityGate.full` in `navori.config.json`, the **only place** where the gate is defined. The managed blocks in `CLAUDE.md` and the command run by `publisher` come from there. Do not copy it into another file: a second copy will drift.
 
@@ -174,13 +199,11 @@ node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 Releases are manual and must follow **this order**. The flow is `dev` → `main`: tickets merge into `dev`, and `main` receives releases only from `dev`. Since 0.8.2, the commit in step 4 goes **through a PR**, not a direct push. The README used to document a direct release while warning in the same line that there would be no PR to review beforehand—in other words, CI would not validate the release tree until it had already landed.
 
 1. Write the minor-version entry (a headline and 3–5 bullets, in Spanish and English) in `apps/website/src/content/releases.ts`. If the current CLI minor has no entry, the "release notes" block in `landing-inventory.test.ts` fails.
-2. Bump the version in `packages/cli/package.json`.
+2. Bump the version in `packages/cli/package.json` **and** in `[workspace.package]` of `Cargo.toml`, then run `cargo update --workspace` (with `--locked` the build fails until the lock is updated). The binary answers the Cargo version, and the packages take it from there.
 3. **Re-render the mirror; this is mandatory:**
 
 ```bash
-   bun run --filter navori build && node packages/cli/dist/index.js render --apply
-
-
+   cargo build --release -p navori-cli && target/release/navori-rust render --apply
 ```
 
    Each managed block marker records the CLI version, so the bump in step 2 makes the rendered mirror for this **entire** repository stale. From 0.6.0 to 0.6.1, this affected **30 files** across `.claude/` and `CLAUDE.md`. Skipping this step tags an inconsistent tree and makes the first post-release CI on `main` fail (`bun run check:render`, #421). With a PR, this is caught before landing; that was the blind spot of the direct push.
@@ -200,7 +223,9 @@ Releases are manual and must follow **this order**. The flow is `dev` → `main`
    This was automated because the step was skipped in **0.8.4 and 0.8.5**, and the second omission happened *after* the exact command had been written here. The damage is delayed and silent: `check-asset-commands.mjs` compares against the latest tag, so a release without a tag is checked against the previous one. It keeps saying "exists in v0.8.3" for a repository already on 0.8.4, and nothing fails.
 
    If you need to do it manually: `git tag -a vX.Y.Z <HEAD of main after step 6> && git push origin vX.Y.Z`. Tags for releases before the `dev` → `main` flow point directly to the `chore(release)` commit, as `v0.8.2` → `285fa51` and `v0.8.3` → `6f32a00`.
-8. On `main` after the merge, run `npm publish` from `packages/cli` (`npm login` first; `prepack` builds `dist/`). Check it with `npm view navori version`.
+8. On `main` after the merge, publish the packages that `scripts/js/dist-assemble.mjs` assembles from the `rust-release.yml` artifacts (`npm-packages/*.tgz`), not `packages/cli`: first the four platform packages (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`, `navori-linux-x64`), then `navori` (`npm login` first). Check it with `npm view navori version`.
+
+   `packaging/legacy.json` pins the frozen TypeScript CLI (`navori-legacy`) that the package runs for the permanent delegation and on platforms without a binary. It is built with `dist-assemble.mjs legacy ... --write-pin` and published before the release; the assembly verifies its `integrity`. Change it only with an explicit decision.
 
 The website footer prints the version by importing the CLI's `package.json` (`apps/website/src/components/Footer.astro`), and `deploy-website.yml` watches that file in its `paths` filter, so the version bump in step 2 redeploys the site. **If the site displays an old version, check that filter first**: until 0.8.4 it did not include the CLI manifest, and the site fell two releases behind, showing `v0.8.2` while 0.8.4 was already on npm.
 
