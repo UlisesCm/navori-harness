@@ -970,7 +970,8 @@ describe("fixed live profile owner boundaries, no inference", starved, () => {
       cwd,
       env: process.env,
       encoding: "utf8",
-      timeout: 20000,
+      // spawnSync blocks the worker, so this bound is the effective one: keep it at the starved bound.
+      timeout: STARVED_TIMEOUT_MS,
     });
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout) as unknown).toMatchObject({
