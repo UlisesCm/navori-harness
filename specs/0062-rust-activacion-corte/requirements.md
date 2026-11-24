@@ -83,6 +83,19 @@ desempacarlo, como antes.
 `renderPending: 8` sobre un proyecto al día. Por eso el paquete replica el layout del checkout (D53).
 Con el paquete nuevo, `scripts/js/dist-legacy-smoke.mjs` repite la prueba: 115 pasos, 0 fallos.
 
+## Nota sobre el registro de la activación (2026-11-24)
+
+Los cuatro lotes se activaron el **24 nov 2026**, por orden explícita de Ulises, antes de que
+cerrara la ventana R81 nueva: lote C en #1811, guard en #1823, lote B en #1825 y lote D en #1826.
+La activación salió de esa orden, no del cierre de la ventana que prevén R81 y R82.
+
+Las 11 líneas `activate` de `crates/ported-history.jsonl` (líneas 37-47) no dicen eso. Se
+escribieron para el plan anterior y llevan `"date":"2026-11-26"`, `"pr":1527` y motivos como
+"ventana R81 del 19 al 26 nov sin divergencias" o, en el lote C, "ventana R81 desde el 19 nov sin
+divergencias". No se corrigen porque el historial es de solo agregar: `checkHistory` de
+`scripts/js/rust-manifest-check.mjs:109-115` rechaza cualquier cambio a una línea existente. Para
+esos 11 hooks, esta nota manda sobre la fecha, el PR y el motivo que dicen esas líneas.
+
 ## Contexto
 
 Esta spec nace de partir la fase 4 (`specs/0060-rust-cola-larga-corte/`) en dos (decisión del
