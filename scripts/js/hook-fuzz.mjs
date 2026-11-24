@@ -670,9 +670,32 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
       : openShellCache(join(cacheDir, shellFingerprint({ shellScript, shell: options.shell, engine: options.engine, hook: options.hook })), `shard${shard.index}`);
     const runShellCase = (c) => {
       restore();
-      return runMode([c], "off", { resolveHook: () => shellScript, runHookBatch: (script, shell, calls) => calls.map((call) => runShell(script, shell, call, options.timeoutMs)), scratch })[0];
+      const r = runMode([c], "off", { resolveHook: () => shellScript, runHookBatch: (script, shell, calls) => calls.map((call) => runShell(script, shell, call, options.timeoutMs)), scratch })[0];
+      // S1 LOCAL MEASUREMENT PATCH (23 nov, draft only: do not merge): the native lane names $0 as the installed copy.
+      const asInstalled = (t) => (typeof t === "string" ? t.replaceAll("@SCRATCH@/shell/", "@SCRATCH@/installed/") : t);
+      return r && !r.deferred ? { ...r, stdout: asInstalled(r.stdout), stderr: asInstalled(r.stderr) } : r;
     };
     const payloads = generatePayloads(options.seed, options.cases, options.hook);
+    // S1 LOCAL REPRO PATCH (23 nov, draft only: do not merge): repeat ONE case in every worker, full output.
+    const reproIndex = Number(process.env.S1_REPRO_INDEX ?? 0);
+    if (reproIndex > 0) {
+      const { appendFileSync } = await import("node:fs");
+      const out = `${process.env.S1_REPRO_OUT}.shard${shard.index}.jsonl`;
+      const at = reproIndex - 1;
+      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payloads[at], envDelta, cwdKind: "repo", args: argsFor(options.hook, at) };
+      const n = Number(process.env.S1_REPRO_N ?? 100);
+      for (let r = 0; r < n; r += 1) {
+        restore();
+        const t0 = Date.now();
+        const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs })[0];
+        const t1 = Date.now();
+        const expected = runShellCase(c);
+        const t2 = Date.now();
+        const difference = firstDifference(expected, actual);
+        appendFileSync(out, JSON.stringify({ r, shard: shard.index, at: new Date(t0).toISOString(), load: (await import("node:os")).loadavg()[0], nativeMs: t1 - t0, shellMs: t2 - t1, same: difference === null, difference, native: actual, shell: expected }) + "\n");
+      }
+      return { ok: true, seed: options.seed, completed: n, compared: n, cached: 0 };
+    }
     const mine = uniqueCases(payloads).filter((_, position) => position % shard.count === shard.index);
     for (const { index: at, weight } of mine) {
       index = at;
