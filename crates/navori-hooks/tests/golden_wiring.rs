@@ -1,10 +1,10 @@
-//! Spec 0059 T17 (R50): the native wiring of the session hooks in `shadow`, as this repository
-//! renders it, against `golden/session-wiring.snap` (reviewed by hand) and against the Rust
+//! Spec 0059 T17 (R50): the native wiring of the session hooks in the mode `crates/ported.json`
+//! declares (`shadow` until 0062 activates them), as this repository renders it, against `golden/session-wiring.snap` (reviewed by hand) and against the Rust
 //! generator. `golden/wiring.snap` keeps the generic gating example the 0058 suites compare whole.
 
 use std::path::{Path, PathBuf};
 
-use navori_core::manifest::HookMode;
+use navori_core::manifest::Manifest;
 use navori_core::render::native_hook::{NativeEngine, NativeShell, native_runner_shell};
 
 #[path = "support/codex_render.rs"]
@@ -58,10 +58,16 @@ fn claude_commands() -> Result<Vec<String>, String> {
 
 // Covers: R50
 #[test]
-fn hooks_de_sesion_en_shadow() -> Result<(), String> {
+fn hooks_de_sesion_en_su_modo() -> Result<(), String> {
+    let manifest = Manifest::embedded().map_err(|e| e.to_string())?;
     let mut sections = Vec::new();
     let mut failures = Vec::new();
     for hook in HOOKS {
+        let mode = manifest
+            .hooks
+            .get(hook)
+            .ok_or_else(|| format!("{hook} is not in ported.json"))?
+            .mode;
         // This repository no longer renders Codex (`dev` dropped it in 318d5eff): its lane reads
         // the Codex mirror rendered for this test binary.
         for (engine, dir, root) in [
@@ -85,7 +91,7 @@ fn hooks_de_sesion_en_shadow() -> Result<(), String> {
             let generated = native_runner_shell(&NativeShell {
                 engine,
                 hook,
-                mode: HookMode::Shadow,
+                mode,
                 gating: false,
                 invocation: "--via-script \"$0\"",
                 args: Some("\"$@\""),
