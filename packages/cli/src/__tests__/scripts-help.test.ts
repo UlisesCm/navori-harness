@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -82,7 +83,9 @@ function snapshot(dir: string, prefix = ""): string[] {
 }
 
 beforeAll(() => {
-  base = mkdtempSync(join(tmpdir(), "navori-scripts-help-"));
+  // Real path: on macOS tmpdir() is a symlink (/var -> /private/var) and the scripts' entry guard
+  // compares argv[1] with the resolved import.meta.url, so a symlinked path skips main (#1816).
+  base = realpathSync(mkdtempSync(join(tmpdir(), "navori-scripts-help-")));
   root = join(base, "root");
   home = join(base, "home");
   binDir = join(base, "bin");
