@@ -536,52 +536,47 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   return trace;
 }
 
-describe("fixed live profile owner boundaries, no inference", () => {
+// The hook chain has no wall-clock cap under the virtual clock: every test here gets the starved
+// bound instead of its own (#1623, #1819).
+const starved = { timeout: STARVED_TIMEOUT_MS };
+describe("fixed live profile owner boundaries, no inference", starved, () => {
   // Covers: R12, R13, R14, R16, R18
-  it(
-    "rejects repeated authenticated roles despite matching dispatch, candidate and hook counts",
-    async () => {
-      await liveOwnerFixture("repeated-role");
-      const result = await runNativeProfileProbe(cwd);
-      expect(result).toMatchObject({
-        status: "pending",
-        principalTurnRequests: 1,
-        children: [],
-        refresh: "pending",
-        pending: ["native-profile-selection-or-hook-call-unverified"],
-      });
-      expect(result.diagnostics[0]).toMatchObject({
-        spawns: { attempted: 2, completed: 2, recognizedRoleReports: 2 },
-        hooks: { validContexts: 2 },
-        joinedCandidates: 2,
-      });
-    },
-    STARVED_TIMEOUT_MS,
-  );
+  it("rejects repeated authenticated roles despite matching dispatch, candidate and hook counts", async () => {
+    await liveOwnerFixture("repeated-role");
+    const result = await runNativeProfileProbe(cwd);
+    expect(result).toMatchObject({
+      status: "pending",
+      principalTurnRequests: 1,
+      children: [],
+      refresh: "pending",
+      pending: ["native-profile-selection-or-hook-call-unverified"],
+    });
+    expect(result.diagnostics[0]).toMatchObject({
+      spawns: { attempted: 2, completed: 2, recognizedRoleReports: 2 },
+      hooks: { validContexts: 2 },
+      joinedCandidates: 2,
+    });
+  });
   // The virtual clock freezes the caps in the other tests; here each cap's own clock expires.
   describe("profile hook caps still deny when their clock expires", () => {
     it.each([
       // The CLI masks its deadline error behind the stage it reached (deadline check is at "input").
       ["cli", /profile-hook-unavailable-stale-invalid-or-consumed; profile-hook-stage-input/],
       ["supervisor", /profile-hook-cli-unavailable-or-invalid/],
-    ])(
-      "denies when the %s clock expires",
-      async (expired, reason) => {
-        const trace = await liveOwnerFixture("repeated-role");
-        vi.stubEnv("NAVORI_VCLOCK_EXPIRE", expired);
-        const result = await runNativeProfileProbe(cwd);
-        expect(result.status).toBe("pending");
-        expect(result.children).toEqual([]);
-        const lines = readFileSync(trace, "utf8").trim().split("\n");
-        const traced = lines.map((line) => JSON.parse(line) as { hookDenied?: string });
-        expect(traced.find((line) => line.hookDenied)?.hookDenied).toMatch(reason);
-        // The preload loaded where the clock expired; an expired supervisor may deny before the CLI starts.
-        const loaded = readFileSync(join(cwd, "vclock.log"), "utf8").split("\n");
-        expect(loaded).toContain(`${expired} expired`);
-        if (expired === "cli") expect(loaded).toContain("supervisor");
-      },
-      STARVED_TIMEOUT_MS,
-    );
+    ])("denies when the %s clock expires", async (expired, reason) => {
+      const trace = await liveOwnerFixture("repeated-role");
+      vi.stubEnv("NAVORI_VCLOCK_EXPIRE", expired);
+      const result = await runNativeProfileProbe(cwd);
+      expect(result.status).toBe("pending");
+      expect(result.children).toEqual([]);
+      const lines = readFileSync(trace, "utf8").trim().split("\n");
+      const traced = lines.map((line) => JSON.parse(line) as { hookDenied?: string });
+      expect(traced.find((line) => line.hookDenied)?.hookDenied).toMatch(reason);
+      // The preload loaded where the clock expired; an expired supervisor may deny before the CLI starts.
+      const loaded = readFileSync(join(cwd, "vclock.log"), "utf8").split("\n");
+      expect(loaded).toContain(`${expired} expired`);
+      if (expired === "cli") expect(loaded).toContain("supervisor");
+    });
   });
   // Covers: R13, R16, R18
   it.each([null, "true"])(
@@ -964,7 +959,7 @@ describe("fixed live profile owner boundaries, no inference", () => {
       pending: ["fixed-live-probe-attempt-already-consumed"],
     });
     expect(readFileSync(trace, "utf8")).toBe(recorded);
-  }, 20000);
+  });
   // Covers: R12, R13, R14, R16
   it("uses a real Node hook supervisor when the profile owner runs under Bun", async () => {
     await liveOwnerFixture("v2");
@@ -983,7 +978,7 @@ describe("fixed live profile owner boundaries, no inference", () => {
       refresh: "verified",
       cleanup: "acknowledged",
     });
-  }, 25000);
+  });
   // Covers: R12, R13, R14, R16
   it("captures the same pending principal request before deleting private data, without certifying dispatch", async () => {
     await liveOwnerFixture("v2-no-dispatch-blocked");
@@ -1081,7 +1076,6 @@ describe("fixed live profile owner boundaries, no inference", () => {
       expect(readFileSync(join(cwd, ".codex/config.toml"))).toEqual(before);
       expect(existsSync(result.execution!)).toBe(false);
     },
-    20000,
   );
   // Covers: R12, R13, R14, R16
   it.each([
@@ -1115,17 +1109,13 @@ describe("fixed live profile owner boundaries, no inference", () => {
     "v2-wait-duplicate",
     "v2-wait-incomplete",
     "v2-wait-foreign-call",
-  ])(
-    "rejects %s without advancing to another role",
-    async (mode: string) => {
-      await liveOwnerFixture(mode);
-      const result = await runNativeProfileProbe(cwd);
-      expect(result.status, JSON.stringify(result)).toBe("pending");
-      expect(result.principalTurnRequests).toBeLessThanOrEqual(1);
-      expect(result.refresh).toBe("pending");
-    },
-    20000,
-  );
+  ])("rejects %s without advancing to another role", async (mode: string) => {
+    await liveOwnerFixture(mode);
+    const result = await runNativeProfileProbe(cwd);
+    expect(result.status, JSON.stringify(result)).toBe("pending");
+    expect(result.principalTurnRequests).toBeLessThanOrEqual(1);
+    expect(result.refresh).toBe("pending");
+  });
   // Covers: R13, R14, R16, R18
   it("admits a new relevant snapshot with a distinct fixture after a consumed refusal", async () => {
     await liveOwnerFixture("policy");
@@ -1145,7 +1135,7 @@ describe("fixed live profile owner boundaries, no inference", () => {
     expect(changed.status, JSON.stringify(changed)).toBe("completed");
     expect(changed.identity).not.toBe(result.identity);
     expect(changed.execution).not.toBe(result.execution);
-  }, 20000);
+  });
   // Covers: R13, R15, R16, R18
   it("ends a stalled attempt at the common deadline, retaining uncertain child cleanup and no retry", async () => {
     const trace = await liveOwnerFixture("timeout");
@@ -1229,7 +1219,6 @@ describe("fixed live profile owner boundaries, no inference", () => {
         expect(result.pending).toContain("aggregate-protocol-budget-unverified-or-exceeded");
       }
     },
-    15000,
   );
   // Covers: R12, R16, R18
   it.each(["override", "malformed", "duplicate"])(
