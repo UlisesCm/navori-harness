@@ -6,7 +6,7 @@ Quien ya usa navori agrega un plugin con `navori add <plugin>` o pide una sugere
 
 ## Guion de aceptación
 
-Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo de prueba ya inicializado. Los plugins solo se cargan si vienen empaquetados, así que los pasos de `add` usan uno real (`tgrep`, que se instala con `brew install tgrep` en las dos plataformas) con un `PATH` mínimo: un directorio de prueba y los del sistema, sin un `tgrep` real. En ese directorio, un `brew` de prueba registra la llamada y, a pedido, deja un `tgrep` ejecutable ahí y termina con 0, o termina con 1. Cada paso de `add` empieza en una copia nueva del repo y con ese directorio sin `tgrep`. Los pasos de `update` usan un `PATH` con `node` y `npm` reales, porque `update` instala con npm, y sin el CLI de TypeScript.
+Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo de prueba ya inicializado. Los plugins solo se cargan si vienen empaquetados, así que los pasos de `add` usan uno real (`tgrep`, que se instala con `brew install tgrep` en las dos plataformas) con un `PATH` mínimo: un directorio de prueba y los del sistema, sin un `tgrep` real. En ese directorio, un `brew` de prueba registra la llamada y, a pedido, deja un `tgrep` ejecutable ahí y termina con 0, o termina con 1. Cada paso de `add` empieza en una copia nueva del repo y con ese directorio sin `tgrep`. Los pasos de `update` usan un `PATH` con `node` y `npm` reales, porque `update` instala con npm, sin el CLI de TypeScript, y un registro de paquetes falso para el paso 8.
 
 1. `navori add tgrep` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, la misma llamada `brew install tgrep` que el TS, el render aplicado y exit 0 con el mensaje de listo.
 2. `navori add tgrep --skip-install` y, en esa misma copia, `navori add tgrep --skip-install` otra vez. **Esperado:** registra y renderiza sin llamar al instalador; la segunda vez, los avisos de ya habilitado y de instalación omitida del TS, sin llamar al instalador y con exit 0.
@@ -15,7 +15,7 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo
 5. `navori add --suggest`, `navori add no-existe` y un plugin retirado. **Esperado:** la sugerencia del TS sin escribir, y los errores del TS sin escribir.
 6. `navori update` con el CLI al día. **Esperado:** el aviso de "ya actualizado" del TS y el `refresh` que corre el TS.
 7. `navori update` sin red. **Esperado:** el aviso de sin conexión del TS, y `refresh` corre igual.
-8. Pendiente de Q1: `navori update` sin terminal y sin `--yes`, con una versión más nueva. **Esperado:** exit 1, como el TS, sin instalar.
+8. Con la variable de registro apuntando al registro falso, que ofrece una versión más nueva, `navori update` sin terminal y sin `--yes`. **Esperado:** la versión nueva detectada y exit 1, como el TS, sin instalar.
 
 ## Reglas aplicables
 
@@ -23,7 +23,7 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo
 - R2 — Las preguntas usan la base de la rebanada 0067, con el texto y los valores por omisión del TS. `add` tiene dos.
 - R3 — `add` corre el comando de instalación del manifiesto del plugin para la plataforma, como el TS, solo si el binario del plugin no está en `PATH`, y después comprueba que quedó alcanzable; falla igual cuando no hay comando. `--skip-install` no instala; el paso posterior a la instalación solo corre con terminal, como en el TS.
 - R4 — `add` no deshace el registro si la instalación o el render fallan, como el TS: queda registrado y sale con 1.
-- R5 — `update` consulta la última versión, compara, nunca baja de versión y, con una versión ilegible, no actualiza, como el TS. `--dry-run` y `--config-only` solo se reenvían a `refresh`; no evitan la instalación.
+- R5 — `update` consulta la última versión, compara, nunca baja de versión y, con una versión ilegible, no actualiza, como el TS. `--dry-run` y `--config-only` solo se reenvían a `refresh`; no evitan la instalación. La última versión se consulta en el registro público salvo que una variable de entorno indique otro; esa variable existe solo en el binario (el TS sigue congelado) y sirve para probar con un registro falso.
 - R6 — `update` instala con npm como el TS y después ejecuta el `navori` recién instalado para el `refresh`. Conoce su propia versión, sin caer en `0.0.0`.
 - R7 — Las entradas de `add` y `update` salen de la delegación transitoria, y `cutover:check` lo refleja.
 
@@ -40,7 +40,7 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo
 
 - Depende de las rebanadas 0067 (preguntas) y 0068 (`refresh`).
 - Inventario en H (`997128b9`): `add` y `update` son entradas por comando en `TRANSITIONAL_DELEGATION` (`scripts/js/rust-areas.mjs:198-205`). Tamaño TS: `commands/add.ts` 514 líneas con 2 preguntas (`:217` y `:410`), `commands/update.ts` 186 con 1. Puntos del TS: render tras escribir (`add.ts:338`), sin deshacer (`:339-350` y `:424-438`), instalación con el comando del manifiesto (`:395-405`), última versión con registro fijo (`lib/primitives/update-notice.ts:22` y `:139`), plan de instalación con npm (`:79-136`), sin red (`update.ts:107-120`) y `refresh` con el binario instalado (`:168-176`).
-- Pregunta abierta Q1 para Ulises: cómo probar `update` con una versión más nueva sin publicar en npm. Las opciones son (a) una variable de entorno que cambie el registro en el TS y en Rust, o (b) probarlo a mano en la siguiente publicación. Mientras no decida, el guion cubre `update` sin versión nueva (pasos 6 y 7), y el paso 8 espera a Q1.
+- Decisión de Ulises (24 nov): `update` se prueba con una variable de entorno de registro, solo en Rust, y un registro falso en las pruebas y en el paso 8; el TS sigue congelado y no la tiene.
 - Instaladores de prueba en `PATH`: el TS (`lib/config/plugins.ts:614-617`) y el render nativo solo cargan plugins empaquetados, así que no hay plugin de prueba propio.
 - Desafío del auditor (24 nov), incorporado; resumen en el PR de esta spec.
 - Área crítica: el render tras `add` y el `refresh` tras `update` en el repo del usuario.
