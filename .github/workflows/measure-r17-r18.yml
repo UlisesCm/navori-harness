@@ -1,0 +1,53 @@
+# TEMPORARY (spec 0062 T10, R17): never merged. Measures `bench:hooks --impl rust` on the frozen
+# head H of migration/rust on a Linux runner, because the native PII lane defers on macOS and the
+# bench treats any deferral as fatal. The job checks out H itself, so the report's provenance is H.
+name: Measure R17 on H
+
+on:
+  pull_request:
+    branches: [migration/rust]
+
+permissions:
+  contents: read
+
+jobs:
+  bench-hooks-rust:
+    runs-on: ubuntu-latest
+    env:
+      H: 997128b9fdab324a92f2bee09788baa5880bb6d1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.H }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - run: test "$(git rev-parse HEAD)" = "$H"
+      - run: bun install --frozen-lockfile
+      - run: bun run ensure-dist
+      - run: rustup show active-toolchain
+      - run: cargo build --release -p navori-cli --locked
+      - name: host facts
+        run: |
+          nproc
+          cat /proc/loadavg
+          git status --porcelain
+      - name: bench:hooks --impl rust
+        env:
+          NAVORI_RUST_BIN: ${{ github.workspace }}/target/release/navori-rust
+        run: |
+          cat /proc/loadavg
+          bun run bench:hooks -- --impl rust
+          cat /proc/loadavg
+      - name: navori-rust --version (R17, for reference)
+        run: |
+          node -e 'const {spawnSync}=require("child_process");const t=[];for(let i=0;i<31;i++){const s=process.hrtime.bigint();spawnSync("target/release/navori-rust",["--version"],{stdio:"ignore"});t.push(Number(process.hrtime.bigint()-s)/1e6)}t.sort((a,b)=>a-b);console.log("version median ms",t[15].toFixed(2))'
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-hooks-rust
+          path: .navori/state/bench/
+          if-no-files-found: error
