@@ -35,15 +35,25 @@ interface Input {
   delegation?: Delegation[];
   shellHooks?: ShellHook[];
   transitional?: Transitional;
+  r17Debt?: R17Debt[];
   bench: {
     comparable?: boolean;
-    measurements?: Array<{ engine?: string; hook?: string; wallMsP95: number }>;
+    measurements?: Array<{ engine?: string; scenario?: string; hook?: string; wallMsP95: number }>;
   } | null;
   versionMs: number | null;
   postCutover: { ok: boolean; seconds: number; host?: string } | null;
 }
+interface R17Debt {
+  engine: string;
+  scenario: string;
+  hook: string;
+  maxMs: number;
+  reason: string;
+}
 interface Cutover {
   cutoverFindings: (input: Input) => Finding[];
+  R17_DEBT: R17Debt[];
+  validateR17Debt: (list: R17Debt[]) => void;
   VERSION_BUDGET_MS: number;
   HOOK_P95_BUDGET_MS: number;
   POST_CUTOVER_BUDGET_S: number;
@@ -268,7 +278,7 @@ describe("cutover-check (spec 0062 T8)", () => {
     over.postCutover = { ok: true, seconds: cutover.POST_CUTOVER_BUDGET_S + 1 };
     expect(cutover.cutoverFindings(over).map((f) => f.detail)).toEqual([
       "the last bench:hooks --impl rust is not comparable",
-      "pi/role-guard p95 6.000 ms > 5 ms",
+      "pi/?/role-guard p95 6.000 ms > 5 ms",
       "navori-rust --version 11.0 ms > 10 ms",
       "check:post-cutover took 301 s > 300 s",
     ]);
@@ -277,6 +287,127 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(cutover.cutoverFindings(red)).toEqual([
       { check: "R18", detail: "the last check:post-cutover failed" },
     ]);
+  });
+
+  // Covers: R17
+  it("una celda de R17_DEBT sobre el presupuesto sale aparte como r17-debt; el resto de R17 sigue bloqueando", () => {
+    const over = cutover.HOOK_P95_BUDGET_MS + 1;
+    const debt: R17Debt[] = [
+      {
+        engine: "claude",
+        scenario: "SessionStart",
+        hook: "session-start-context.sh",
+        maxMs: over + 1,
+        reason: "una vez por sesión",
+      },
+    ];
+    const input = ready();
+    input.r17Debt = debt;
+    input.bench = {
+      comparable: true,
+      measurements: [
+        {
+          engine: "claude",
+          scenario: "SessionStart",
+          hook: "session-start-context.sh",
+          wallMsP95: over,
+        },
+        // the same hook in another engine or scenario is not covered
+        {
+          engine: "pi",
+          scenario: "SessionStart",
+          hook: "session-start-context.sh",
+          wallMsP95: over,
+        },
+        { engine: "claude", scenario: "Bash", hook: "session-start-context.sh", wallMsP95: over },
+      ],
+    };
+    expect(cutover.cutoverFindings(input)).toEqual([
+      {
+        check: "r17-debt",
+        detail:
+          "claude/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms (<= 7 ms; una vez por sesión)",
+      },
+      { check: "R17", detail: "pi/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms" },
+      { check: "R17", detail: "claude/Bash/session-start-context.sh p95 6.000 ms > 5 ms" },
+    ]);
+    // over its own ceiling, the declared cell blocks again: the debt cannot grow unnoticed
+    input.bench = {
+      comparable: true,
+      measurements: [
+        {
+          engine: "claude",
+          scenario: "SessionStart",
+          hook: "session-start-context.sh",
+          wallMsP95: over + 2,
+        },
+      ],
+    };
+    expect(cutover.cutoverFindings(input)).toEqual([
+      {
+        check: "R17",
+        detail:
+          "claude/SessionStart/session-start-context.sh p95 8.000 ms > its R17_DEBT ceiling 7 ms",
+      },
+    ]);
+    // a declared cell within budget reports nothing; a non-comparable report still blocks
+    input.bench = {
+      comparable: false,
+      measurements: [
+        {
+          engine: "claude",
+          scenario: "SessionStart",
+          hook: "session-start-context.sh",
+          wallMsP95: 1,
+        },
+      ],
+    };
+    expect(cutover.cutoverFindings(input)).toEqual([
+      { check: "R17", detail: "the last bench:hooks --impl rust is not comparable" },
+    ]);
+  });
+
+  // Covers: R17
+  it("R17_DEBT declara celda por celda, con motivo, solo las que la corrida comparable de H dejó fuera", () => {
+    const cells = cutover.R17_DEBT.map((d) => `${d.engine}/${d.scenario}/${d.hook}`).sort();
+    expect(cells).toEqual(
+      [
+        "claude/SessionStart/session-start-context.sh",
+        ...["claude", "pi"].flatMap((engine) =>
+          ["BashLong40kGrep", "BashLong40kNoGrep", "BashLong6kGrep", "BashLong6kNoGrep"].map(
+            (scenario) => `${engine}/${scenario}/guard-destructive.sh`,
+          ),
+        ),
+      ].sort(),
+    );
+    for (const d of cutover.R17_DEBT) expect(d.reason.trim()).not.toBe("");
+    const ceilings = Object.fromEntries(
+      cutover.R17_DEBT.map((d) => [`${d.engine}/${d.scenario}/${d.hook}`, d.maxMs]),
+    );
+    // measured p95 x 1.5, rounded up, on the slower scenario of each pair (comparable run on H)
+    expect(ceilings["claude/SessionStart/session-start-context.sh"]).toBe(114);
+    for (const grep of ["Grep", "NoGrep"]) {
+      expect(ceilings[`claude/BashLong6k${grep}/guard-destructive.sh`]).toBe(15);
+      expect(ceilings[`claude/BashLong40k${grep}/guard-destructive.sh`]).toBe(19);
+      expect(ceilings[`pi/BashLong6k${grep}/guard-destructive.sh`]).toBe(18);
+      expect(ceilings[`pi/BashLong40k${grep}/guard-destructive.sh`]).toBe(23);
+    }
+    const cell = {
+      engine: "pi",
+      scenario: "Bash",
+      hook: "guard-destructive.sh",
+      maxMs: 10,
+      reason: "r",
+    };
+    expect(() => cutover.validateR17Debt([{ ...cell, maxMs: cutover.HOOK_P95_BUDGET_MS }])).toThrow(
+      /has no maxMs above 5 ms/,
+    );
+    expect(() => cutover.validateR17Debt([{ ...cell, maxMs: Number.NaN }])).toThrow(/has no maxMs/);
+    expect(() => cutover.validateR17Debt([{ ...cell, reason: " " }])).toThrow(/has no reason/);
+    expect(() => cutover.validateR17Debt([{ ...cell, scenario: "" }])).toThrow(/has no scenario/);
+    expect(() => cutover.validateR17Debt([cell, { ...cell }])).toThrow(
+      /repeats pi\/Bash\/guard-destructive\.sh/,
+    );
   });
 
   // Covers: R18
