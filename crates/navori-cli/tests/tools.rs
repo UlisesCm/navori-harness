@@ -1,7 +1,7 @@
-//! Spec 0059 T13 (R59): when `tools notice` or `tools session-context` reserves the daily refresh,
-//! the worker is the `navori` of `PATH`, launched with the TS's private flag and the token written
-//! to `attempts.json`. The fake `navori` only records its argv: `latest.json`, which only the
-//! network worker writes, must stay absent, so the native process fetched nothing itself.
+//! Spec 0059 T13 (R59, R85): when `tools notice` or `tools session-context` reserves the daily
+//! refresh, the worker is this native binary (not the `navori` of `PATH`), launched with the private
+//! flag and the token written to `attempts.json`. It opens no sockets: its only network path is the
+//! `curl` of `PATH`, here a fake that records its argv and fails, so `latest.json` stays absent.
 
 use std::error::Error;
 use std::fs;
@@ -11,7 +11,6 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
-const WORKER_ARG: &str = "--navori-private-tool-version-worker";
 type TestResult = Result<(), Box<dyn Error>>;
 
 const CONFIG: &str = r#"{"name":"x","version":"1.0.0","harnessVersion":"0.12.2","engines":["claude"],"preset":"custom","language":"en","branchBase":"main","gitignoreHarness":"off","commits":"conventional-es","plugins":{"engram":{"enabled":true}},"qualityGate":{"fast":"bun run fast","full":"bun run check"}}"#;
@@ -34,11 +33,11 @@ fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
     let dir = fs::canonicalize(dir)?;
     fs::write(dir.join("repo/navori.config.json"), CONFIG)?;
     executable(&dir.join("bin/engram"), "#!/bin/sh\necho engram 1.2.3\n")?;
-    let record = dir.join("worker-argv");
+    let record = dir.join("curl-argv");
     executable(
-        &dir.join("bin/navori"),
+        &dir.join("bin/curl"),
         &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}.tmp' && mv '{0}.tmp' '{0}'\n",
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}.tmp' && mv '{0}.tmp' '{0}'\nexit 7\n",
             record.display()
         ),
     )?;
@@ -66,7 +65,7 @@ struct Case {
 
 // Covers: R59
 #[test]
-fn el_worker_de_versiones_lo_lanza_el_navori_de_path_con_flag_y_token_y_rust_no_abre_sockets()
+fn el_worker_de_versiones_es_el_binario_nativo_y_solo_alcanza_la_red_por_el_curl_de_path()
 -> TestResult {
     let cases = [
         Case {
@@ -139,26 +138,22 @@ fn el_worker_de_versiones_lo_lanza_el_navori_de_path_con_flag_y_token_y_rust_no_
             .env("NAVORI_TS_CLI", "/nonexistent/index.js")
             .envs(case.env.iter().copied())
             .output()?;
-        let attempts = fs::read_to_string(state.join("attempts.json")).unwrap_or_default();
-        let record = dir.join("worker-argv");
+        let record = dir.join("curl-argv");
+        // The worker claims its token (rewrites it to null) before it runs curl, so the claim is
+        // read once curl has been reached: a valid curl call proves the native worker was launched
+        // with the reserved token.
         let argv = if case.spawns {
             wait_for(&record)
         } else {
             std::thread::sleep(Duration::from_millis(300));
             fs::read_to_string(&record).ok()
         };
-        let token = attempts
-            .split("\"token\":\"")
-            .nth(1)
-            .and_then(|rest| rest.split('"').next())
-            .unwrap_or_default()
-            .to_owned();
+        let attempts = fs::read_to_string(state.join("attempts.json")).unwrap_or_default();
         let shape_ok = !case.spawns
             || (attempts.starts_with(r#"{"engram":{"at":"#)
-                && attempts.ends_with(&format!(r#","token":"{token}"}}}}"#))
-                && token.len() == 36);
+                && attempts.ends_with(r#","token":null}}"#));
         let argv_ok = match &argv {
-            Some(argv) => case.spawns && *argv == format!("{WORKER_ARG}\n{token}\n"),
+            Some(argv) => case.spawns && argv.contains("://"),
             None => !case.spawns,
         };
         if !out.status.success() && case.args[1] == "notice"
