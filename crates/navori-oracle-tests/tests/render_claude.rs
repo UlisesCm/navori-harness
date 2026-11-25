@@ -308,6 +308,7 @@ fn config() -> BoxedStrategy<String> {
             pick(&[
                 r#"{"publisher":false}"#,
                 r#"{"planTiers":true,"scout":false}"#,
+                r#"{"sessionState":false}"#,
             ]),
         ),
         field(

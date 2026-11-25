@@ -21,7 +21,7 @@ use crate::config::effective_config;
 use crate::i18n;
 use crate::js_json::JsValue;
 use crate::render::block_plan::{AssetStatus, PlanEntry, PlanOptions, UpdateAvailable};
-use crate::render::claude_files::collect_claude_files;
+use crate::render::claude_files::{collect_claude_files, session_state_on};
 use crate::render::claude_md::plan_claude_md;
 use crate::render::claude_settings::build_claude_settings;
 use crate::render::collect::{PendingWrite, RepoView, SkippedFile, read_if_exists};
@@ -401,7 +401,7 @@ pub fn plan_claude_engine(
         + plan.agents.len()
         + plan.skills.len()
         + plan.hooks.len()
-        + 2
+        + if session_state_on(&config) { 2 } else { 0 }
         + hooks.len()
         + scripts
         + sub_blocks.inspected

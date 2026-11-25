@@ -100,6 +100,10 @@ fn config() -> BoxedStrategy<String> {
             "preset",
             pick(&[r#""custom""#, r#""mine""#, r#""astro""#, r#""loose""#]),
         ),
+        field(
+            "harness",
+            pick(&[r#"{"sessionState":true}"#, r#"{"sessionState":false}"#]),
+        ),
         field("language", pick(&[r#""es""#, r#""en""#])),
         field("projectName", pick(&[r#""demo""#, r#""other""#])),
         field(

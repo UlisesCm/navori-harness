@@ -98,12 +98,27 @@ fn style_of(path: &str) -> CommentStyle {
     }
 }
 
+/// `harness.sessionState === false` (strict): session state is off, so there is no `progress/`.
+pub(crate) fn session_state_on(config: &JsValue) -> bool {
+    let JsValue::Object(root) = config else {
+        return true;
+    };
+    !matches!(
+        root.get("harness"),
+        Some(JsValue::Object(h)) if matches!(h.get("sessionState"), Some(JsValue::Bool(false)))
+    )
+}
+
 /// Step 5: `progress/current.md` and `progress/history.md`, written once and never again.
+/// Skipped entirely when `harness.sessionState` is `false`.
 fn bootstrap(
     view: &dyn RepoView,
     config: &JsValue,
     files: &mut ClaudeFiles,
 ) -> Result<(), ClaudeFilesDelegate> {
+    if !session_state_on(config) {
+        return Ok(());
+    }
     let dir = text_at(config, &["progress", "dir"]).unwrap_or_else(|| "progress".to_owned());
     for (asset, key, default) in [
         ("current.md", "currentFile", "current.md"),
