@@ -6,12 +6,12 @@ Quien ya usa navori agrega un plugin con `navori add <plugin>` o pide una sugere
 
 ## Guion de aceptación
 
-Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` sin el CLI de TypeScript, un repo de prueba ya inicializado y, al frente del `PATH`, un `brew`, un `curl` y un `npm` de prueba que registran la llamada y terminan con 0 o con 1 a pedido. Los plugins solo se cargan si vienen empaquetados, así que el guion usa uno real (`tgrep`) sin instalar software de verdad. `update` instala con npm, así que sus pasos llevan `node` y `npm` en `PATH`.
+Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo de prueba ya inicializado. Los plugins solo se cargan si vienen empaquetados, así que los pasos de `add` usan uno real (`tgrep`, que se instala con `brew install tgrep` en las dos plataformas) con un `PATH` mínimo: un directorio de prueba y los del sistema, sin un `tgrep` real. En ese directorio, un `brew` de prueba registra la llamada y, a pedido, deja un `tgrep` ejecutable ahí y termina con 0, o termina con 1. Los pasos de `update` usan un `PATH` con `node` y `npm` reales, porque `update` instala con npm, y sin el CLI de TypeScript.
 
-1. `navori add tgrep` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, la misma llamada de instalación que el TS y el render aplicado.
+1. `navori add tgrep` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, la misma llamada `brew install tgrep` que el TS, el render aplicado y exit 0 con el mensaje de listo.
 2. `navori add tgrep --skip-install` en otra copia, y después de nuevo sobre el plugin ya habilitado. **Esperado:** registra y renderiza sin llamar al instalador; la segunda vez, el aviso del TS.
 3. `navori add tgrep` y rechazar la instalación. **Esperado:** el plugin queda registrado, sin instalar, y sale con 0, como el TS.
-4. `navori add tgrep --yes` con el instalador de prueba terminando con 1. **Esperado:** el plugin queda registrado y sale con 1, como el TS, que no deshace el registro.
+4. `navori add tgrep --yes` con el `brew` de prueba terminando con 1, y en otra copia terminando con 0 sin dejar `tgrep`. **Esperado:** en los dos, el plugin queda registrado y sale con 1, con el mensaje del TS, que no deshace el registro.
 5. `navori add --suggest`, `navori add no-existe` y un plugin retirado. **Esperado:** la sugerencia del TS sin escribir, y los errores del TS sin escribir.
 6. `navori update` con el CLI al día. **Esperado:** el aviso de "ya actualizado" del TS y el `refresh` que corre el TS.
 7. `navori update` sin red. **Esperado:** el aviso de sin conexión del TS, y `refresh` corre igual.
@@ -21,7 +21,7 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` s
 
 - R1 — Con las mismas respuestas, la config escrita por `add` es igual byte a byte a la del TS, y el render que sigue es el nativo.
 - R2 — Las preguntas usan la base de la rebanada 0067, con el texto y los valores por omisión del TS. `add` tiene dos.
-- R3 — `add` corre el comando de instalación del manifiesto del plugin para la plataforma, como el TS, y falla igual cuando no hay comando. `--skip-install` no instala; el paso posterior a la instalación solo corre con terminal, como en el TS.
+- R3 — `add` corre el comando de instalación del manifiesto del plugin para la plataforma, como el TS, solo si el binario del plugin no está en `PATH`, y después comprueba que quedó alcanzable; falla igual cuando no hay comando. `--skip-install` no instala; el paso posterior a la instalación solo corre con terminal, como en el TS.
 - R4 — `add` no deshace el registro si la instalación o el render fallan, como el TS: queda registrado y sale con 1.
 - R5 — `update` consulta la última versión, compara, nunca baja de versión y, con una versión ilegible, no actualiza, como el TS. `--dry-run` y `--config-only` solo se reenvían a `refresh`; no evitan la instalación.
 - R6 — `update` instala con npm como el TS y después ejecuta el `navori` recién instalado para el `refresh`. Conoce su propia versión, sin caer en `0.0.0`.
