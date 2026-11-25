@@ -239,6 +239,11 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # No other job type-checks the TS that stays (the suites below, their helpers and the
+      # modules scripts/js imports); a type error there went unseen after the cutover.
+      - name: Typecheck
+        run: bun run typecheck
+
       - name: Install zsh
         run: |
           sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
