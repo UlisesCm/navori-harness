@@ -495,3 +495,214 @@ fn a_trigger_cut_inside_a_surrogate_pair_renders_unchanged_the_second_time() -> 
     assert_eq!(before, [snapshot(&repo)?, snapshot(&backups)?]);
     Ok(())
 }
+
+/// A rendered `claude` repo (with `tgrep`, so `.claude/hooks` has files) next to a home whose
+/// registry is in step and a decoy TS CLI that records any invocation in `marker`.
+struct Fixture {
+    repo: PathBuf,
+    home: PathBuf,
+    backups: PathBuf,
+    decoy: PathBuf,
+    marker: PathBuf,
+}
+
+impl Fixture {
+    fn rendered(name: &str) -> Result<Self, Box<dyn Error>> {
+        let dir = scratch(name)?;
+        let fixture = Self {
+            repo: dir.join("repo"),
+            home: dir.join("home"),
+            backups: dir.join("backups"),
+            decoy: dir.join("decoy.sh"),
+            marker: dir.join("marker"),
+        };
+        for path in [
+            &fixture.repo,
+            &fixture.home.join(".navori"),
+            &fixture.backups,
+        ] {
+            fs::create_dir_all(path)?;
+        }
+        fs::write(
+            &fixture.decoy,
+            "#!/bin/sh\necho hit > \"$MARKER\"\nexit 97\n",
+        )?;
+        fs::set_permissions(
+            &fixture.decoy,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )?;
+        fs::write(
+            fixture.repo.join("navori.config.json"),
+            r#"{"name":"demo","preset":"custom","engines":["claude"],"language":"en","plugins":{"tgrep":{"enabled":true}}}"#,
+        )?;
+        let canonical = fs::canonicalize(&fixture.repo)?;
+        fs::write(
+            fixture.home.join(".navori/registry.json"),
+            format!(r#"{{"repos":[{{"path":{canonical:?},"name":"demo"}}]}}"#),
+        )?;
+        let out = fixture.run(&["render", "--apply"], &[("NO_COLOR", "1")])?;
+        assert_eq!(out.status.code(), Some(0), "setup render failed");
+        assert!(!fixture.marker.exists(), "setup handed the run to the TS");
+        Ok(fixture)
+    }
+
+    fn run(&self, args: &[&str], env: &[(&str, &str)]) -> std::io::Result<std::process::Output> {
+        Process::new(env!("CARGO_BIN_EXE_navori-rust"))
+            .args(args)
+            .current_dir(&self.repo)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", &self.home)
+            .env("NAVORI_BACKUP_ROOT", &self.backups)
+            .env("NAVORI_TS_CLI", &self.decoy)
+            .env("MARKER", &self.marker)
+            .envs(env.iter().copied())
+            .stdin(Stdio::null())
+            .output()
+    }
+
+    /// Wraps `rel`'s content (or `content` when given) in a conflict triple.
+    fn conflict(&self, rel: &str, content: Option<&str>) -> TestResult {
+        let path = self.repo.join(rel);
+        let body = match content {
+            Some(text) => text.to_owned(),
+            None => fs::read_to_string(&path)?,
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(
+            path,
+            format!("<<<<<<< HEAD\n{body}\n=======\ntheirs\n>>>>>>> branch\n"),
+        )?;
+        Ok(())
+    }
+
+    /// Repo, home and backups together.
+    fn state(&self) -> Result<[Tree; 3], Box<dyn Error>> {
+        Ok([
+            snapshot(&self.repo)?,
+            snapshot(&self.home)?,
+            snapshot(&self.backups)?,
+        ])
+    }
+
+    /// Asserts the refusal of #1660: exit 1, nothing written, no TS, and returns stdout.
+    fn assert_refused(
+        &self,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> Result<String, Box<dyn Error>> {
+        let before = self.state()?;
+        let out = self.run(args, env)?;
+        let stdout = String::from_utf8(out.stdout)?;
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {stdout}");
+        assert_eq!(before, self.state()?, "{args:?} wrote something");
+        assert!(!self.marker.exists(), "{args:?} handed the run to the TS");
+        Ok(stdout)
+    }
+}
+
+/// A conflict in a rendered native hook is refused by every mode, `--force` and a colored
+/// (TTY-like) run included; the JSON names the file and its line.
+// Covers: #1660
+#[test]
+fn conflict_markers_refuse_render_before_any_write() -> TestResult {
+    let fixture = Fixture::rendered("conflict-hook")?;
+    let hook = fs::read_dir(fixture.repo.join(".claude/hooks"))?
+        .filter_map(Result::ok)
+        .find(|entry| entry.path().is_file())
+        .ok_or("no rendered hook")?
+        .file_name();
+    let rel = format!(".claude/hooks/{}", hook.to_string_lossy());
+    fixture.conflict(&rel, None)?;
+
+    let stdout = fixture.assert_refused(&["render", "--json"], &[])?;
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    let parsed = navori_core::js_json::parse(stdout.trim()).ok_or("not JSON")?;
+    let navori_core::js_json::JsValue::Object(root) = parsed else {
+        return Err("not an object".into());
+    };
+    let text = |key: &str| match root.get(key) {
+        Some(navori_core::js_json::JsValue::String(s)) => s.to_rust(),
+        _ => None,
+    };
+    assert_eq!(text("command").as_deref(), Some("render"));
+    assert_eq!(text("reason").as_deref(), Some("conflict-markers"));
+    assert!(text("detail").is_some_and(|d| d.contains("rebase-rerender")));
+    assert!(stdout.contains(r#""ok":false"#), "{stdout}");
+    assert!(
+        stdout.contains(&format!(r#""files":[{{"path":"{rel}","line":1}}]"#)),
+        "{stdout}"
+    );
+
+    for args in [
+        &["render", "--apply"][..],
+        &["render", "--apply", "--force"],
+        &["render"],
+    ] {
+        let stdout = fixture.assert_refused(args, &[("NO_COLOR", "1")])?;
+        assert!(stdout.contains(&format!("{rel}:1")), "{args:?}: {stdout}");
+        assert!(stdout.contains("rebase-rerender"), "{stdout}");
+    }
+    // A terminal or FORCE_COLOR used to delegate to the TS: now it is refused first.
+    fixture.assert_refused(&["render", "--apply"], &[("FORCE_COLOR", "1")])?;
+    fixture.assert_refused(
+        &["render", "--json", "--apply", "--force"],
+        &[("FORCE_COLOR", "1")],
+    )?;
+    Ok(())
+}
+
+/// Outside a managed block (CLAUDE.md) and in an ignore file the triple is refused too.
+#[test]
+fn conflict_markers_in_user_text_and_ignore_files_are_refused() -> TestResult {
+    for (label, rel, content) in [
+        ("user-text", "CLAUDE.md", None),
+        ("ignore", ".gitignore", Some("node_modules/")),
+    ] {
+        let fixture = Fixture::rendered(&format!("conflict-{label}"))?;
+        fixture.conflict(rel, content)?;
+        let stdout = fixture.assert_refused(&["render", "--apply"], &[("NO_COLOR", "1")])?;
+        assert!(stdout.contains(&format!("{rel}:1")), "{label}: {stdout}");
+    }
+    Ok(())
+}
+
+/// A clean rendered repo keeps its behavior: preview and apply are native and exit 0.
+#[test]
+fn conflict_markers_absent_leaves_render_unchanged() -> TestResult {
+    let fixture = Fixture::rendered("conflict-clean")?;
+    for args in [
+        &["render"][..],
+        &["render", "--json"],
+        &["render", "--apply"],
+    ] {
+        let out = fixture.run(args, &[("NO_COLOR", "1")])?;
+        assert_eq!(out.status.code(), Some(0), "{args:?}");
+    }
+    assert!(!fixture.marker.exists());
+    Ok(())
+}
+
+/// A6: `.claude/settings.json` and `.mcp.json` are scanned. Before the fix the base `render` never
+/// looked at them: a triple inside either was kept as user data (or handed to the TS) and the run
+/// exited 0 / delegated; now both are refused like any managed file.
+#[test]
+fn conflict_markers_json() -> TestResult {
+    for rel in [".claude/settings.json", ".mcp.json"] {
+        let fixture = Fixture::rendered(&format!("conflict-json{}", rel.replace(['/', '.'], "-")))?;
+        fixture.conflict(rel, Some("{}"))?;
+        let stdout = fixture.assert_refused(&["render", "--json"], &[])?;
+        assert!(
+            stdout.contains(r#""reason":"conflict-markers""#),
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains(&format!(r#""path":"{rel}","line":1"#)),
+            "{stdout}"
+        );
+        fixture.assert_refused(&["render", "--apply", "--force"], &[("NO_COLOR", "1")])?;
+    }
+    Ok(())
+}

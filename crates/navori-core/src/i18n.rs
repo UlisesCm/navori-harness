@@ -657,6 +657,19 @@ pub fn render_skipped_outro(lang: Lang, count: usize) -> String {
     }
 }
 
+/// Rust-only (#1660): `render` refused because managed files hold unresolved git conflict markers.
+#[must_use]
+pub const fn render_conflict_markers(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Es => {
+            "render se neg\u{f3}: hay marcadores de conflicto de git sin resolver en archivos gestionados. Resu\u{e9}lvelos (skill 'rebase-rerender') y vuelve a correr 'navori render --apply'; --force no lo omite"
+        }
+        Lang::En => {
+            "render refused: unresolved git conflict markers in managed files. Resolve them (skill 'rebase-rerender') and run 'navori render --apply' again; --force does not bypass it"
+        }
+    }
+}
+
 /// `render.langFallback(list)`.
 #[must_use]
 pub fn render_lang_fallback(lang: Lang, list: &str) -> String {
