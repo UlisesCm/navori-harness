@@ -75,6 +75,7 @@ interface Areas {
   PERMANENT_SHELL_HOOKS: ShellHook[];
   permanentShellHook: (id: string, list?: ShellHook[]) => boolean;
   hookInventory: () => string[];
+  commandInventory: (root: unknown) => Promise<Array<{ path: string[]; flags: string[] }>>;
   TRANSITIONAL_DELEGATION: Transitional;
   validateTransitional: (list: Transitional) => void;
 }
