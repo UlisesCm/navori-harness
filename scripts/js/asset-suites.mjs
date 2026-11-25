@@ -142,6 +142,24 @@ export const ASSET_SUITES = [
   "src/__tests__/scripts-help.test.ts",
   "src/__tests__/toolchain-pins.test.ts",
   "src/lib/diagnose/__tests__/source-classify.test.ts",
+  // Left out at the cutover although they test something live: scripts/js and the test helpers the
+  // suites above use, a shipped shell partial and plugin assets, and the TS modules a CI script
+  // imports as its reference (plan-tables and tools-tables `--check` in rust.yml,
+  // hook-shadow-report).
+  "src/__tests__/check-test-preservation.test.ts",
+  "src/__tests__/helpers/__tests__/hook-batch.test.ts",
+  "src/__tests__/helpers/__tests__/repo-template.test.ts",
+  "src/__tests__/hook-verdict-corpus-homes.test.ts",
+  "src/__tests__/temp-lifecycle.integration.test.ts",
+  "src/__tests__/vitest-dist-lock.test.ts",
+  "src/lib/__tests__/audit-log-spool.test.ts",
+  "src/lib/__tests__/plugin-invariants-contract.test.ts",
+  "src/lib/plan/__tests__/classify.test.ts",
+  "src/lib/plan/__tests__/expected.test.ts",
+  "src/lib/rust-shadow/__tests__/journal.test.ts",
+  "src/lib/spec/__tests__/tasks.test.ts",
+  "src/lib/workspace/__tests__/dominio.test.ts",
+  "src/lib/workspace/__tests__/workspace.test.ts",
 ];
 
 /**
