@@ -15,7 +15,10 @@ use std::process::ExitCode;
 use lexopt::Arg;
 use navori_core::backup::{BackupStore, backup_root, local_now};
 use navori_core::config::{self, Config};
+use navori_core::conflict_markers;
 use navori_core::fs::RealFs;
+use navori_core::i18n;
+use navori_core::js_json::{self, JsValue};
 use navori_core::manifest::Command;
 use navori_core::render::claude_md::has_monorepo_workspaces;
 use navori_core::render::collect::DiskView;
@@ -102,6 +105,46 @@ fn admit(cwd: &Path, entry: &Command) -> Option<Config> {
     (!has_monorepo_workspaces(&config.data)).then_some(config)
 }
 
+/// The refusal of #1660 for `command` (`sync`/`remove`): the shape of render's, exit 1 with the
+/// files, before any write. Shared by `remove`.
+pub(crate) fn refuse_conflicts(
+    command: &str,
+    config: &Config,
+    json: bool,
+    conflicts: &[conflict_markers::ConflictFile],
+) -> Outcome {
+    let detail = i18n::render_conflict_markers(config.lang());
+    let stdout = if json {
+        let files = conflicts
+            .iter()
+            .map(|c| {
+                let mut file = js_json::JsObject::new();
+                file.insert("path", JsValue::string(&c.path));
+                file.insert("line", JsValue::Number(c.line as f64));
+                JsValue::Object(file)
+            })
+            .collect();
+        let mut root = js_json::JsObject::new();
+        root.insert("command", JsValue::string(command));
+        root.insert("ok", JsValue::Bool(false));
+        root.insert("reason", JsValue::string("conflict-markers"));
+        root.insert("detail", JsValue::string(detail));
+        root.insert("files", JsValue::Array(files));
+        match JsValue::Object(root).stringify(None) {
+            Some(text) => format!("{text}\n"),
+            None => return Outcome::Delegate,
+        }
+    } else {
+        let list: Vec<String> = conflicts
+            .iter()
+            .map(|c| format!("  {}:{}", c.path, c.line))
+            .collect();
+        Clack::from_env().cancel(&format!("{detail}\n{}", list.join("\n")))
+    };
+    let _ = std::io::stdout().write_all(stdout.as_bytes());
+    Outcome::Exit(ExitCode::FAILURE)
+}
+
 /// The native `sync`.
 #[must_use]
 pub fn run(call: &NativeCall<'_>) -> Outcome {
@@ -111,6 +154,14 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     let Some(args) = parse_args(call.args, call.entry, &base) else {
         return Outcome::Delegate;
     };
+    // Only after admission: a root that delegates earlier (monorepo workspaces) is the TS's.
+    let Some(config) = admit(&args.cwd, call.entry) else {
+        return Outcome::Delegate;
+    };
+    let conflicts = conflict_markers::scan(&args.cwd, &configured_engines(&config.data));
+    if !conflicts.is_empty() {
+        return refuse_conflicts("sync", &config, args.flags.json, &conflicts);
+    }
     if !args.flags.json
         && !colorless(
             |name| std::env::var_os(name),
@@ -119,9 +170,6 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     {
         return Outcome::Delegate;
     }
-    let Some(config) = admit(&args.cwd, call.entry) else {
-        return Outcome::Delegate;
-    };
     let root = backup_root();
     if (args.flags.apply || args.flags.yes) && root.is_err() {
         return Outcome::Delegate;

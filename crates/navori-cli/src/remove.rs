@@ -14,6 +14,7 @@ use std::process::ExitCode;
 use lexopt::Arg;
 use navori_core::backup::{BackupStore, backup_root, local_now};
 use navori_core::config::{self, Config, HarnessRecord};
+use navori_core::conflict_markers;
 use navori_core::fs::{RealFs, write_file_atomic};
 use navori_core::i18n;
 use navori_core::manifest::Command;
@@ -26,6 +27,7 @@ use navori_core::render::report::Clack;
 use crate::render::{
     colorless, config_name, configured_engines, home, registry_needs_refresh, resolve,
 };
+use crate::sync::refuse_conflicts;
 use crate::{NativeCall, Outcome};
 
 /// The arguments of a native `remove`.
@@ -117,12 +119,7 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     let Some(args) = parse_args(call.args, call.entry, &base) else {
         return Outcome::Delegate;
     };
-    if args.plugin == "engram"
-        || !colorless(
-            |name| std::env::var_os(name),
-            std::io::stdout().is_terminal(),
-        )
-    {
+    if args.plugin == "engram" {
         return Outcome::Delegate;
     }
     if args.cwd.to_str().is_none() {
@@ -136,6 +133,17 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
         return Outcome::Delegate;
     };
     if !within(&config, call.entry) {
+        return Outcome::Delegate;
+    }
+    // Only after admission: a root that delegates earlier (monorepo workspaces) is the TS's.
+    let conflicts = conflict_markers::scan(&args.cwd, &configured_engines(&config.data));
+    if !conflicts.is_empty() {
+        return refuse_conflicts("remove", &config, false, &conflicts);
+    }
+    if !colorless(
+        |name| std::env::var_os(name),
+        std::io::stdout().is_terminal(),
+    ) {
         return Outcome::Delegate;
     }
     let lang = config.lang();
