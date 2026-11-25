@@ -118,13 +118,29 @@ fn git(root: &Path, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Write `body` at `rel` through `/bin/cp` from a staged file, so this process never holds the
+/// destination open for writing. Tests run on parallel threads that fork: a write descriptor open
+/// here at that moment lives on in the forked child until its exec, and running an executable in
+/// that window fails with ETXTBSY ("Text file busy"). `/bin/cp` writes it in its own process.
 fn write(root: &Path, rel: &str, body: &str, mode: u32) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     let path = root.join(rel);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, body).map_err(|e| e.to_string())?;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = PathBuf::from(staged);
+    std::fs::write(&staged, body).map_err(|e| e.to_string())?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(&path)
+        .status()
+        .map_err(|e| e.to_string())?;
+    std::fs::remove_file(&staged).map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}"));
+    }
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
         .map_err(|e| format!("{}: {e}", path.display()))
 }
