@@ -1,7 +1,7 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 /**
  * #421 — harness mirror drift guard.
@@ -37,6 +37,115 @@ const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, "..", "..");
 const CLI_REL = "packages/cli/dist/index.js";
 const CLI = resolve(REPO_ROOT, CLI_REL);
+
+// #1660 — unresolved git conflicts in the files navori manages. The TS render keeps everything
+// outside a managed block as user text, so a conflict there reports `ok` and survives. This list
+// mirrors `managed_files` (crates/navori-core/src/conflict_markers.rs), whatever the engines:
+// explicit paths only, never a whole-root walk (`.claude/worktrees`, `node_modules`).
+const MANAGED_FILES = [
+  ".gitignore",
+  ".claude/.gitignore",
+  ".codex/.gitignore",
+  ".navori/.gitignore",
+  ".prettierignore",
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".claude/settings.json",
+  ".mcp.json",
+  ".pi/navori.json",
+  ".pi/extensions/navori.ts",
+  ".cursor/rules/navori.mdc",
+  ".github/copilot-instructions.md",
+];
+const MANAGED_TREES = [
+  ".claude/agents",
+  ".claude/skills",
+  ".claude/hooks",
+  ".claude/context",
+  ".claude/scripts",
+  ".agents/skills",
+  ".codex",
+  ".pi/agents",
+  ".pi/navori",
+];
+const MAX_TREE_DEPTH = 8;
+
+/**
+ * The 1-based line of the first complete conflict in `text`: `<<<<<<<` (then a space or the end),
+ * `=======` alone, `>>>>>>>` (then a space or the end), all in column 0, `\r` ignored. Eight or
+ * more signs, indented or out-of-order markers and a lone `=======` do not count.
+ * @param {string} text
+ * @returns {number | null}
+ */
+function findConflict(text) {
+  let start = null;
+  let mid = false;
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, "");
+    if (/^<{7}( |$)/.test(line)) {
+      start = i + 1;
+      mid = false;
+    } else if (start !== null && !mid) {
+      mid = /^={7}[ \t]*$/.test(line);
+    } else if (mid && /^>{7}( |$)/.test(line)) {
+      return start;
+    }
+  }
+  return null;
+}
+
+/**
+ * Regular files below `rel` (no symlinks, bounded depth), repo-relative.
+ * @param {string} root
+ * @param {string} rel
+ * @param {number} depth
+ * @param {string[]} out
+ * @returns {void}
+ */
+function walkTree(root, rel, depth, out) {
+  if (depth > MAX_TREE_DEPTH) return;
+  try {
+    if (!lstatSync(join(root, rel)).isDirectory()) return;
+    for (const entry of readdirSync(join(root, rel), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walkTree(root, child, depth + 1, out);
+      else if (entry.isFile()) out.push(child);
+    }
+  } catch {
+    // unreadable or vanished: same as absent
+  }
+}
+
+/**
+ * Every managed file of `root` that holds an unresolved conflict, as `path:line`.
+ * @param {string} root
+ * @param {string | null} label  workspace prefix for the reported path
+ * @returns {string[]}
+ */
+function scanConflicts(root, label) {
+  const files = [];
+  for (const rel of MANAGED_FILES) {
+    try {
+      if (lstatSync(join(root, rel)).isFile()) files.push(rel);
+    } catch {
+      // absent
+    }
+  }
+  for (const rel of MANAGED_TREES) walkTree(root, rel, 0, files);
+  const found = [];
+  for (const rel of [...new Set(files)].sort()) {
+    let text;
+    try {
+      text = readFileSync(join(root, rel), "latin1");
+    } catch {
+      continue;
+    }
+    const line = findConflict(text);
+    if (line !== null) found.push(`${label ? `${label}/` : ""}${rel}:${line}`);
+  }
+  return found;
+}
 
 function fail(message, detail) {
   console.error(`✗ ${message}`);
@@ -166,12 +275,23 @@ for (const { label, scope } of scopes) {
   }
 }
 
-if (stale.length === 0 && blocked.length === 0) {
+const conflicts = [
+  ...scanConflicts(target, null),
+  ...(report.workspaces ?? [])
+    .map((w) => w.path)
+    .filter((path) => typeof path === "string" && path !== "")
+    .flatMap((path) => scanConflicts(resolve(target, path), path)),
+];
+
+if (stale.length === 0 && blocked.length === 0 && conflicts.length === 0) {
   console.log(`✓ harness mirror up to date — 'render --json' reports 0 pending changes`);
   process.exit(0);
 }
 
-const lines = [`✗ the rendered harness mirror is OUT OF DATE (.claude/ + CLAUDE.md vs @navori/core)`];
+const lines =
+  stale.length > 0 || blocked.length > 0
+    ? [`✗ the rendered harness mirror is OUT OF DATE (.claude/ + CLAUDE.md vs @navori/core)`]
+    : [];
 
 if (stale.length > 0) {
   lines.push(``, `  stale files (${stale.length}):`);
@@ -216,6 +336,15 @@ if (blocked.length > 0) {
     `  breaks its hash and render stops touching it. take the base version and`,
     `  re-render instead; an already-edited block needs 'navori sync'.`,
   );
+}
+
+if (conflicts.length > 0) {
+  lines.push(
+    ...(lines.length > 0 ? [``] : [`✗ the rendered harness mirror holds unresolved merge conflicts`, ``]),
+    `  conflict markers (${conflicts.length}) — resolve, then re-render`,
+  );
+  for (const entry of conflicts) lines.push(`    ${entry}`);
+  lines.push(``, `  see the 'rebase-rerender' skill (.agents/skills/rebase-rerender/SKILL.md).`);
 }
 
 console.error(lines.join("\n"));
