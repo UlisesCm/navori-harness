@@ -278,7 +278,7 @@ describe("cutover-check (spec 0062 T8)", () => {
     over.postCutover = { ok: true, seconds: cutover.POST_CUTOVER_BUDGET_S + 1 };
     expect(cutover.cutoverFindings(over).map((f) => f.detail)).toEqual([
       "the last bench:hooks --impl rust is not comparable",
-      "pi/role-guard p95 6.000 ms > 5 ms",
+      "pi/?/role-guard p95 6.000 ms > 5 ms",
       "navori-rust --version 11.0 ms > 10 ms",
       "check:post-cutover took 301 s > 300 s",
     ]);
@@ -328,8 +328,8 @@ describe("cutover-check (spec 0062 T8)", () => {
         detail:
           "claude/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms (<= 7 ms; una vez por sesión)",
       },
-      { check: "R17", detail: "pi/session-start-context.sh p95 6.000 ms > 5 ms" },
-      { check: "R17", detail: "claude/session-start-context.sh p95 6.000 ms > 5 ms" },
+      { check: "R17", detail: "pi/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms" },
+      { check: "R17", detail: "claude/Bash/session-start-context.sh p95 6.000 ms > 5 ms" },
     ]);
     // over its own ceiling, the declared cell blocks again: the debt cannot grow unnoticed
     input.bench = {

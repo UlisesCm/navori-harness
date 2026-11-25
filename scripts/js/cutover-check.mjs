@@ -255,9 +255,8 @@ export function cutoverFindings(input) {
       const debt = r17Debt.find(
         (d) => d.engine === row.engine && d.scenario === row.scenario && d.hook === row.hook,
       );
-      const cell = `${row.engine}/${row.scenario}/${row.hook}`;
-      if (debt === undefined)
-        findings.push({ check: "R17", detail: `${row.engine ?? "?"}/${row.hook ?? "?"} ${over}` });
+      const cell = `${row.engine ?? "?"}/${row.scenario ?? "?"}/${row.hook ?? "?"}`;
+      if (debt === undefined) findings.push({ check: "R17", detail: `${cell} ${over}` });
       else if (row.wallMsP95 > debt.maxMs)
         findings.push({
           check: "R17",
