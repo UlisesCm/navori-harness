@@ -49,9 +49,11 @@
     "prepare": "bun run hooks:install",
     "hooks:install": "node scripts/js/install-git-hooks.mjs",
     "render:apply": "bun run --filter navori build && node packages/cli/dist/index.js render --apply",
-    "check:scoped": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && cd packages/cli && bun run check:size",
-    "check": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage",
-    "check:fast": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast"
+    "check:scoped": "bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore",
+    "check": "bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run test:assets",
+    "check:fast": "bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast",
+    "hooks:replay": "node scripts/js/hook-verdict-replay.mjs --impl rust --registered && node scripts/js/hook-verdict-replay.mjs --impl shell",
+    "test:assets": "node scripts/js/asset-suites.mjs"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",

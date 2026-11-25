@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -517,5 +518,57 @@ describe("cutover-check (spec 0062 T8)", () => {
     expect(() =>
       areas.validateTransitional({ commands: [{ path: ["init"], reason: " " }], hooks: [] }),
     ).toThrow(/has no reason/);
+  });
+
+  // Covers: R20, R24
+  it("el árbol de corte delega solo la lista permanente y no conserva la suite TS", async () => {
+    const { main } = await import("../cli.ts");
+    const manifest = JSON.parse(
+      readFileSync(join(root, "crates", "ported.json"), "utf8"),
+    ) as Input["manifest"];
+    const history = readFileSync(join(root, "crates", "ported-history.jsonl"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Input["history"][number]);
+    // (a) Only the R17/R18 evidence (bench, --version timing, the post-cutover report) is missing.
+    const findings = cutover.cutoverFindings({
+      manifest,
+      commands: await areas.commandInventory(main),
+      hooks: areas.hookInventory(),
+      history,
+      bench: null,
+      versionMs: null,
+      postCutover: null,
+    });
+    expect(
+      findings.filter((f) => f.check !== "transitional" && !["R17", "R18"].includes(f.check)),
+    ).toEqual([]);
+
+    // (b) No gate keeps the TS suite: the full gate, the post-cutover steps and ci.yml run vitest
+    // only through `test:assets` (the explicit list), the artifact suites and the `asset-suites` job.
+    const config = JSON.parse(readFileSync(join(root, "navori.config.json"), "utf8")) as {
+      qualityGate: { full: string };
+    };
+    const ci = readFileSync(join(root, ".github", "workflows", "ci.yml"), "utf8");
+    const forbidden =
+      /test:coverage|run-test-coverage|test-affected|vitest|bun run test(?!:assets)|--shard/;
+    expect(config.qualityGate.full).not.toMatch(forbidden);
+    expect(config.qualityGate.full).toContain("bun run test:assets");
+    const outside = ci.replace(/\n {2}asset-suites:\n(?:(?: {3,}.*)?\n)+/, "\n");
+    const runLines = outside.split("\n").filter((line) => /^\s*(?:- )?run:/.test(line));
+    expect(runLines.filter((line) => forbidden.test(line))).toEqual([]);
+    for (const step of post.STEPS) {
+      const text = `${step.cmd} ${step.args.join(" ")}`;
+      if (/vitest/.test(text)) expect(step.name).toBe("artifact suites");
+      expect(text).not.toMatch(/test:coverage/);
+    }
+
+    // (c) The required `checks` job runs the Rust gate (C1) and none of the TS-only gates (C3).
+    const checks = /\n {2}checks:\n((?:(?: {3,}.*)?\n)+)/.exec(ci)?.[1] ?? "";
+    expect(checks).toContain("run: bun run check:post-cutover");
+    expect(checks).toContain("run: bun run check:tests-preserved");
+    expect(checks).not.toMatch(/check:size|typecheck|\bbun run --filter navori lint/);
+    const cargoTest = post.STEPS.find((s) => s.name === "cargo test");
+    expect(cargoTest?.args).toEqual(expect.arrayContaining(["test", "--workspace", "--locked"]));
   });
 });
