@@ -96,6 +96,32 @@ divergencias". No se corrigen porque el historial es de solo agregar: `checkHist
 `scripts/js/rust-manifest-check.mjs:109-115` rechaza cualquier cambio a una línea existente. Para
 esos 11 hooks, esta nota manda sobre la fecha, el PR y el motivo que dicen esas líneas.
 
+## Enmienda del corte (2026-11-24, decisión de Ulises): T10 sin borrar el TS (opción C)
+
+Ulises eligió la opción C del diseño del corte, con las condiciones del desafío del auditor
+(decisiones-ulises/2026-11-24-t10-opcion-c). El PR de corte hace del binario el `navori` de `dev`,
+re-apunta los workflows de Rust a `dev` y `main`, pone el gate de Rust dentro del status requerido
+`checks`, fija el legacy y marca `packages/cli` como privado. **No borra `packages/cli/src` ni el
+oráculo diferencial**: los dos borrados pasan a un PR posterior (0.13.x o 0.14), con el ensayo del
+árbol cortado como aceptación. Motivo: borrar en 0.13.0 obligaría a mantener una rama de legacy
+aparte, porque `dist-assemble.mjs legacy --from <sha>` necesita un commit con el TS y el
+`crates/ported.json` de cada release (D53). Esa rama es posible, pero cara (desafío, punto 1), y
+publicar 0.13.0 no depende del borrado.
+
+Con esto se leen así:
+- **R22, nota de la opción E:** el `dist/` publicado sale del commit anterior al PR de corte, pero
+  el PR de corte no borra `packages/cli/src`.
+- **R24:** "elimina el oráculo TS" pasa al PR de borrado; la delegación al TS queda para la lista
+  permanente **y** para `TRANSITIONAL_DELEGATION` (la enmienda del 23 nov de R20 y T10 alcanza a
+  R24).
+- **T10:** "borra `packages/cli/src` salvo las suites de artefacto y elimina el oráculo TS" pasa al
+  PR de borrado.
+- **D50:** el binario sigue pudiendo delegar al `dist/` del checkout (orden de `delegate.rs`:
+  `NAVORI_TS_CLI`, el legacy empaquetado, el `dist/` del checkout); en el paquete publicado responde
+  `legacy/`.
+- **docs/DIRECTION.md, "Rust migration":** las reglas de convivencia ("npm and `dev` stay
+  TypeScript-only") se reemplazan por las reglas posteriores al corte.
+
 ## Contexto
 
 Esta spec nace de partir la fase 4 (`specs/0060-rust-cola-larga-corte/`) en dos (decisión del

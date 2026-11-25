@@ -18,8 +18,8 @@
 
 质量门分为两个级别：
 
-- **快速检查** — 已纳入版本控制的 pre-commit hook（`bun hooks:install`）运行 `bun check:fast`（format、jscpd、ast-grep、lint、typecheck），不运行测试。`qualityGate.fast` 是 `bun run check:fast`，因此智能体的提交 hook（`quality-gate-pre-commit.sh`，在 `git commit` 上触发的 PreToolUse）与版本化 pre-commit 执行相同的检查链。CI 的 `fast` job 在 `dev` 及面向 `dev` 的 PR 上运行，也会执行 `check:dup` 和 `check:ast`，但不运行测试。
-- **完整检查** — 下文介绍的 `bun check`。CI 的 `quality` job 会在面向 `main` 的 PR 和推送到 `main` 时运行它；失败会导致 PR 检查失败。只有这个级别会运行测试并检查覆盖率。
+- **快速检查** — 已纳入版本控制的 pre-commit hook（`bun hooks:install`）运行 `bun check:fast`（依赖同步、format、jscpd、ast-grep），不运行测试。`qualityGate.fast` 是 `bun run check:fast`，因此智能体的提交 hook（`quality-gate-pre-commit.sh`，在 `git commit` 上触发的 PreToolUse）与版本化 pre-commit 执行相同的检查链。CI 在必需的 `checks` job 中运行相同的检查。
+- **完整检查** — 下文介绍的 `bun check`。自 0.13 切换（spec 0062 T10）起，它以 `check:post-cutover`（workspace 的 cargo fmt、clippy 和 test，钩子 oracle 以及产物测试套件）开始，以 `test:assets`（`scripts/js/asset-suites.mjs` 中的资源、文档、shell 钩子和工具测试套件）结束；CI 必需的 `checks` job 运行相同的步骤。冻结 TS 的测试套件（`test:coverage`）不再属于质量门：下文关于它的说明仅在你手动运行时适用。
 
 1. **在 monorepo 根目录运行 `bun check`。** 它是 `navori.config.json` 中 `qualityGate.full` 的别名；该配置是质量门的**唯一事实来源**。`CLAUDE.md` 中的 managed 区块以及 `publisher` 使用的命令都由该配置生成。不要把质量门复制到本文或其他文件中，否则副本会逐渐过时。这种情况以前发生过（因此有 `repo-config-gate.test.ts`；详见本节末尾）。
 
@@ -36,7 +36,7 @@
 
    **本地预检查：oxlint + jscpd 5.4.0 + ast-grep 0.45.3**；后两者作为根目录 devDependencies，使用精确版本。`check:dup` 会根据已纳入版本控制的 `.jscpd-baseline.json` 扫描整个仓库。通过时不输出信息；失败时会用详细模式重新运行，并将新发现标记为 `[NEW]`。`check:dup:baseline` 对应 `jscpd --update-baseline`。`check:ast` 对应 `ast-grep test --skip-snapshot-tests && ast-grep scan`（规则位于 `ast-grep/rules`，测试位于 `ast-grep/rule-tests`，配置文件为 `sgconfig.yml`）。缺少工具会导致检查失败，绝不会跳过。脚本明确调用 `./node_modules/.bin/jscpd` 和 `./node_modules/.bin/ast-grep`，所以即使系统有全局二进制文件，没有运行 `bun install` 仍会失败。`report/`（jscpd JSON reporter 的输出目录）已列入 `.gitignore`。
 
-   `qualityGate.full`（`bun check`）的执行顺序为：format:check、lint、typecheck、check:dup、check:ast、check:links、check:render、check:assets、check:doc-budgets、check:blame-ignore、check:size、test:coverage。`check:scoped` 与之相同，但不运行 test:coverage；`check:fast`（pre-commit）运行 format:check、check:dup、check:ast、lint、typecheck。
+   `qualityGate.full`（`bun check`）的执行顺序为：check:post-cutover、check:deps、format:check、check:dup、check:ast、check:links、check:render、check:assets、check:doc-budgets、check:blame-ignore、check:tests-preserved、test:assets。`check:scoped` 是不含 check:post-cutover、check:tests-preserved 和 test:assets 的静态检查；`check:fast`（pre-commit）运行 check:deps、format:check、check:dup、check:ast。
 
    **重复代码基线。** 当前有 22 个指纹，测试通过 `DUP_BASELINE_CEILING = 22` 限制其数量。只有在格式变更或升级 jscpd 导致已有重复代码片段发生位移时，才运行 `bun run check:dup:baseline` 重新生成，并在 PR 中说明理由。删除某个重复片段后，也要重新生成基线并降低上限（ratchet）。测试文件同样会被扫描。
 
@@ -66,7 +66,7 @@
 - **`check:assets:ci`**（属于 `EXEMPT_FROM_LOCAL_GATE`）：它是带 `--strict` 的 `check:assets`。严格检查依赖 CI 有意提供、而新克隆仓库不具备的 tags，所以本地 gate 会因环境原因失败，而不是因为代码本身有问题。
 - **`check:assets`**（属于 `EXEMPT_FROM_CI`）：CI 运行更严格的超集 `check:assets:ci`。
 
-对于**纯文档**（.md）改动，运行 `bun run lint` 和 `bun run format:check` 即可，无需运行完整测试套件。
+对于**纯文档**（.md）改动，运行 `bun run format:check` 和 `bun run check:links` 即可，无需运行完整质量门。
 **“纯文档”指仓库文档，不包括 assets。** `packages/core/core-assets/` 或 `packages/plugins/*/` 下的 `.md` 是渲染 harness 的源文件，因此无论扩展名是什么，都要执行第 2、3 步（更新镜像和 golden snapshot）。
 
 ## 本地开发周期
@@ -93,19 +93,18 @@
   `.pi/navori/hooks` 中的渲染副本、带签名的 `navori:native-hook` 头部以及
   `crates/ported.json` 中的哈希，都用 `bun run rust:hooks-sync` 重新生成，绝不手工修改。
   这些文件经过合并或出现冲突后，按 `rebase-rerender` skill 处理。
-- **`packages/cli/src` 已冻结：** 它是以 `navori-legacy` 发布的 TypeScript CLI，用于永久委托和
-  无二进制的平台。切换（spec 0062 T10）会删除其源码，只保留 `packages/cli/src` 下的产物测试套件。
+- **`packages/cli/src` 已冻结：** 它是以 `navori-legacy` 发布的 TypeScript CLI，用于永久委托、过渡委托和
+  无二进制的平台。0.13 切换保留它（spec 0062 T10，方案 C）；删除其源码（产物测试套件除外）推迟到后续 PR。
 - **历史：** `crates/ported-history.jsonl` 只能追加（`rust-manifest-check.mjs`）：错误的行不会被修改，
   更正记录在后续的行或 spec 中。
 
 ## Rust 迁移分支（`navori-rust` 本地）
 
-这些说明描述 `migration/rust` 上的共存阶段（[spec 0057](specs/0057-migracion-rust/requirements.md)），
-直到切换（spec 0062 T10）进入 `dev`；在此之前，`dev` 与 npm 仍然只使用 TypeScript。
+这些说明来自 `migration/rust` 上的共存阶段（[spec 0057](specs/0057-migracion-rust/requirements.md)）。
+自切换（spec 0062 T10）起，`dev` 包含 Rust workspace，不再有单独的迁移分支；关于委托、原生命令和钩子的说明仍然描述该二进制程序。
 
-- **与 TS CLI 并存安装：** `cargo install --path crates/navori-cli --locked` 会安装 `navori-rust`，
-  且不会替换 `navori`（`command -v navori` 的路径保持不变）。`navori-rust --version` 报告内部
-  预发布版本 `0.13.0-rust.<n>`。
+- **从检出安装：** `cargo install --path crates/navori-cli --locked` 会安装 `navori-rust`，即钩子开头脚本查找的
+  二进制程序；`navori-rust --version` 报告 `Cargo.toml` 中 workspace 的版本。
 - **委托：** 未列入 `crates/ported.json` 的子命令交给 TS CLI（依次为 `NAVORI_TS_CLI`、本检出的
   `packages/cli/dist`、`PATH` 中的 `navori`）。请先运行 `bun run build`。
 - **原生命令：** `render` 在无 workspace、且 `engines` 为 `claude`、`codex`、`agents-md`、`cursor`、
@@ -130,9 +129,6 @@
   捕获 payload。若报告显示 `legacyPayloadRows` > 0，用
   `rm <checkout>/.navori/state/rust-shadow/*.jsonl` 删除仍带 payload 的旧 journal。
   这也会删除已累积的影子证据（readiness），并重新开始 D9 的观测窗口。
-- **与 `dev` 同步：** 只用 merge，不用 rebase。从 `origin/migration/rust` 建分支，运行
-  `git merge origin/dev`，并向 `migration/rust` 发起 PR。若缺少超过 7 天的 `dev` 第一父提交，CI
-  的 `freshness` job 会失败。
 - **重新生成 Pi 扩展资源：** `navori-rust` 依据 `crates/navori-core/assets/pi/extension.ts.in`
   写出 `.pi/extensions/navori.ts`，该资源派生自编译后的 TS CLI。当 TS 的 Pi 扩展变化时
   （`packages/cli/src/engines/pi/`，合并 `dev` 时也一样），运行
@@ -207,5 +203,5 @@ navori 注入的所有文案都留在每个会话的常驻上下文中，因此�
 ## 提交与 PR
 
 - 提交信息：使用 Conventional 格式，以墨西哥西班牙语编写，并保持原子性（`feat|fix|chore|docs(scope): mensaje`）。
-- 每个 ticket 都要从 `dev` 创建新分支，并向 `dev` 提交 PR（CI 会运行 format、lint 和 typecheck，不运行测试）。通过 PR 将 `dev` 合入 `main` 时要使用 merge commit，不要 squash；该 PR 必须通过完整质量门。
+- 每个 ticket 都要从 `dev` 创建新分支，并向 `dev` 提交 PR（CI 会运行必需的 `checks` job：Rust 质量门、低成本检查和资源测试套件）。通过 PR 将 `dev` 合入 `main` 时要使用 merge commit，不要 squash；该 PR 必须通过完整质量门。
 - 在 `/bonum` 仓库中，不要提交本地 harness（`CLAUDE.md`、`.claude/`）。

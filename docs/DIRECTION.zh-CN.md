@@ -47,16 +47,23 @@ navori **首先服务自己的团队**：每项功能都应回答“它能否帮
 - **“Navori 之声”/应用构建器/4R 审查**——已搁置（规范 0010，后由 0046 取代）。
 - **在每台机器的 `~/.claude` 中设置固定的基础规范**（全局层，规范 0010）。该方案未采用：实现成本约 5.5k–6k 行代码，后来随规范 0046 一并退役。因此，在未配置 navori 的仓库中，会话有意不带此工作框架。
 
-## 迁移到 Rust
+## 迁移到 Rust（0.13 切换之后）
 
-navori 正在逐个子命令地从 TypeScript 迁移到 Rust，工作在长期分支 `migration/rust` 上进行（[规范 0057](../specs/0057-migracion-rust/requirements.md)）。此前的非目标“用 Rust 编写控制平面”不再适用。迁移受以下规则约束：
+自 0.13.0 起，CLI 是从 `dev` 构建的 Rust 二进制程序（`crates/navori-cli`）
+（[spec 0057](../specs/0057-migracion-rust/requirements.md)、
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)）。此前的非目标"Rust 控制平面"不再适用。
+切换之后适用以下规则：
 
-- **切换前同步只有单向。**`dev` 通过 merge 进入 `migration/rust`，绝不使用 rebase。任何内容都不会回流到 `dev`，连 cherry-pick 也不行。
-- **npm 与 `dev` 保持仅 TypeScript。**npm 包只从 `dev` 的 TS 构建发布。tarball 和发布流程中不含任何 Rust 产物，`dev` 不含 Rust 代码，也没有共存说明。只有在明确批准后才会切换。
-- **所有 TS 行为变更都在 `dev` 上产生。**`migration/rust` 只增加 Rust 工作区和共存所需的最少接线。
-- **内部预发布版本 `0.13.0-rust.<n>` 只存在于 cargo 工作区。**它声明在工作区的 `Cargo.toml` 中，只由 `navori-rust --version` 报告，从不发布到 npm（R25）。`packages/cli` 保留 `dev` 带来的版本，预言机将 `--version` 与 `Cargo.toml` 比较，而不是要求与 TS 版本一致（R26）。
-
-原因：速度（原生启动和热点 hook 路径）、稳健性（失败即关闭的 hook 运行时和由编译器检查的核心）以及长期的开发体验，同时不危及 Bonum 仓库所使用的 TS CLI。共存让 `dev` 始终可发布，而差分预言机负责证明行为一致。
+- **`packages/cli/src` 中的 TS 已冻结。** 它是 `navori-legacy` 的来源：该包在永久委托和过渡委托
+  （`scripts/js/rust-areas.mjs`）以及无二进制的平台上运行这个 TypeScript CLI；它也支撑产物测试套件。
+  它只为修复 legacy 而修改，并经人工审查。删除它以及差异 oracle 推迟到后续 PR（spec 0062 T10，方案 C）。
+- **npm 只发布 `scripts/js/dist-assemble.mjs` 组装的内容：** `navori`、四个平台包 `navori-<os>-<cpu>`
+  以及固定于 `packaging/legacy.json` 的 `navori-legacy`。`packages/cli` 是私有的：它是版本号的来源
+  （`STAMP_VERSION`、发布 tag），而不是一个包。
+- **`crates/ported.json` 决定哪些部分原生运行，** `crates/ported-history.jsonl` 记录每一次移植和激活。
+  该历史只能追加（`scripts/js/rust-manifest-check.mjs`）。
+- **在固定 legacy 之后修改 `crates/ported.json` 会强制发布新版本**（0.13.1 或更高），因为 legacy
+  必须携带与其一同发布的版本的 manifest（spec 0062 D53、D54）。
 
 ## 设计原则与不变量（没有新理由时不重新讨论）
 

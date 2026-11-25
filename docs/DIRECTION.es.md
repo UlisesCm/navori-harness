@@ -85,37 +85,27 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
   ~5.5-6k LOC y se retiró con la Spec 0046; las sesiones fuera de un repo con navori quedan sin
   harness a propósito.
 
-## Migración a Rust
+## Migración a Rust (después del corte de 0.13)
 
-navori se migra de TypeScript a Rust, subcomando por subcomando, en la rama de larga vida
-`migration/rust` ([spec 0057](../specs/0057-migracion-rust/requirements.md)). La no-meta anterior
-"control plane en Rust" ya no aplica. La migración se acota con estas reglas:
+Desde 0.13.0 el CLI es el binario de Rust (`crates/navori-cli`), construido desde `dev`
+([spec 0057](../specs/0057-migracion-rust/requirements.md),
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). El antiguo no-objetivo "plano de
+control en Rust" ya no aplica. Después del corte rigen estas reglas:
 
-- **La sincronización es de un solo sentido hasta el corte.** `dev` entra a `migration/rust` por
-  merge, nunca por rebase. Nada regresa a `dev`, ni siquiera un cherry-pick.
-- **npm y `dev` siguen solo en TypeScript.** El paquete npm se publica únicamente desde el build TS
-  de `dev`. Ningún artefacto Rust entra al tarball ni al flujo de release, y `dev` no lleva código
-  Rust ni aviso de convivencia. El corte ocurre solo tras aprobación explícita.
-- **Todo cambio de comportamiento TS nace en `dev`.** `migration/rust` solo agrega el workspace Rust
-  y el cableado mínimo de convivencia.
-  Excepciones vigentes, concedidas por el mantenedor:
-  - `packages/cli/src/engines/pi/bridge-source.ts` y sus pruebas cambian en `migration/rust` (#1773
-    y sus seguimientos), porque la llamada directa a `navori-rust` solo existe ahí. `dev` conserva
-    el bridge por bash. Un cambio nacido en `dev` llega a `migration/rust` con el merge de
-    sincronización habitual, que resuelve el conflicto ahí; la versión de `migration/rust` llega a
-    `dev` solo en el corte.
-  - Spec 0065: `crates/navori-core/src/config.rs`, `crates/navori-core/assets/pi/extension.ts.in`,
-    `scripts/js/gen-pi-extension-asset.mjs`, los casos del oráculo, `scripts/js/rust-manifest-check.mjs`
-    y `.github/workflows/rust.yml` cambian en `migration/rust`, porque no existen en `dev`.
-- **La prerelease interna `0.13.0-rust.<n>` vive solo en el workspace cargo.** Se declara en el
-  `Cargo.toml` del workspace, solo la reporta `navori-rust --version` y nunca se publica en npm
-  (R25). `packages/cli` conserva la versión que trae `dev`, y el oráculo compara `--version` contra
-  `Cargo.toml` en lugar de exigir paridad con el TS (R26).
-
-Porqué: velocidad (arranque nativo y rutas calientes de hooks), robustez (runtime de hooks que falla
-cerrado y núcleo verificado por el compilador) y DX a largo plazo, sin arriesgar el CLI TS que usan
-los repos de Bonum. La convivencia mantiene `dev` publicable mientras un oráculo diferencial prueba
-la paridad.
+- **El TS de `packages/cli/src` está congelado.** Es la fuente de `navori-legacy`, el CLI de
+  TypeScript que el paquete corre para la delegación permanente y la transitoria
+  (`scripts/js/rust-areas.mjs`) y en las plataformas sin binario, y sostiene las suites de
+  artefacto. Solo cambia para arreglar el legacy, con revisión a mano. Su borrado, y el del oráculo
+  diferencial, quedan para un PR posterior (spec 0062 T10, opción C).
+- **npm publica solo lo que arma `scripts/js/dist-assemble.mjs`:** `navori`, los cuatro paquetes de
+  plataforma `navori-<os>-<cpu>` y `navori-legacy`, fijado en `packaging/legacy.json`.
+  `packages/cli` es privado: es la fuente de la versión (`STAMP_VERSION`, el tag del release), no
+  un paquete.
+- **`crates/ported.json` decide qué corre nativo,** y `crates/ported-history.jsonl` registra cada
+  puerto y cada activación. El historial es de solo agregar (`scripts/js/rust-manifest-check.mjs`).
+- **Un cambio en `crates/ported.json` después del pin del legacy obliga a un release nuevo**
+  (0.13.1 o posterior), porque el legacy tiene que llevar el manifiesto del release con el que se
+  publica (spec 0062 D53, D54).
 
 ## Principios de diseño / invariantes (NO se re-litigan sin razón nueva)
 

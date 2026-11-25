@@ -51,6 +51,10 @@ permanentes, así que exigir el 100 % nativo solo retrasaba el corte sin bajar e
   del corte, lo dirige al TS congelado de `legacy/` en vez de al `dist/` del repo.
 - El PR de corte borra `packages/cli/src` salvo lo que exige el TS congelado (que es el `dist/`
   publicado, no el fuente) y las suites de artefacto, y elimina el oráculo TS.
+- **Enmienda del 2026-11-24 (opción C; requirements.md, "Enmienda del corte").** El PR de corte no
+  borra `packages/cli/src` ni el oráculo diferencial: los dos borrados pasan a un PR posterior. En el
+  checkout el binario sigue pudiendo delegar al `dist/` del repo; en el paquete publicado responde
+  `legacy/`.
 
 ### D46 (de 0060) — Distribución según D17 de 0057 (R18, R21, R22, R84, R85)
 
@@ -142,6 +146,20 @@ estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover
   subcomando que nadie porta y exige el banner del TS congelado.
 - **Workflow.** `.github/workflows/rust-release.yml` compila los cuatro binarios (musl estático
   comprobado con `ldd`), arma los paquetes y corre la sonda en cada plataforma. No publica.
+
+### D54 — Integración del corte y orden del legacy (R20, R22, R24; T10 opción C)
+
+- **Merge commit, nunca squash ni rebase.** El pin del legacy (`packaging/legacy.json`) apunta a H, el
+  commit anterior al PR de corte. H tiene que quedar en la historia de `dev` y de `main` para que
+  `legacy --from-pin` pueda reconstruir el TS. `check-pin` lo verifica (`git merge-base --is-ancestor`)
+  en el job `legacy-pin` de `ci.yml`, que corre en todo PR a `main`.
+- **El legacy se publica como primer paso de g, no antes.** npm no permite republicar una versión: si
+  el legacy sale antes y después cambia el TS o `crates/ported.json`, todo el conjunto pasa a 0.13.1.
+- **`crates/ported.json` congelado entre el pin y g.** El legacy tiene que llevar el manifiesto del
+  release (`dist-assemble.mjs` rechaza otro); un cambio en ese tramo obliga a un pin nuevo y a una
+  versión nueva.
+- **`packages/cli` es privado.** Sigue siendo la fuente de la versión (`STAMP_VERSION`, el tag), pero
+  npm solo publica lo que arma `dist-assemble.mjs`; `check-pin` exige `private: true`.
 
 ## Failure modes
 

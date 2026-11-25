@@ -175,8 +175,8 @@ navori-harness/
 bun install
 bun run build                 # build de todos los paquetes
 
-bun check                     # quality gate completo (lo que valida CI en PRs a main)
-bun check:fast                # pasada rápida: format, jscpd, ast-grep, lint, typecheck
+bun check                     # quality gate completo (lo que corre el job checks de CI)
+bun check:fast                # pasada rápida: deps, format, jscpd, ast-grep
 bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 
 # probar el binario local sin publicar:

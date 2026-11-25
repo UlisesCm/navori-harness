@@ -86,36 +86,26 @@ Today both are opt-in plugins again, with routing
   ~5.5-6k LOC and retired with Spec 0046; sessions outside a repo with Navori are left without
   harness on purpose.
 
-## Rust migration
+## Rust migration (after the 0.13 cutover)
 
-navori is being migrated from TypeScript to Rust, subcommand by subcommand, on the long-lived branch
-`migration/rust` ([spec 0057](../specs/0057-migracion-rust/requirements.md)). The earlier non-goal
-"Rust control plane" no longer applies. The migration is bounded by these rules:
+Since 0.13.0 the CLI is the Rust binary (`crates/navori-cli`), built from `dev`
+([spec 0057](../specs/0057-migracion-rust/requirements.md),
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). The earlier non-goal "Rust control
+plane" no longer applies. These rules hold after the cutover:
 
-- **Synchronization is one-way until cutover.** `dev` flows into `migration/rust` by merge, never
-  by rebase. Nothing flows back to `dev`, not even a cherry-pick.
-- **npm and `dev` stay TypeScript-only.** The npm package is published only from the TS build of
-  `dev`. No Rust artifact enters the tarball or the release flow, and `dev` carries no Rust code and
-  no coexistence notice. Cutover happens only after explicit approval.
-- **Every TS behavior change is born on `dev`.** `migration/rust` adds only the Rust workspace and
-  the minimal wiring needed for coexistence.
-  Exceptions in force, granted by the maintainer:
-  - `packages/cli/src/engines/pi/bridge-source.ts` and its tests change on `migration/rust`
-    (#1773 and its follow-ups), because the direct call to `navori-rust` exists only there. `dev`
-    keeps the bash bridge. A change born on `dev` reaches `migration/rust` through the regular sync
-    merge, which resolves the conflict there; the `migration/rust` version reaches `dev` only at
-    cutover.
-  - Spec 0065: `crates/navori-core/src/config.rs`, `crates/navori-core/assets/pi/extension.ts.in`,
-    `scripts/js/gen-pi-extension-asset.mjs`, the oracle cases, `scripts/js/rust-manifest-check.mjs`
-    and `.github/workflows/rust.yml` change on `migration/rust`, because they do not exist on `dev`.
-- **The internal prerelease `0.13.0-rust.<n>` lives only in the cargo workspace.** It is declared in
-  the workspace `Cargo.toml`, reported only by `navori-rust --version`, and never published to npm
-  (R25). `packages/cli` keeps the version `dev` carries, and the oracle compares `--version`
-  against `Cargo.toml` instead of requiring parity with the TS (R26).
-
-Why: speed (native startup and hot hook paths), robustness (a fail-closed hook runtime and a
-compiler-checked core) and long-term developer experience, without risking the TS CLI that the Bonum
-repositories use. Coexistence keeps `dev` shippable while a differential oracle proves parity.
+- **The TS in `packages/cli/src` is frozen.** It is the source of `navori-legacy`, the TypeScript
+  CLI the package runs for the permanent and the transitional delegation
+  (`scripts/js/rust-areas.mjs`) and on platforms without a binary, and it supports the artifact
+  suites. It changes only to fix the legacy, reviewed by hand. Deleting it, and the differential
+  oracle, is deferred to a later PR (spec 0062 T10, option C).
+- **npm ships only what `scripts/js/dist-assemble.mjs` assembles:** `navori`, the four
+  `navori-<os>-<cpu>` platform packages and `navori-legacy`, pinned in `packaging/legacy.json`.
+  `packages/cli` is private: it is the source of the version (`STAMP_VERSION`, the release tag),
+  not a package.
+- **`crates/ported.json` decides what runs natively,** and `crates/ported-history.jsonl` records
+  every port and activation. The history is append-only (`scripts/js/rust-manifest-check.mjs`).
+- **A change to `crates/ported.json` after the legacy pin forces a new release** (0.13.1 or later),
+  because the legacy must carry the manifest of the release it ships with (spec 0062 D53, D54).
 
 ## Design principles and invariants (do not revisit without a new reason)
 

@@ -39,13 +39,17 @@ nadie tenga que aprobar nada a mano.
 
 Hay dos niveles:
 
-- **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (format,
-  jscpd, ast-grep, lint, typecheck), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
+- **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (sincronía de
+  dependencias, format, jscpd, ast-grep), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
   el hook de commit de los agentes (`quality-gate-pre-commit.sh`, PreToolUse sobre `git commit`)
-  corre la misma cadena que el pre-commit versionado. El job `fast` de CI, que corre en `dev` y en los
-  PRs hacia `dev`, corre además `check:dup` y `check:ast`, sin tests.
-- **Completo** — `bun check`, abajo. Es lo que valida el job `quality` de CI en los PRs hacia
-  `main` y en los pushes a `main`; si no pasa, el PR falla. Es el único nivel que corre tests y cobertura:
+  corre la misma cadena que el pre-commit versionado. CI corre los mismos checks dentro
+  del job requerido `checks`.
+- **Completo** — `bun check`, abajo. Desde el corte de 0.13 (spec 0062 T10) empieza con
+  `check:post-cutover` (cargo fmt, clippy y test del workspace, el oráculo de hooks y las suites de
+  artefacto) y termina con `test:assets` (las suites de assets, docs, hooks shell y tooling de
+  `scripts/js/asset-suites.mjs`); el job requerido `checks` de CI corre los mismos pasos. La suite
+  del TS congelado (`test:coverage`) ya no es parte del gate: lo que sigue sobre ella aplica solo si
+  la corres a mano:
 
 1. **`bun check` desde la raíz del monorepo.** Es un alias de `qualityGate.full` en
    `navori.config.json`, que es **el único lugar** donde vive el gate: de ahí salen los bloques
@@ -107,10 +111,11 @@ Hay dos niveles:
    `./node_modules/.bin/jscpd` y `./node_modules/.bin/ast-grep` explícitamente, así que sin
    `bun install` quedan en rojo aunque haya binarios globales. `report/` (salida del reporter JSON
    de jscpd) está en `.gitignore`.
-   Orden de `qualityGate.full` (`bun check`): format:check, lint, typecheck, check:dup, check:ast,
-   check:links, check:render, check:assets, check:doc-budgets, check:blame-ignore, check:size,
-   test:coverage. `check:scoped` es lo mismo sin test:coverage; `check:fast` (pre-commit) es
-   format:check, check:dup, check:ast, lint, typecheck.
+   Orden de `qualityGate.full` (`bun check`): check:post-cutover, check:deps, format:check,
+   check:dup, check:ast, check:links, check:render, check:assets, check:doc-budgets,
+   check:blame-ignore, check:tests-preserved, test:assets. `check:scoped` son los checks estáticos
+   sin check:post-cutover, check:tests-preserved ni test:assets; `check:fast` (pre-commit) es
+   check:deps, format:check, check:dup, check:ast.
 
    **Baseline de duplicación.** Tiene 22 fingerprints y un test lo topa con
    `DUP_BASELINE_CEILING = 22`. Regénéralo (`bun run check:dup:baseline`) solo cuando un cambio de
@@ -196,8 +201,8 @@ razón obligatoria por entrada y anti-staleness en ambos sentidos. Hoy están ex
   en el gate local fallaría por una causa ambiental, no por el fondo.
 - **`check:assets`** (de `EXEMPT_FROM_CI`): CI corre el superset estricto, `check:assets:ci`.
 
-Cambios **doc-only** (.md): basta `bun run lint` + `bun run format:check`; no necesitas la suite
-completa.
+Cambios **doc-only** (.md): basta `bun run format:check` + `bun run check:links`; no necesitas el
+gate completo.
 **"Doc-only" son los docs del repo, no los assets**: un `.md` bajo `packages/core/core-assets/`
 o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara los pasos 2 y 3
 (espejo y golden) aunque su extensión diga lo contrario.
@@ -231,20 +236,21 @@ o `packages/plugins/*/` es la fuente del harness renderizado, así que dispara l
   `crates/ported.json` se regeneran con `bun run rust:hooks-sync`, nunca a mano. Después de un merge
   o de un conflicto en esos archivos, sigue la skill `rebase-rerender`.
 - **`packages/cli/src` está congelado:** es el CLI de TypeScript que se publica como `navori-legacy`
-  para la delegación permanente y las plataformas sin binario. El corte (spec 0062 T10) borra sus
-  fuentes y deja solo las suites de artefacto en `packages/cli/src`.
+  para la delegación permanente y la transitoria y las plataformas sin binario. El corte de 0.13 lo
+  conserva (spec 0062 T10, opción C); el borrado de sus fuentes, salvo las suites de artefacto,
+  queda para un PR posterior.
 - **Historial:** `crates/ported-history.jsonl` es de solo agregar (`rust-manifest-check.mjs`): una
   línea equivocada no se edita; la corrección queda en una línea posterior o en la spec.
 
 ## Rama de migración a Rust (`navori-rust` local)
 
-Estas notas describen la convivencia en `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md))
-hasta que el corte (spec 0062 T10) llegue a `dev`; hasta entonces, `dev` y npm siguen siendo solo
-TypeScript.
+Estas notas vienen de la convivencia en `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md)).
+Desde el corte (spec 0062 T10) `dev` trae el workspace de Rust y no hay una rama de migración
+aparte; lo que dicen sobre delegación, comandos nativos y hooks sigue describiendo el binario.
 
-- **Instalar junto al CLI TS:** `cargo install --path crates/navori-cli --locked` instala
-  `navori-rust` y nunca reemplaza `navori` (`command -v navori` conserva su ruta).
-  `navori-rust --version` reporta la prerelease interna `0.13.0-rust.<n>`.
+- **Instalar desde el checkout:** `cargo install --path crates/navori-cli --locked` instala
+  `navori-rust`, el binario que busca el prólogo de los hooks; `navori-rust --version` reporta la
+  versión del workspace de `Cargo.toml`.
 - **Delegación:** un subcomando que no está en `crates/ported.json` va al CLI TS (`NAVORI_TS_CLI`,
   luego `packages/cli/dist` de este checkout, luego `navori` en `PATH`). Corre antes `bun run build`.
 - **Comandos nativos:** `render` corre nativo en una raíz sin workspaces cuyos `engines` son un
@@ -274,9 +280,6 @@ TypeScript.
   reporte muestra `legacyPayloadRows` > 0, borra los journals viejos que aún traen payload con
   `rm <checkout>/.navori/state/rust-shadow/*.jsonl`. Eso borra también la evidencia de sombra
   acumulada (readiness) y reinicia la ventana de observación de D9.
-- **Sincronizar con `dev`:** merge, nunca rebase. Crea la rama desde `origin/migration/rust`, corre
-  `git merge origin/dev` y abre el PR contra `migration/rust`. El job `freshness` de CI falla si
-  falta un commit de primer padre de `dev` con más de 7 días.
 - **Regenerar el asset de la extensión Pi:** `navori-rust` escribe `.pi/extensions/navori.ts` desde
   `crates/navori-core/assets/pi/extension.ts.in`, derivado del CLI TS compilado. Cuando cambia la
   extensión Pi del TS (`packages/cli/src/engines/pi/`, también al integrar `dev`), corre
@@ -391,6 +394,6 @@ Así, un parcial nuevo sin test de comportamiento hace fallar la suite; no pasa 
 ## Commits y PRs
 
 - Commits: Conventional, español neutro, atómicos (`feat|fix|chore|docs(scope): mensaje`).
-- Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (format, lint y typecheck en CI, sin
-  tests). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
+- Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (en CI corre el job requerido
+  `checks`: el gate de Rust, los checks baratos y las suites de assets). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.
