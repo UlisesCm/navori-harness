@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARTIFACT_SUITES } from "./post-cutover-check.mjs";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Rehearses the `legacy` job of rust-release.yml on the tree the cutover leaves (spec 0062 T10
@@ -171,7 +172,7 @@ function main(argv) {
 
 const USAGE = "usage: node scripts/js/dist-legacy-cutover.mjs [--out <dir>]\n  Rehearses the legacy job of rust-release.yml in a detached worktree of HEAD.\n  -h, --help  print this text and exit";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exitCode = main(process.argv.slice(2));

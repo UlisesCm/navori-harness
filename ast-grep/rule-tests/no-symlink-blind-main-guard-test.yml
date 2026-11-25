@@ -1,0 +1,14 @@
+id: no-symlink-blind-main-guard
+valid:
+  - if (isMain(import.meta.url)) main();
+  - const target = resolve(process.argv[2]);
+  - if (resolve(process.argv[1]).endsWith(".mjs")) main();
+invalid:
+  - if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+  - if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();
+---
+id: no-symlink-blind-main-guard-ts
+valid:
+  - if (isMain(import.meta.url)) main();
+invalid:
+  - if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

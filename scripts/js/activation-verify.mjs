@@ -46,8 +46,8 @@ import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { createSandbox, parseClaudeRegistrations, parsePiRegistrations, writePayload } from "./bench-hooks.mjs";
+import { isMain } from "./is-main.mjs";
 
 /** R17 p95 cap for a short command (decisiones-ulises/2026-11-19); informative here. */
 export const CAP_MS = 12;
@@ -420,6 +420,6 @@ export function main(argv) {
   return result.rows.every((row) => row.ok) ? 0 : 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }

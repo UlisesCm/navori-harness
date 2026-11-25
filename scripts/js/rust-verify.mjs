@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0060 T17 (D47) — `bun run rust:verify`: the evidence of a ported hook with the binary just
@@ -104,7 +105,7 @@ const USAGE = `usage: node scripts/js/rust-verify.mjs --hook <id>.sh[,<id>.sh...
   Builds navori-cli, then replays the corpus natively and, with --cases, fuzzes each hook.
   -h, --help  print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exitCode = main(process.argv.slice(2));

@@ -13,6 +13,7 @@ import {
   permanentShellHook,
   permanentlyDelegated,
 } from "./rust-areas.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0062 T8 (R20, with R17 and R18): is `migration/rust` ready for the cutover to `dev`?
@@ -350,6 +351,6 @@ async function main(argv) {
   return blocking.length === 0 || report ? 0 : 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));
 }

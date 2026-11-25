@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 /**
  * #1482 — fail fast when node_modules does not match bun.lock.
@@ -62,7 +63,7 @@ export function checkDepsSync(root) {
   return { ok: problems.length === 0, problems };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   // Optional argv[2] points at another root (used by tests); defaults to the repo root.
   const root = process.argv[2]
     ? resolve(process.argv[2])

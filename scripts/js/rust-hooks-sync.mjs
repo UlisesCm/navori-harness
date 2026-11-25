@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { staleHashes } from "./rust-manifest-check.mjs";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0060 T17 (D47) — `bun run rust:hooks-sync`: one command for the manual steps every change
@@ -127,7 +128,7 @@ const USAGE = `usage: node scripts/js/rust-hooks-sync.mjs [--no-install | --chec
   --check       exit 1 if a hash or the rendered tree is stale (writes nothing)
   -h, --help    print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exitCode = main(process.argv.slice(2));

@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DIST = process.env.NAVORI_TS_CLI || join(REPO_ROOT, "packages", "cli", "dist", "index.js");
@@ -123,7 +124,7 @@ const USAGE = `usage: node scripts/js/gen-pi-extension-asset.mjs [--check]
   --check    exit 1 when the asset is stale
   -h, --help print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const argv = process.argv.slice(2);
   exitOnHelp(argv, USAGE);
   // Only --check is accepted: any other argument used to fall through to the write path (#1789).

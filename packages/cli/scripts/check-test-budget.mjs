@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { summarizeReport } from "./bench-tests.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0054 R2 — the per-file test time budget (`packages/cli/test-budget.json`).
@@ -319,6 +320,6 @@ async function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));
 }

@@ -28,6 +28,7 @@ import {
   roleAliases,
   skillAliases,
 } from "../src/lib/assets/activation-aliases.ts";
+import { isMain } from "./is-main.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI_ROOT = resolve(HERE, ".."); // packages/cli
@@ -242,8 +243,8 @@ function main() {
 }
 
 // Only write files when run directly (`bun run gen:schemas`), not when imported by
-// the drift test. Compare filesystem paths (not the URL) so a repo path with
-// spaces — which `import.meta.url` percent-encodes — still matches argv[1].
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+// the drift test. `isMain` compares real filesystem paths (not the URL), so a repo
+// path with spaces or reached through a symlink still matches argv[1].
+if (isMain(import.meta.url)) {
   main();
 }

@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, normalize as normalizePath, resolv
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { prepareRustReplay, runRustHook } from "./rust-hook-adapter.mjs";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0055 R13 / D2 — hook verdict corpus: generation, replay and coverage.
@@ -754,7 +755,7 @@ const USAGE = `usage: node scripts/js/hook-verdict-replay.mjs [--shell bash|zsh]
   Replays the hook verdict corpus; --generate writes a new corpus into <dir>.
   -h, --help  print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exit(await main(process.argv.slice(2)));
