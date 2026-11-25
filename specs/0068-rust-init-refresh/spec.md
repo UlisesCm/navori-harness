@@ -10,7 +10,7 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` s
 
 1. `navori init` en el repo de Node, elegir "reemplazar", confirmar, completar el asistente y aceptar renderizar. **Esperado:** las preguntas del TS; el respaldo en `~/.navori/migrations`, los originales retirados, la config, el registro global y el árbol renderizado iguales a los del TS.
 2. `navori init --yes` en el repo de Python y, en una copia del de Node, `navori init --yes`. **Esperado:** sin preguntas; el de Python en modo nuevo, con render; el de Node en modo "coexistir", con config y sin render; los dos iguales al TS.
-3. En dos copias del monorepo sin el harness ajeno y con `.git`, `navori init --recommended --lang en` y `navori init --full`. **Esperado:** config en inglés, render y `.prettierignore` en las dos; en la de `--full`, además los workspaces del monorepo y el hook de pre-commit; todo igual al TS.
+3. En dos copias del monorepo sin el harness ajeno y con `.git`, `navori init --recommended --lang en` y `navori init --full`. **Esperado:** render y `.prettierignore` en las dos; la de `--recommended --lang en`, con la config en inglés; la de `--full`, en español (sin `--lang` no pregunta el idioma), con los workspaces del monorepo y el hook de pre-commit; todo igual al TS.
 4. `navori init` en el repo ya inicializado. **Esperado:** el error del TS y exit 1; nada cambia.
 5. `navori init --workspace demo` con un workspace inexistente, y `navori init --yes` en el repo sin nombre. **Esperado:** los errores del TS y exit 1, sin escribir.
 6. Cambiar el stack del repo de Node y correr `navori refresh --dry-run`. **Esperado:** el diff de config del TS, sin escribir nada.

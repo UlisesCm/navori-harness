@@ -6,12 +6,12 @@ Quien ya usa navori agrega un plugin con `navori add <plugin>` o pide una sugere
 
 ## Guion de aceptación
 
-Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo de prueba ya inicializado. Los plugins solo se cargan si vienen empaquetados, así que los pasos de `add` usan uno real (`tgrep`, que se instala con `brew install tgrep` en las dos plataformas) con un `PATH` mínimo: un directorio de prueba y los del sistema, sin un `tgrep` real. En ese directorio, un `brew` de prueba registra la llamada y, a pedido, deja un `tgrep` ejecutable ahí y termina con 0, o termina con 1. Los pasos de `update` usan un `PATH` con `node` y `npm` reales, porque `update` instala con npm, y sin el CLI de TypeScript.
+Entorno: macOS y Linux, binario `navori-rust` construido desde la rama y un repo de prueba ya inicializado. Los plugins solo se cargan si vienen empaquetados, así que los pasos de `add` usan uno real (`tgrep`, que se instala con `brew install tgrep` en las dos plataformas) con un `PATH` mínimo: un directorio de prueba y los del sistema, sin un `tgrep` real. En ese directorio, un `brew` de prueba registra la llamada y, a pedido, deja un `tgrep` ejecutable ahí y termina con 0, o termina con 1. Cada paso de `add` empieza en una copia nueva del repo y con ese directorio sin `tgrep`. Los pasos de `update` usan un `PATH` con `node` y `npm` reales, porque `update` instala con npm, y sin el CLI de TypeScript.
 
 1. `navori add tgrep` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, la misma llamada `brew install tgrep` que el TS, el render aplicado y exit 0 con el mensaje de listo.
-2. `navori add tgrep --skip-install` en otra copia, y después de nuevo sobre el plugin ya habilitado. **Esperado:** registra y renderiza sin llamar al instalador; la segunda vez, el aviso del TS.
+2. `navori add tgrep --skip-install` y, en esa misma copia, `navori add tgrep` otra vez. **Esperado:** registra y renderiza sin llamar al instalador; la segunda vez, el aviso del TS.
 3. `navori add tgrep` y rechazar la instalación. **Esperado:** el plugin queda registrado, sin instalar, y sale con 0, como el TS.
-4. `navori add tgrep --yes` con el `brew` de prueba terminando con 1, y en otra copia terminando con 0 sin dejar `tgrep`. **Esperado:** en los dos, el plugin queda registrado y sale con 1, con el mensaje del TS, que no deshace el registro.
+4. `navori add tgrep --yes` con el `brew` de prueba terminando con 1 y, desde otra copia nueva, terminando con 0 sin dejar `tgrep`. **Esperado:** en los dos, el plugin queda registrado y sale con 1, con el mensaje del TS, que no deshace el registro.
 5. `navori add --suggest`, `navori add no-existe` y un plugin retirado. **Esperado:** la sugerencia del TS sin escribir, y los errores del TS sin escribir.
 6. `navori update` con el CLI al día. **Esperado:** el aviso de "ya actualizado" del TS y el `refresh` que corre el TS.
 7. `navori update` sin red. **Esperado:** el aviso de sin conexión del TS, y `refresh` corre igual.
