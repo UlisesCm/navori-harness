@@ -12,6 +12,7 @@ import {
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0054 R1 — `bun run bench:tests`.
@@ -188,6 +189,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   process.exit(await main());
 }

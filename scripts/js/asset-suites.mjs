@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0062 T10: `bun run test:assets`, the TS tests that stay after the cutover because they read
@@ -155,7 +156,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const USAGE =
   "usage: node scripts/js/asset-suites.mjs\n  Runs the asset and docs test suites of packages/cli with vitest (no coverage).\n  -h, --help  print this text and exit";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   const cwd = join(REPO_ROOT, "packages", "cli");
   const run = (suites) => spawnSync("bun", ["run", "vitest", "run", ...suites], { cwd, stdio: "inherit" }).status ?? 1;

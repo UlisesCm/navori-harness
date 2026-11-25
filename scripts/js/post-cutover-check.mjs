@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { postCutoverBudget } from "./cutover-check.mjs";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0062 T8 (R18; D17 of 0057): `bun run check:post-cutover`, the full gate with the
@@ -190,7 +191,7 @@ async function main(argv) {
 
 const USAGE = "usage: node scripts/js/post-cutover-check.mjs [--keep-going]\n  Runs the post-cutover gate (cargo, hook oracle, artifact suites, docs checks), timed.\n  --keep-going  keep running after a red step\n  -h, --help    print this text and exit";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   process.exitCode = await main(process.argv.slice(2));
 }

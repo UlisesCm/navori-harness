@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { acquireDistLock, releaseOnProcessExit } from "../vitest.distLock.ts";
 import { ensureDist, type EnsureDistOptions, type EnsureDistResult } from "./ensure-dist.ts";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0054 R6 — `check:render` under the dist lock.
@@ -38,7 +39,7 @@ export async function checkRenderLocked(options: CheckRenderOptions): Promise<nu
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   checkRenderLocked({ packageRoot }).then(
     (status) => process.exit(status),

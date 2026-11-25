@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0062 T6 (R21, R22; D17 of 0057, D51, D53): assembles the npm packages of the cutover without
@@ -575,7 +576,7 @@ const USAGE = `usage: node scripts/js/dist-assemble.mjs --out <dir> --binary lin
        node scripts/js/dist-assemble.mjs check-pin
   -h, --help  print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exitCode = await main(process.argv.slice(2));

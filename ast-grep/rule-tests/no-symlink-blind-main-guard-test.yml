@@ -1,0 +1,21 @@
+id: no-symlink-blind-main-guard
+valid:
+  - if (isMain(import.meta.url)) main();
+  - const target = resolve(process.argv[2]);
+  - if (process.argv[1] === "--help") usage();
+  - if (process.argv[1] && fileURLToPath(import.meta.url).endsWith(".mjs")) main();
+invalid:
+  - if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+  - if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();
+  - if (resolve(process.argv[1]) !== fileURLToPath(import.meta.url)) process.exit(0);
+  - if (path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+  - if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+  - if (pathToFileURL(process.argv[1]).href === import.meta.url) main();
+---
+id: no-symlink-blind-main-guard-ts
+valid:
+  - if (isMain(import.meta.url)) main();
+  - if (process.argv[1] === "--help") usage();
+invalid:
+  - if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+  - if (pathToFileURL(process.argv[1]).href === import.meta.url) main();
