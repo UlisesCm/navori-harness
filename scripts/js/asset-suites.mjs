@@ -6,7 +6,9 @@ import { exitOnHelp } from "./script-help.mjs";
 /**
  * Spec 0062 T10: `bun run test:assets`, the TS tests that stay after the cutover because they read
  * what ships as content (the `packages/core/core-assets` hooks, skills, agents and managed blocks,
- * the plugin assets, the docs and the website copy), not the frozen TS commands. The list is
+ * the plugin assets, the docs and the website copy), the shell bodies of the shipped hooks, and
+ * the repo tooling that stays live (scripts/js and the workflows), not the frozen TS commands,
+ * engines and libraries. The list is
  * explicit on purpose: a glob would bring the whole TS suite back. Each entry imports from the
  * source tree only the asset readers (`bundled-assets`, `hook-includes`, `harness-assets`, the
  * roster and the skill parsers). Paths are relative to `packages/cli`. The artifact suites run in
@@ -64,6 +66,68 @@ export const ASSET_SUITES = [
   "src/lib/__tests__/worktree-reclaim.test.ts",
   "src/lib/assets/__tests__/library-skills.test.ts",
   "src/lib/assets/__tests__/skill-caps.test.ts",
+  // The shell bodies of the shipped hooks: they still decide in Codex, for the permanent shell
+  // hooks, on platforms without a binary and when the native runtime falls through (R83).
+  "src/__tests__/hook-audit-instrumentation.test.ts",
+  "src/__tests__/hook-context-noise.test.ts",
+  "src/__tests__/hook-matcher-wiring.test.ts",
+  "src/__tests__/hook-output-contract.test.ts",
+  "src/__tests__/quality-gate-native.test.ts",
+  "src/__tests__/session-start-hook.test.ts",
+  "src/lib/__tests__/audit-log-owner.test.ts",
+  "src/lib/__tests__/codex-hook-payloads.test.ts",
+  "src/lib/__tests__/comment-draft-confirm.test.ts",
+  "src/lib/__tests__/gate-exit-contract.test.ts",
+  "src/lib/__tests__/gate-hook-kill.test.ts",
+  "src/lib/__tests__/general-purpose-confirm.test.ts",
+  "src/lib/__tests__/guard-destructive-progress.test.ts",
+  "src/lib/__tests__/guard-destructive.test.ts",
+  "src/lib/__tests__/guard-search-routing.test.ts",
+  "src/lib/__tests__/hook-claims-vs-scripts.test.ts",
+  "src/lib/__tests__/managed-drift-watch.test.ts",
+  "src/lib/__tests__/pr-publisher-confirm.test.ts",
+  "src/lib/__tests__/quality-gate-foreign.test.ts",
+  "src/lib/__tests__/quality-gate-hook.test.ts",
+  "src/lib/__tests__/quality-gate-worktree-resolve.test.ts",
+  "src/lib/__tests__/role-guard.test.ts",
+  "src/lib/__tests__/routing-watch.test.ts",
+  "src/lib/__tests__/session-start-hook.test.ts",
+  "src/lib/__tests__/subagent-stop-handoff.test.ts",
+  // Shipped content read as such: docs, the website copy, agent and asset contracts.
+  "src/__tests__/doctrine-contracts.test.ts",
+  "src/__tests__/primary-document-locales.test.ts",
+  "src/__tests__/website-i18n.test.ts",
+  "src/engines/shared/__tests__/retired-plugin-assets.test.ts",
+  "src/lib/__tests__/agent-descriptions.test.ts",
+  "src/lib/__tests__/agents-assets.test.ts",
+  "src/lib/__tests__/branch-base-assets.test.ts",
+  "src/lib/assets/__tests__/retired-names.test.ts",
+  // The repo tooling that stays live after the cutover: scripts/js, the workflows and the gates
+  // (release, check-pin, cutover:check, manifest, hooks sync, replay and fuzz).
+  "src/__tests__/activation-verify.test.ts",
+  "src/__tests__/bench-scripts.test.ts",
+  "src/__tests__/blame-ignore-check.test.ts",
+  "src/__tests__/ci-workflow.test.ts",
+  "src/__tests__/cutover-check.test.ts",
+  "src/__tests__/deps-sync-check.test.ts",
+  "src/__tests__/dist-e2e.test.ts",
+  "src/__tests__/dist-launcher.test.ts",
+  "src/__tests__/dist-probe.test.ts",
+  "src/__tests__/hook-fuzz.test.ts",
+  "src/__tests__/hook-shadow-report.test.ts",
+  "src/__tests__/hooks-zsh-parity.test.ts",
+  "src/__tests__/render-drift-check.test.ts",
+  "src/__tests__/repo-config-gate.test.ts",
+  "src/__tests__/repo-gate-config.test.ts",
+  "src/__tests__/rust-areas.test.ts",
+  "src/__tests__/rust-hooks-sync.test.ts",
+  "src/__tests__/rust-manifest-check.test.ts",
+  "src/__tests__/rust-oracle.test.ts",
+  "src/__tests__/rust-sync-age.test.ts",
+  "src/__tests__/rust-tarball.test.ts",
+  "src/__tests__/scripts-help.test.ts",
+  "src/__tests__/toolchain-pins.test.ts",
+  "src/lib/diagnose/__tests__/source-classify.test.ts",
 ];
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
