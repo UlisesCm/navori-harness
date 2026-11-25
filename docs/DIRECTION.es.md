@@ -87,7 +87,8 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
 
 ## Migración a Rust (después del corte de 0.13)
 
-Desde 0.13.0 el CLI es el binario de Rust (`crates/navori-cli`), construido desde `dev`
+Desde el corte de 0.13, `dev` construye el CLI como el binario de Rust (`crates/navori-cli`), y
+0.13.0 es el primer release que lo publica
 ([spec 0057](../specs/0057-migracion-rust/requirements.md),
 [spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). El antiguo no-objetivo "plano de
 control en Rust" ya no aplica. Después del corte rigen estas reglas:

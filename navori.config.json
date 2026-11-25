@@ -17,7 +17,6 @@
   "qualityGate": {
     "fast": "bun run check:fast",
     "scoped": "bun run check:scoped",
-    "affected": "bun run test:affected",
     "docs": "bun run check:links && bun run check:doc-budgets && cd packages/cli && bun run test src/lib/__tests__/direction-doc.test.ts src/__tests__/direction-claude-first.test.ts src/__tests__/command-docs-inventory.test.ts",
     "nativeHooks": true,
     "full": "bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run test:assets",
@@ -33,7 +32,9 @@
         "packages/cli/vitest.*.ts",
         "packages/cli/package.json",
         "packages/cli/src/__tests__/repo-config-gate.test.ts",
-        "package.json"
+        "package.json",
+        "scripts/js/asset-suites.mjs",
+        "scripts/js/post-cutover-check.mjs"
       ],
       "hookPaths": [
         "packages/core/core-assets/hooks/**",

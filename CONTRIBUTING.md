@@ -18,8 +18,8 @@ Run `bun install` from the repository root. The root `package.json` declares `"t
 
 There are two levels:
 
-- **Fast** — the versioned pre-commit hook (`bun hooks:install`) runs `bun check:fast` (dependency sync, format, jscpd, ast-grep), without tests. `qualityGate.fast` is `bun run check:fast`, so the agents' commit hook (`quality-gate-pre-commit.sh`, a PreToolUse hook on `git commit`) runs the same chain as the versioned pre-commit hook. CI runs the same checks inside the required `checks` job.
-- **Full** — `bun check`, described below. Since the 0.13 cutover (spec 0062 T10) it starts with `check:post-cutover` (cargo fmt, clippy and test of the workspace, the hook oracle and the artifact suites) and ends with `test:assets` (the asset, docs, shell-hook and tooling suites of `scripts/js/asset-suites.mjs`); the required CI job `checks` runs the same steps. The frozen TS suite (`test:coverage`) is no longer part of the gate: the bullets about it below apply only when you run it by hand.
+- **Fast** — the versioned pre-commit hook (`bun hooks:install`) runs `bun check:fast` (dependency sync, format, jscpd, ast-grep), without tests. `qualityGate.fast` is `bun run check:fast`, so the agents' commit hook (`quality-gate-pre-commit.sh`, a PreToolUse hook on `git commit`) runs the same chain as the versioned pre-commit hook. CI runs format, jscpd and ast-grep inside the required `checks` job.
+- **Full** — `bun check`, described below. Since the 0.13 cutover (spec 0062 T10) it starts with `check:post-cutover` (cargo fmt, clippy and test of the workspace, the hook oracle and the artifact suites) and ends with `test:assets` (the asset, docs, shell-hook and tooling suites of `scripts/js/asset-suites.mjs`); in CI the required `checks` job runs `check:post-cutover` and the cheap checks, and the separate `asset-suites` job runs the asset suites. The frozen TS suite (`test:coverage`) is no longer part of the gate: the bullets about it below apply only when you run it by hand.
 
 1. **Run `bun check` from the monorepo root.** It is an alias for `qualityGate.full` in `navori.config.json`, the **only place** where the gate is defined. The managed blocks in `CLAUDE.md` and the command used by the `publisher` are generated from that configuration. Do not copy the gate into this or any other file: duplicate definitions drift out of sync. That has already happened (`repo-config-gate.test.ts` exists for this reason; see the end of this section).
 
@@ -220,5 +220,5 @@ So a new partial without a behavior test fails the suite; it does not pass silen
 ## Commits and PRs
 
 - Commits: Conventional, neutral Spanish, atomic (`feat|fix|chore|docs(scope): mensaje`).
-- Start each ticket on a new branch based on `dev`, and open a PR to `dev` (CI runs the required `checks` job: the Rust gate, the cheap checks and the asset suites). Merge `dev` into `main` through a PR using a merge commit, not squash; that PR must pass the full gate.
+- Start each ticket on a new branch based on `dev`, and open a PR to `dev` (CI runs the required `checks` job, with the Rust gate and the cheap checks, plus the `asset-suites` and `node-floor` jobs). Merge `dev` into `main` through a PR using a merge commit, not squash; that PR must pass the full gate.
 - Do not commit the local harness (`CLAUDE.md`, `.claude/`) in a `/bonum` repo.

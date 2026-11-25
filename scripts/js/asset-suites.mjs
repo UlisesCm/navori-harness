@@ -93,6 +93,16 @@ export const ASSET_SUITES = [
   "src/lib/__tests__/routing-watch.test.ts",
   "src/lib/__tests__/session-start-hook.test.ts",
   "src/lib/__tests__/subagent-stop-handoff.test.ts",
+  // Hooks whose shell body is their only runtime (not in crates/ported.json), the shell cases of
+  // plan-gate and model-advisor, the evidence capture of routing-watch/bash-outcome-watch and the
+  // shipped `_partials`.
+  "src/engines/claude/__tests__/master-accept-confirm.test.ts",
+  "src/engines/claude/__tests__/master-plan-context.test.ts",
+  "src/engines/claude/__tests__/model-advisor.test.ts",
+  "src/lib/__tests__/engram-write-guard.test.ts",
+  "src/lib/__tests__/expected-capture.test.ts",
+  "src/lib/plan/__tests__/plan-gate.test.ts",
+  "src/lib/render/__tests__/hook-includes.test.ts",
   // Shipped content read as such: docs, the website copy, agent and asset contracts.
   "src/__tests__/doctrine-contracts.test.ts",
   "src/__tests__/primary-document-locales.test.ts",
@@ -101,7 +111,8 @@ export const ASSET_SUITES = [
   "src/lib/__tests__/agent-descriptions.test.ts",
   "src/lib/__tests__/agents-assets.test.ts",
   "src/lib/__tests__/branch-base-assets.test.ts",
-  "src/lib/assets/__tests__/retired-names.test.ts",
+  "src/lib/__tests__/handoff-wiring.test.ts",
+  "src/lib/__tests__/publisher-contract.test.ts",
   // The repo tooling that stays live after the cutover: scripts/js, the workflows and the gates
   // (release, check-pin, cutover:check, manifest, hooks sync, replay and fuzz).
   "src/__tests__/activation-verify.test.ts",
@@ -113,9 +124,11 @@ export const ASSET_SUITES = [
   "src/__tests__/dist-e2e.test.ts",
   "src/__tests__/dist-launcher.test.ts",
   "src/__tests__/dist-probe.test.ts",
+  "src/__tests__/ensure-dist.test.ts",
   "src/__tests__/hook-fuzz.test.ts",
   "src/__tests__/hook-shadow-report.test.ts",
   "src/__tests__/hooks-zsh-parity.test.ts",
+  "src/__tests__/pre-commit-probe.test.ts",
   "src/__tests__/render-drift-check.test.ts",
   "src/__tests__/repo-config-gate.test.ts",
   "src/__tests__/repo-gate-config.test.ts",
@@ -130,6 +143,13 @@ export const ASSET_SUITES = [
   "src/lib/diagnose/__tests__/source-classify.test.ts",
 ];
 
+/**
+ * Suites that seed files inside the real `packages/core/core-assets` roots (on purpose: they test
+ * the production sweep). They run after ASSET_SUITES, alone, so no suite scanning those roots in
+ * parallel reads a half-seeded fixture.
+ */
+export const SERIAL_ASSET_SUITES = ["src/lib/assets/__tests__/retired-names.test.ts"];
+
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const USAGE =
@@ -137,9 +157,9 @@ const USAGE =
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
-  const run = spawnSync("bun", ["run", "vitest", "run", ...ASSET_SUITES], {
-    cwd: join(REPO_ROOT, "packages", "cli"),
-    stdio: "inherit",
-  });
-  process.exitCode = run.status ?? 1;
+  const cwd = join(REPO_ROOT, "packages", "cli");
+  const run = (suites) => spawnSync("bun", ["run", "vitest", "run", ...suites], { cwd, stdio: "inherit" }).status ?? 1;
+  const parallel = run(ASSET_SUITES);
+  const serial = run(SERIAL_ASSET_SUITES);
+  process.exitCode = parallel !== 0 ? parallel : serial;
 }

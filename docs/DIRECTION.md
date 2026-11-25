@@ -88,7 +88,8 @@ Today both are opt-in plugins again, with routing
 
 ## Rust migration (after the 0.13 cutover)
 
-Since 0.13.0 the CLI is the Rust binary (`crates/navori-cli`), built from `dev`
+From the 0.13 cutover on, `dev` builds the CLI as the Rust binary (`crates/navori-cli`), and 0.13.0
+is the first release that ships it
 ([spec 0057](../specs/0057-migracion-rust/requirements.md),
 [spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). The earlier non-goal "Rust control
 plane" no longer applies. These rules hold after the cutover:

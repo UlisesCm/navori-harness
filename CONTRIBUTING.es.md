@@ -42,12 +42,13 @@ Hay dos niveles:
 - **Rápido** — el pre-commit versionado (`bun hooks:install`) corre `bun check:fast` (sincronía de
   dependencias, format, jscpd, ast-grep), sin tests. `qualityGate.fast` es `bun run check:fast`, así que
   el hook de commit de los agentes (`quality-gate-pre-commit.sh`, PreToolUse sobre `git commit`)
-  corre la misma cadena que el pre-commit versionado. CI corre los mismos checks dentro
-  del job requerido `checks`.
+  corre la misma cadena que el pre-commit versionado. CI corre format, jscpd y ast-grep
+  dentro del job requerido `checks`.
 - **Completo** — `bun check`, abajo. Desde el corte de 0.13 (spec 0062 T10) empieza con
   `check:post-cutover` (cargo fmt, clippy y test del workspace, el oráculo de hooks y las suites de
   artefacto) y termina con `test:assets` (las suites de assets, docs, hooks shell y tooling de
-  `scripts/js/asset-suites.mjs`); el job requerido `checks` de CI corre los mismos pasos. La suite
+  `scripts/js/asset-suites.mjs`); en CI el job requerido `checks` corre
+  `check:post-cutover` y los checks baratos, y el job aparte `asset-suites` corre las suites de assets. La suite
   del TS congelado (`test:coverage`) ya no es parte del gate: lo que sigue sobre ella aplica solo si
   la corres a mano:
 
@@ -395,5 +396,5 @@ Así, un parcial nuevo sin test de comportamiento hace fallar la suite; no pasa 
 
 - Commits: Conventional, español neutro, atómicos (`feat|fix|chore|docs(scope): mensaje`).
 - Cada ticket en branch nueva, creada desde `dev`, con PR hacia `dev` (en CI corre el job requerido
-  `checks`: el gate de Rust, los checks baratos y las suites de assets). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
+  `checks`, con el gate de Rust y los checks baratos, más los jobs `asset-suites` y `node-floor`). `dev` entra a `main` por PR con merge commit, no squash, y ese PR debe pasar el gate completo.
 - No commitees el harness local (`CLAUDE.md`, `.claude/`) de un repo `/bonum`.

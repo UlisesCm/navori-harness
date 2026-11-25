@@ -58,8 +58,10 @@ jobs:
       # cargo fmt, clippy and test of the workspace, the hook oracle, the artifact suites and the
       # docs checks (`check:post-cutover`). rustup reads the pinned toolchain, components and
       # targets from rust-toolchain.toml.
+      # Restore and save apart, the save always (as rust.yml does): a red run still warms the cache,
+      # so one cold run cannot keep `checks` red.
       - id: cargo-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -70,6 +72,14 @@ jobs:
             ${{ runner.os }}-cargo-checks-
 
       - run: rustup show active-toolchain
+
+      # Compile what check:post-cutover runs, with its exact flags, before it starts timing: R18
+      # budgets the gate (600 s on CI), not a cold build (18 min uncached).
+      - name: Build the Rust gate outside the R18 window
+        run: |
+          cargo clippy --workspace --exclude navori-oracle-tests --all-targets --locked -- -D warnings
+          cargo test --workspace --exclude navori-oracle-tests --locked --no-run
+          cargo build -p navori-cli --locked
 
       # The ONE build: the e2e suite runs against dist/index.js + bundled assets.
       # `ensure-dist` seals `dist/` with the fingerprint of its inputs, so
@@ -103,6 +113,15 @@ jobs:
 
       - name: Rust gate and post-cutover checks
         run: bun run check:post-cutover
+
+      - if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
 
       # #490 — an asset that orders `navori <cmd>` resolves the PUBLISHED binary,
       # so a PR landing a subcommand plus an asset calling it ships an asset that

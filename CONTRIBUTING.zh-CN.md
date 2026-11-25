@@ -18,8 +18,8 @@
 
 质量门分为两个级别：
 
-- **快速检查** — 已纳入版本控制的 pre-commit hook（`bun hooks:install`）运行 `bun check:fast`（依赖同步、format、jscpd、ast-grep），不运行测试。`qualityGate.fast` 是 `bun run check:fast`，因此智能体的提交 hook（`quality-gate-pre-commit.sh`，在 `git commit` 上触发的 PreToolUse）与版本化 pre-commit 执行相同的检查链。CI 在必需的 `checks` job 中运行相同的检查。
-- **完整检查** — 下文介绍的 `bun check`。自 0.13 切换（spec 0062 T10）起，它以 `check:post-cutover`（workspace 的 cargo fmt、clippy 和 test，钩子 oracle 以及产物测试套件）开始，以 `test:assets`（`scripts/js/asset-suites.mjs` 中的资源、文档、shell 钩子和工具测试套件）结束；CI 必需的 `checks` job 运行相同的步骤。冻结 TS 的测试套件（`test:coverage`）不再属于质量门：下文关于它的说明仅在你手动运行时适用。
+- **快速检查** — 已纳入版本控制的 pre-commit hook（`bun hooks:install`）运行 `bun check:fast`（依赖同步、format、jscpd、ast-grep），不运行测试。`qualityGate.fast` 是 `bun run check:fast`，因此智能体的提交 hook（`quality-gate-pre-commit.sh`，在 `git commit` 上触发的 PreToolUse）与版本化 pre-commit 执行相同的检查链。CI 在必需的 `checks` job 中运行 format、jscpd 和 ast-grep。
+- **完整检查** — 下文介绍的 `bun check`。自 0.13 切换（spec 0062 T10）起，它以 `check:post-cutover`（workspace 的 cargo fmt、clippy 和 test，钩子 oracle 以及产物测试套件）开始，以 `test:assets`（`scripts/js/asset-suites.mjs` 中的资源、文档、shell 钩子和工具测试套件）结束；在 CI 中，必需的 `checks` job 运行 `check:post-cutover` 和低成本检查，单独的 `asset-suites` job 运行资源测试套件。冻结 TS 的测试套件（`test:coverage`）不再属于质量门：下文关于它的说明仅在你手动运行时适用。
 
 1. **在 monorepo 根目录运行 `bun check`。** 它是 `navori.config.json` 中 `qualityGate.full` 的别名；该配置是质量门的**唯一事实来源**。`CLAUDE.md` 中的 managed 区块以及 `publisher` 使用的命令都由该配置生成。不要把质量门复制到本文或其他文件中，否则副本会逐渐过时。这种情况以前发生过（因此有 `repo-config-gate.test.ts`；详见本节末尾）。
 
@@ -203,5 +203,5 @@ navori 注入的所有文案都留在每个会话的常驻上下文中，因此�
 ## 提交与 PR
 
 - 提交信息：使用 Conventional 格式，以墨西哥西班牙语编写，并保持原子性（`feat|fix|chore|docs(scope): mensaje`）。
-- 每个 ticket 都要从 `dev` 创建新分支，并向 `dev` 提交 PR（CI 会运行必需的 `checks` job：Rust 质量门、低成本检查和资源测试套件）。通过 PR 将 `dev` 合入 `main` 时要使用 merge commit，不要 squash；该 PR 必须通过完整质量门。
+- 每个 ticket 都要从 `dev` 创建新分支，并向 `dev` 提交 PR（CI 会运行必需的 `checks` job，其中包括 Rust 质量门和低成本检查，另外还有 `asset-suites` 和 `node-floor` job）。通过 PR 将 `dev` 合入 `main` 时要使用 merge commit，不要 squash；该 PR 必须通过完整质量门。
 - 在 `/bonum` 仓库中，不要提交本地 harness（`CLAUDE.md`、`.claude/`）。

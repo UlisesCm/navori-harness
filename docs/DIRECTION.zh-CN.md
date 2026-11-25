@@ -49,7 +49,7 @@ navori **首先服务自己的团队**：每项功能都应回答“它能否帮
 
 ## 迁移到 Rust（0.13 切换之后）
 
-自 0.13.0 起，CLI 是从 `dev` 构建的 Rust 二进制程序（`crates/navori-cli`）
+自 0.13 切换起，`dev` 将 CLI 构建为 Rust 二进制程序（`crates/navori-cli`），0.13.0 是首个发布它的版本
 （[spec 0057](../specs/0057-migracion-rust/requirements.md)、
 [spec 0062](../specs/0062-rust-activacion-corte/requirements.md)）。此前的非目标"Rust 控制平面"不再适用。
 切换之后适用以下规则：
