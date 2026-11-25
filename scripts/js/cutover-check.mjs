@@ -33,6 +33,7 @@ import {
  *
  * What the transitional delegation of `rust-areas.mjs` covers (amendment of R20 and T10, 23 Nov)
  * is reported apart as `transitional`, with its reason, and does not block: it is debt of 0.13.x.
+ * Likewise, a p95 cell that `R17_DEBT` declares (24 Nov) is reported apart as `r17-debt`.
  *
  * The command tree is read from `packages/cli/src/cli.ts`, as the per-area inventory test does
  * (`dist/index.js` runs the CLI on import), so it runs under bun.
@@ -45,6 +46,51 @@ const BENCH_DIR = join(REPO_ROOT, ".navori", "state", "bench");
 export const VERSION_BUDGET_MS = 10;
 /** R17: direct native hook invocation, wall p95, in milliseconds. */
 export const HOOK_P95_BUDGET_MS = 5;
+
+/** Reason of the `session-start-context` cell: it runs once per session, not per tool call. */
+const ONCE_PER_SESSION =
+  "corre una vez por sesión, no por herramienta; bajar su latencia va en la spec de 0.13.x";
+/** Reason of the long-command cells of `guard-destructive`. */
+const GUARD_LONG_COMMANDS =
+  "deuda R17 conocida con comandos largos (0059 T8); re-firma de latencia en 0.13.1 (decisión del 19 nov)";
+
+/**
+ * R17 debt declared for the 0.13.0 cutover (decision of Ulises through S2, 24 Nov): the measured
+ * cells the comparable run on H (997128b9, run 45535565662, initial load 1.50) left over
+ * `HOOK_P95_BUDGET_MS`. One entry is one cell (engine, scenario and hook, exactly); `cutover:check`
+ * reports a covered cell apart as `r17-debt` and does not block. Everything else of R17 still
+ * blocks: no report, a report that is not comparable, `--version`, and any uncovered cell.
+ * @type {ReadonlyArray<{ engine: string, scenario: string, hook: string, reason: string }>}
+ */
+export const R17_DEBT = [
+  { engine: "claude", scenario: "SessionStart", hook: "session-start-context.sh", reason: ONCE_PER_SESSION },
+  ...["claude", "pi"].flatMap((engine) =>
+    ["BashLong6kGrep", "BashLong6kNoGrep", "BashLong40kGrep", "BashLong40kNoGrep"].map((scenario) => ({
+      engine,
+      scenario,
+      hook: "guard-destructive.sh",
+      reason: GUARD_LONG_COMMANDS,
+    })),
+  ),
+];
+validateR17Debt(R17_DEBT);
+
+/**
+ * Throws when an R17 debt entry lacks a field or a reason, or repeats a cell: debt is declared
+ * cell by cell, each with its why.
+ * @param {ReadonlyArray<{ engine: string, scenario: string, hook: string, reason: string }>} list
+ */
+export function validateR17Debt(list) {
+  const seen = new Set();
+  for (const entry of list) {
+    for (const field of ["engine", "scenario", "hook", "reason"])
+      if (typeof entry[field] !== "string" || entry[field].trim() === "")
+        throw new Error(`R17_DEBT entry ${JSON.stringify(entry)} has no ${field}`);
+    const cell = `${entry.engine}/${entry.scenario}/${entry.hook}`;
+    if (seen.has(cell)) throw new Error(`R17_DEBT repeats ${cell}`);
+    seen.add(cell);
+  }
+}
 /** R18: `check:post-cutover`, in seconds, on the reference machine (a developer machine at rest). */
 export const POST_CUTOVER_BUDGET_S = 300;
 /** R18: the same gate on the CI runner (GitHub's `ubuntu-latest`), kept as a regression guard. */
@@ -63,7 +109,7 @@ export function postCutoverBudget(host) {
  * @typedef {{ path: string[], flags?: string[], requires?: string[][] }} ManifestCommand
  * @typedef {{ commands: ManifestCommand[], hooks: Record<string, { mode?: string }> }} Manifest
  * @typedef {{ date: string, op: string, id: string }} HistoryEvent
- * @typedef {{ comparable?: boolean, measurements?: Array<{ engine?: string, hook?: string, wallMsP95: number }> }} BenchReport
+ * @typedef {{ comparable?: boolean, measurements?: Array<{ engine?: string, scenario?: string, hook?: string, wallMsP95: number }> }} BenchReport
  * @typedef {{ ok: boolean, seconds: number, host?: string }} PostCutoverReport
  * @typedef {{ check: string, detail: string }} Finding
  */
@@ -100,6 +146,7 @@ function excusedRequires(path, requires, delegation) {
  *   delegation?: ReadonlyArray<import("./rust-areas.mjs").Delegation>,
  *   shellHooks?: ReadonlyArray<{ hook: string, reason: string }>,
  *   transitional?: typeof TRANSITIONAL_DELEGATION,
+ *   r17Debt?: typeof R17_DEBT,
  *   bench: BenchReport | null,
  *   versionMs: number | null,
  *   postCutover: PostCutoverReport | null,
@@ -110,6 +157,7 @@ export function cutoverFindings(input) {
   const delegation = input.delegation ?? PERMANENT_DELEGATION;
   const shellHooks = input.shellHooks ?? PERMANENT_SHELL_HOOKS;
   const transitional = input.transitional ?? TRANSITIONAL_DELEGATION;
+  const r17Debt = input.r17Debt ?? R17_DEBT;
   /** @type {Finding[]} */
   const findings = [];
   /**
@@ -182,12 +230,18 @@ export function cutoverFindings(input) {
   } else {
     if (input.bench.comparable !== true)
       findings.push({ check: "R17", detail: "the last bench:hooks --impl rust is not comparable" });
-    for (const row of input.bench.measurements ?? [])
-      if (row.wallMsP95 > HOOK_P95_BUDGET_MS)
-        findings.push({
-          check: "R17",
-          detail: `${row.engine ?? "?"}/${row.hook ?? "?"} p95 ${row.wallMsP95.toFixed(3)} ms > ${HOOK_P95_BUDGET_MS} ms`,
-        });
+    for (const row of input.bench.measurements ?? []) {
+      if (row.wallMsP95 <= HOOK_P95_BUDGET_MS) continue;
+      const over = `p95 ${row.wallMsP95.toFixed(3)} ms > ${HOOK_P95_BUDGET_MS} ms`;
+      const debt = r17Debt.find(
+        (d) => d.engine === row.engine && d.scenario === row.scenario && d.hook === row.hook,
+      );
+      findings.push(
+        debt === undefined
+          ? { check: "R17", detail: `${row.engine ?? "?"}/${row.hook ?? "?"} ${over}` }
+          : { check: "r17-debt", detail: `${row.engine}/${row.scenario}/${row.hook} ${over} (${debt.reason})` },
+      );
+    }
   }
   if (input.versionMs === null)
     findings.push({ check: "R17", detail: "no navori-rust binary to time --version" });
@@ -254,13 +308,18 @@ async function main(argv) {
     versionMs: bin === null ? null : timeVersion(bin),
     postCutover: readJson(join(BENCH_DIR, "post-cutover-latest.json")),
   });
-  const blocking = findings.filter((f) => f.check !== "transitional");
+  const blocking = findings.filter((f) => f.check !== "transitional" && f.check !== "r17-debt");
   const debt = findings.filter((f) => f.check === "transitional");
+  const r17Debt = findings.filter((f) => f.check === "r17-debt");
   if (blocking.length === 0) {
     process.stdout.write(`cutover-check: ready (${Object.keys(AREAS).length} areas)\n`);
   } else {
     process.stdout.write(`cutover-check: ${blocking.length} finding(s)\n`);
     for (const f of blocking) process.stdout.write(`  ${f.check}: ${f.detail}\n`);
+  }
+  if (r17Debt.length > 0) {
+    process.stdout.write(`cutover-check: ${r17Debt.length} r17-debt (not blocking; cutover-check.mjs R17_DEBT)\n`);
+    for (const f of r17Debt) process.stdout.write(`  ${f.detail}\n`);
   }
   if (debt.length > 0) {
     process.stdout.write(`cutover-check: ${debt.length} transitional (not blocking; rust-areas.mjs TRANSITIONAL_DELEGATION)\n`);
