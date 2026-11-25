@@ -19,6 +19,28 @@ use navori_hooks::shell::repo::{Repo, System};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 fn workspace() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
@@ -553,16 +575,15 @@ fn tool_path(
     name: &str,
     status: Option<(&str, i32)>,
 ) -> Result<String, Box<dyn Error>> {
-    use std::os::unix::fs::PermissionsExt;
     let bin = scratch.root.join("bin").join(name);
     fs::create_dir_all(&bin)?;
     if let Some((text, code)) = status {
         let tgrep = bin.join("tgrep");
-        fs::write(
+        install_executable(
             &tgrep,
-            format!("#!/bin/sh\nprintf '%s\\n' '{text}'\nexit {code}\n"),
+            &format!("#!/bin/sh\nprintf '%s\\n' '{text}'\nexit {code}\n"),
+            0o755,
         )?;
-        fs::set_permissions(&tgrep, fs::Permissions::from_mode(0o755))?;
     }
     let jq = Command::new("bash")
         .args(["-c", "command -v jq"])

@@ -24,6 +24,28 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 /// The corpus asset leaves rule 1b off and every case runs outside a git repository: the only
 /// state a case may read is the empty `none` dir (Codex and Pi landing, rule 7 discards). Any
 /// other read must be replayed against real repositories instead.
@@ -655,20 +677,19 @@ struct Sleepers {
 
 impl Sleepers {
     fn new(tag: &str) -> Result<Self, Box<dyn Error>> {
-        use std::os::unix::fs::PermissionsExt;
         let dir =
             std::env::temp_dir().join(format!("navori-deadline-{tag}-{}", std::process::id()));
         fs::create_dir_all(&dir)?;
         for name in ["grep", "git", "tgrep"] {
             let program = dir.join(name);
-            fs::write(
+            install_executable(
                 &program,
-                format!(
+                &format!(
                     "#!/bin/sh\necho $$ >>'{}'\nexec sleep 30\n",
                     dir.join("calls").display()
                 ),
+                0o755,
             )?;
-            fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
         }
         fs::write(dir.join("calls"), "")?;
         Ok(Self { dir })
@@ -1361,11 +1382,8 @@ fn git_ok(dir: &Path, args: &[&str]) -> TestResult {
 
 /// A fake `git` in its own dir: `body` as the script, with `mode` permissions.
 fn fake_git(name: &str, body: &str, mode: u32) -> Result<String, Box<dyn Error>> {
-    use std::os::unix::fs::PermissionsExt;
     let dir = scratch(name)?;
-    let git = dir.join("git");
-    fs::write(&git, body)?;
-    fs::set_permissions(&git, fs::Permissions::from_mode(mode))?;
+    install_executable(&dir.join("git"), body, mode)?;
     Ok(dir.to_string_lossy().into_owned())
 }
 

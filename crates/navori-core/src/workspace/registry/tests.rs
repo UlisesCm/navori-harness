@@ -101,11 +101,21 @@ fn git_out_keeps_the_environment_but_the_pinning_variables() {
     let stubs = temp.path("bin");
     fs::create_dir_all(&stubs).expect("bin dir");
     let stub = stubs.join("git");
+    // Installed with `/bin/cp`: a write descriptor held here could leak into a forked child
+    // of a parallel test and make running the stub fail with ETXTBSY ("Text file busy").
+    let staged = stubs.join("git.staged");
     fs::write(
-        &stub,
+        &staged,
         "#!/bin/sh\necho \"cfg=$GIT_CONFIG_GLOBAL dir=$GIT_DIR wt=$GIT_WORK_TREE common=$GIT_COMMON_DIR idx=$GIT_INDEX_FILE\"\n",
     )
     .expect("write stub");
+    let status = Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(&stub)
+        .status()
+        .expect("cp");
+    fs::remove_file(&staged).expect("unstage stub");
+    assert!(status.success(), "cp exited with {status}");
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).expect("chmod");
     let env = vec![
         os("PATH", &stubs.to_string_lossy()),

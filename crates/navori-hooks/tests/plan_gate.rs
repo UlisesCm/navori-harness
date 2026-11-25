@@ -10,7 +10,6 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -24,6 +23,28 @@ use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
 use navori_hooks::shell::payload::{Extractor, Profile};
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
 
 const HELPER_ENV: &str = "NAVORI_T12_HELPER";
 const OTHER_VERSION: &str = "0.0.9";
@@ -164,14 +185,14 @@ fn run_case(case: &Case, version: &str) -> Result<(Evaluation, Lane, bool), Box<
     }
     let exe = std::env::current_exe()?;
     let navori = root.join("bin/navori");
-    fs::write(
+    install_executable(
         &navori,
-        format!(
+        &format!(
             "#!/bin/sh\ncase \"$1\" in\n  --version) echo \"navori {OTHER_VERSION}\" ;;\n  plan) exec '{}' --exact navori_helper --quiet --test-threads=1 >/dev/null ;;\nesac\n",
             exe.display()
         ),
+        0o755,
     )?;
-    fs::set_permissions(&navori, fs::Permissions::from_mode(0o755))?;
     let env: Vec<(OsString, OsString)> = vec![
         (
             "PATH".into(),

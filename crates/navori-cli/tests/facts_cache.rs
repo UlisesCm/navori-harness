@@ -16,6 +16,29 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 /// Probes that must succeed get the largest budget `prepare::plan` accepts (500 ms, spec 0060
 /// T17): the 250 ms production default expired under load and made these tests flaky. Deadline
 /// expiry itself is covered by the uncached call that passes a tight `Limits` on purpose; a
@@ -356,11 +379,11 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
 fn fake_navori(dir: &Path, version: &str, code: i32) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(dir)?;
     let path = dir.join("navori");
-    fs::write(
+    install_executable(
         &path,
-        format!("#!/bin/sh\necho run >> \"$COUNT\"\necho '{version}'\nexit {code}\n"),
+        &format!("#!/bin/sh\necho run >> \"$COUNT\"\necho '{version}'\nexit {code}\n"),
+        0o755,
     )?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
 

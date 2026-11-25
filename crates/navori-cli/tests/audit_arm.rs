@@ -24,6 +24,28 @@ const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 fn ts_cli() -> Option<PathBuf> {
     let path = std::env::var_os("NAVORI_TS_CLI").map_or_else(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/dist/index.js"),
@@ -349,8 +371,7 @@ fn the_tree_is_private() -> TestResult {
 fn delegation_triggers_write_nothing() -> TestResult {
     let world = World::new("delegate")?;
     let stub = world.root.join("ts.sh");
-    fs::write(&stub, "#!/bin/sh\necho \"delegated:$*\"\nexit 42\n")?;
-    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755))?;
+    install_executable(&stub, "#!/bin/sh\necho \"delegated:$*\"\nexit 42\n", 0o755)?;
     let cases: &[&[&str]] = &[
         &["--arm", "--no-arm"],
         &["--no-arm"],

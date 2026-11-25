@@ -20,6 +20,28 @@ const HASH: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -1604,7 +1626,6 @@ mod journal_bridge {
     // Covers: R11, R13
     #[test]
     fn the_cli_journal_speaks_the_ts_bridge_protocol() -> TestResult {
-        use std::os::unix::fs::PermissionsExt;
         let scratch = Scratch::new()?;
         // A TS CLI stand-in: logs argv and stdin, acknowledges begin only for absolute roots.
         let log = scratch.0.join("cli.log");
@@ -1620,8 +1641,7 @@ mod journal_bridge {
                 .to_owned(),
             "printf '{\"ok\":false}\\n'; exit 1".to_owned(),
         ];
-        fs::write(&cli, body.join("\n") + "\n")?;
-        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+        install_executable(&cli, &(body.join("\n") + "\n"), 0o755)?;
         let journal = CliJournal::from_locations(&navori_cli::delegate::Locations {
             ts_cli: Some(cli.into_os_string()),
             checkout_dist: scratch.0.join("missing/index.js"),
@@ -1924,8 +1944,7 @@ mod journal_bridge {
             "#!/bin/sh\nprintf 'argv:%s\\n' \"$*\" >> '{0}'\nprintf 'stdin:' >> '{0}'\ncat >> '{0}'\nprintf '\\n' >> '{0}'\n[ \"$3\" = begin ] && printf '{{\"kind\":\"begin\",\"id\":\"r1\"}}\\n'\nexit 0\n",
             log.display()
         );
-        fs::write(&cli, fake)?;
-        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755))?;
+        install_executable(&cli, &fake, 0o755)?;
         let output = Command::new(std::env::current_exe()?)
             .args(["--exact", test, "--nocapture"])
             .current_dir(&project)

@@ -5,7 +5,7 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fs::{self, File, FileTimes};
-use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::os::unix::fs::{MetadataExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
@@ -24,6 +24,28 @@ const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 const PREFIX: &str = "navori-gate-foreign-";
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
 
 /// An isolated world: `home` (registry), `tmp` (`TMPDIR`), `bin` (stub steps) and repos.
 struct World {
@@ -66,9 +88,7 @@ esac"#,
     /// A stub step named `name` in the `PATH` directory.
     fn step(&self, name: &str, body: &str) -> TestResult {
         let path = self.root.join("bin").join(name);
-        fs::write(&path, format!("#!/bin/sh\n{body}\n"))?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
-        Ok(())
+        install_executable(&path, &format!("#!/bin/sh\n{body}\n"), 0o755)
     }
 
     /// `git init` with a committed `navori.config.json` whose `qualityGate.fast` is `fast`.

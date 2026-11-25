@@ -5,12 +5,33 @@
 use std::error::Error;
 use std::fs;
 use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
 
 /// A scratch repo outside every checkout: `repo_from_cwd` deliberately cuts a path at
 /// `/.claude/worktrees` (#764), so a scratch under a worktree's target dir would take the
@@ -106,11 +127,11 @@ fn con_log_de_audit_mode_re_delega_antes_de_leer_stdin() -> TestResult {
             fs::create_dir_all(d)?;
         }
         let ts = dir.join("ts.sh");
-        fs::write(
+        install_executable(
             &ts,
             "#!/bin/sh\n{ echo \"args:$*\"; echo \"stdin:$(cat)\"; } > \"$OUT\"\nexit 42\n",
+            0o755,
         )?;
-        fs::set_permissions(&ts, fs::Permissions::from_mode(0o755))?;
         match case.log {
             Log::None => {}
             Log::AuditsRoot(repo_name) => {

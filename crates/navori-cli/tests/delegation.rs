@@ -6,7 +6,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -19,6 +19,28 @@ const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 /// A fresh scratch directory under cargo's per-target tmp dir.
 fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{name}-{}", std::process::id()));
@@ -30,9 +52,7 @@ fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
 }
 
 fn script(path: &Path, body: &str) -> Result<(), Box<dyn Error>> {
-    fs::write(path, format!("#!/bin/sh\n{body}\n"))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
-    Ok(())
+    install_executable(path, &format!("#!/bin/sh\n{body}\n"), 0o755)
 }
 
 /// Stub TS CLI: records argv, cwd, pid, env and stdin into `$OUT`, then exits 42.

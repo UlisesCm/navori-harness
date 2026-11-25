@@ -5,7 +5,6 @@
 
 use std::error::Error;
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -13,12 +12,32 @@ use std::time::{Duration, Instant};
 const BIN: &str = env!("CARGO_BIN_EXE_navori-rust");
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResult {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = std::path::PathBuf::from(staged);
+    fs::write(&staged, body)?;
+    let status = std::process::Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()?;
+    fs::remove_file(&staged)?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
 const CONFIG: &str = r#"{"name":"x","version":"1.0.0","harnessVersion":"0.12.2","engines":["claude"],"preset":"custom","language":"en","branchBase":"main","gitignoreHarness":"off","commits":"conventional-es","plugins":{"engram":{"enabled":true}},"qualityGate":{"fast":"bun run fast","full":"bun run check"}}"#;
 
 fn executable(path: &Path, body: &str) -> TestResult {
-    fs::write(path, body)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
-    Ok(())
+    install_executable(path, body, 0o755)
 }
 
 fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {

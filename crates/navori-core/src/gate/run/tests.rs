@@ -48,11 +48,28 @@ fn os(key: &str, value: &str) -> (OsString, OsString) {
     (OsString::from(key), OsString::from(value))
 }
 
+/// Install the stub as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running the stub in that window fails with
+/// ETXTBSY ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(path: &Path, body: &str) {
+    let mut staged = path.as_os_str().to_owned();
+    staged.push(".staged");
+    let staged = PathBuf::from(staged);
+    fs::write(&staged, body).expect("stage stub");
+    let status = Command::new("/bin/cp")
+        .arg(&staged)
+        .arg(path)
+        .status()
+        .expect("cp");
+    fs::remove_file(&staged).expect("unstage stub");
+    assert!(status.success(), "cp exited with {status}");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("chmod");
+}
+
 fn stub(dir: &Path, name: &str, body: &str) {
     fs::create_dir_all(dir).expect("stub dir");
-    let path = dir.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write stub");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+    install_executable(&dir.join(name), &format!("#!/bin/sh\n{body}\n"));
 }
 
 /// A stub `PATH` first, then the system's, so `sh` and `git` still resolve.
