@@ -363,9 +363,15 @@ fn a_cached_eligible_host_skips_every_probe_until_a_tool_changes() -> TestResult
     assert!(collect_cached(request(&env), &temp.0, tight, None).is_err());
 
     // A new `cat` earlier in PATH is a different host under the same key: miss, so probes run
-    // and their facts replace the entry, which the next call replays.
+    // and their facts replace the entry, which the next call replays. It is a shim that execs the
+    // real one: macOS kills a copy of a platform binary run outside its system path (SIGKILL,
+    // launch constraints), so copying `/bin/cat` would make every probe fail.
     let cat = lookup(&std::env::var_os("PATH").ok_or("PATH")?, "cat").ok_or("cat")?;
-    fs::copy(&cat, shadowing.join("cat"))?;
+    install_executable(
+        &shadowing.join("cat"),
+        &format!("#!/bin/sh\nexec '{}' \"$@\"\n", cat.display()),
+        0o755,
+    )?;
     assert_eq!(traced(&env)?.1, Source::Probed, "new cat");
     assert_eq!(traced(&env)?.1, Source::Cache, "new cat, cached");
     // Removing it changes the host again: the entry now describes the shadowing `cat`.
