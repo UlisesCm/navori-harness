@@ -49,16 +49,16 @@ export const RELEASES: readonly ReleaseEntry[] = [
           "CLI 现为 Rust 二进制程序，支持 macOS（arm64 与 x64）和 Linux（arm64 与 x64，使用 musl 静态链接），命令与输出与 TS 版本一致。其他平台会安装最后发布的 TS 版本，并校验其 integrity。",
       },
       {
-        es: "Los hooks de Claude Code y Pi corren nativos, con los mismos veredictos que los scripts de shell, comprobados con replay y siete días de sombra.",
-        en: "Claude Code and Pi hooks run natively, with the same verdicts as the shell scripts, checked by replay and seven days of shadow runs.",
+        es: "Los hooks de Claude Code y Pi corren nativos, con los mismos veredictos que los scripts de shell, comprobados con replay y la medición en sombra.",
+        en: "Claude Code and Pi hooks run natively, with the same verdicts as the shell scripts, checked by replay and shadow-run measurement.",
         "zh-CN":
-          "Claude Code 与 Pi 的钩子以原生方式运行，裁决与 shell 脚本一致，已通过回放和七天影子运行验证。",
+          "Claude Code 与 Pi 的钩子以原生方式运行，裁决与 shell 脚本一致，已通过回放和影子运行测量验证。",
       },
       {
-        es: "master, codex, workspace, ticket, registry y la mayor parte de audit (salvo --arm y --disarm) siguen en el TS congelado, que viaja dentro del paquete; no necesitas instalar nada aparte.",
-        en: "master, codex, workspace, ticket, registry and most of audit (except --arm and --disarm) stay on the frozen TS, which ships inside the package; there is nothing else to install.",
+        es: "Algunos comandos siguen en el TS congelado, que viaja dentro del paquete: master, codex, workspace, ticket, registry, la mayor parte de audit y, hasta que se porten en 0.13.x, init, add, update, refresh, configure, gate y receipt. No necesitas instalar nada aparte.",
+        en: "Some commands stay on the frozen TS, which ships inside the package: master, codex, workspace, ticket, registry, most of audit and, until they are ported in 0.13.x, init, add, update, refresh, configure, gate and receipt. There is nothing else to install.",
         "zh-CN":
-          "master、codex、workspace、ticket、registry 以及 audit 的大部分功能（--arm 与 --disarm 除外）仍由冻结的 TS 版本处理，它随包一起发布，无需另行安装。",
+          "部分命令仍由冻结的 TS 版本处理，它随包一起发布：master、codex、workspace、ticket、registry、audit 的大部分功能，以及在 0.13.x 中移植完成之前的 init、add、update、refresh、configure、gate 和 receipt。无需另行安装。",
       },
       {
         es: "claudePlugins en navori.config.json declara los plugins de Claude Code y el render escribe enabledPlugins en .claude/settings.json (#1747).",
