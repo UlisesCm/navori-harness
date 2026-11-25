@@ -39,8 +39,9 @@ import { exitOnHelp } from "./script-help.mjs";
  * pin carries an integrity, the rebuilt tarball must match it (the build is reproducible), so the
  * rehearsal checks what is published instead of trusting the pin it writes.
  * `check-pin` is the step before publishing: it fails unless `packaging/legacy.json` has a 40-hex
- * `commit`, a `sha512-` integrity and the `packages/cli/package.json` version, and unless that
- * version is also the Cargo workspace's (what the binary answers to `--version`).
+ * `commit`, a `sha512-` integrity and the `packages/cli/package.json` version, unless that
+ * version is also the Cargo workspace's (what the binary answers to `--version`), unless the pinned
+ * commit is an ancestor of `HEAD` and unless `packages/cli/package.json` is `private`.
  * `--from-dir` refuses a checkout with uncommitted changes, so the recorded commit is the one that was built.
  *
  * It prints `{ tarball, name, version, integrity, commit }`; `--write-pin` records
@@ -291,6 +292,41 @@ export function assertPublishablePin(pin, stamp) {
 }
 
 /**
+ * The check before publishing that the pinned commit is reachable from `HEAD`: the cutover reaches
+ * `dev` with a merge commit, never squash, so the frozen TS stays rebuildable from history
+ * (`legacy --from-pin`). A squash or rebase would leave the pin outside `dev`.
+ * @param {string} commit the pinned 40-hex commit
+ * @param {(args: string[]) => { status: number | null }} [git] runs `git` in the repo root
+ */
+export function assertPinReachable(
+  commit,
+  git = (args) => spawnSync("git", args, { cwd: REPO_ROOT, stdio: "ignore" }),
+) {
+  const { status } = git(["merge-base", "--is-ancestor", commit, "HEAD"]);
+  if (status === 0) return;
+  if (status === 1) {
+    throw new Error(
+      `packaging/legacy.json pins ${commit}, which is not an ancestor of HEAD: integrate the cutover with a merge commit, never squash`,
+    );
+  }
+  throw new Error(
+    `cannot tell whether ${commit} is an ancestor of HEAD (git exited ${status}): the commit is unknown here, so fetch the full history`,
+  );
+}
+
+/**
+ * The check before publishing that `packages/cli` cannot be published by mistake: its manifest is
+ * `private`, so `npm publish` there refuses instead of shipping the TS as `navori`. The assembled
+ * manifests never copy the field (`nestedManifest`, `mainManifest`).
+ * @param {{ private?: unknown }} manifest `packages/cli/package.json`
+ */
+export function assertPrivateCli(manifest) {
+  if (manifest.private !== true) {
+    throw new Error("packages/cli/package.json must be private: true, so npm publish there cannot ship the TS as navori");
+  }
+}
+
+/**
  * The check before publishing that the binary's version (Cargo) is the stamp (`packages/cli`): the
  * hooks run a ported subcommand in process only when `navori --version` answers STAMP_VERSION
  * (`hook_facts.rs` `in_process`, plan-gate `same_version`), and the published `navori` is the binary.
@@ -505,9 +541,12 @@ async function main(argv) {
   if (argv[0] === "legacy") return legacyCommand(argv.slice(1));
   if (argv[0] === "check-pin") {
     if (argv.length > 1) throw new Error("check-pin takes no options");
-    const stamp = JSON.parse(readFileSync(join(REPO_ROOT, "packages", "cli", "package.json"), "utf8")).version;
-    assertPublishablePin(legacyPin(), stamp);
-    assertReleaseVersions(workspaceVersion(), stamp);
+    const cli = JSON.parse(readFileSync(join(REPO_ROOT, "packages", "cli", "package.json"), "utf8"));
+    const pin = legacyPin();
+    assertPublishablePin(pin, cli.version);
+    assertReleaseVersions(workspaceVersion(), cli.version);
+    assertPinReachable(pin.commit);
+    assertPrivateCli(cli);
     process.stdout.write("dist-assemble: packaging/legacy.json is complete\n");
     return 0;
   }

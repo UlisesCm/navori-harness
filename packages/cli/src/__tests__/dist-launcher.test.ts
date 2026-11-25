@@ -57,6 +57,8 @@ interface Assemble {
     stamp: string,
   ) => void;
   assertReleaseVersions: (workspace: string, stamp: string) => void;
+  assertPinReachable: (commit: string, git?: (args: string[]) => { status: number | null }) => void;
+  assertPrivateCli: (manifest: { private?: unknown }) => void;
   legacyManifest: (
     version: string,
     ts: Record<string, unknown>,
@@ -450,6 +452,32 @@ describe("ensamblado", () => {
     expect(() => assemble.assertReleaseVersions("0.13.0-rust.1", "0.12.5")).toThrow(
       "in-process lane would never run",
     );
+  });
+
+  // Covers: R22
+  it("check-pin rechaza un pin que no es ancestro de HEAD y distingue el historial incompleto", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const calls: string[][] = [];
+    const git = (status: number | null) => (args: string[]) => {
+      calls.push(args);
+      return { status };
+    };
+    expect(() => assemble.assertPinReachable(sha, git(0))).not.toThrow();
+    expect(calls[0]).toEqual(["merge-base", "--is-ancestor", sha, "HEAD"]);
+    expect(() => assemble.assertPinReachable(sha, git(1))).toThrow("never squash");
+    expect(() => assemble.assertPinReachable(sha, git(128))).toThrow("fetch the full history");
+    expect(() => assemble.assertPinReachable(sha, git(null))).toThrow("fetch the full history");
+  });
+
+  // Covers: R22
+  it("check-pin exige packages/cli privado para que npm publish no saque el TS como navori", () => {
+    expect(() => assemble.assertPrivateCli({ private: true })).not.toThrow();
+    expect(() => assemble.assertPrivateCli({})).toThrow("must be private: true");
+    expect(() => assemble.assertPrivateCli({ private: "true" })).toThrow("must be private: true");
+    const cli = JSON.parse(readFileSync(join(repo, "packages", "cli", "package.json"), "utf8")) as {
+      private?: unknown;
+    };
+    expect(() => assemble.assertPrivateCli(cli)).not.toThrow();
   });
 
   // Covers: R22

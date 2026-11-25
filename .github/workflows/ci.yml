@@ -316,6 +316,25 @@ jobs:
           NAVORI_TEST_BUDGET_FACTOR: "2"
         run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"
 
+  # The step before publishing (spec 0062 D53, README § Releases): every PR to main checks that
+  # packaging/legacy.json pins a published navori-legacy reachable from HEAD and that packages/cli
+  # stays private. Here and not in rust-release.yml, whose `paths:` filter would skip a dev → main
+  # PR that touches none of them.
+  legacy-pin:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && (github.event.action != 'labeled' || github.event.label.name == 'full')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pinned commit must be reachable to prove it is an ancestor of HEAD.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - run: node scripts/js/dist-assemble.mjs check-pin
+
   # Semgrep `p/default` on `main` only (pushes and PRs into it). Diff-scoped via
   # `--baseline-commit`: only findings new since BASE block, so the pre-existing
   # ones stay debt. No `|| true`: exit 1 (new findings) and exit >1 (broken
