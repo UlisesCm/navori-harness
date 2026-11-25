@@ -185,6 +185,14 @@ describe("a script invoked through a symlinked path still runs its main (#1816)"
     symlinkSync(root, link);
   });
 
+  // packages/cli/scripts keeps its own copy (tsc rootDir is packages/cli, TS6059 otherwise).
+  it("the packages/cli/scripts twin of is-main.mjs keeps the same code", () => {
+    const original = readFileSync(join(REAL_SCRIPTS, "is-main.mjs"), "utf8");
+    const twin = readFileSync(join(REAL_ROOT, "packages", "cli", "scripts", "is-main.mjs"), "utf8");
+    // The twin only prepends a comment block naming the original.
+    expect(twin.replace(/^(\/\/.*\n)+/, "")).toBe(original);
+  });
+
   it("bench-context --help prints its usage through the link", () => {
     const result = run(link, "bench-context", ["--help"]);
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);

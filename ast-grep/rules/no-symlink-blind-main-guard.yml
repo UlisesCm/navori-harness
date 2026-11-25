@@ -1,19 +1,37 @@
 # Two rules, one per language: an ast-grep rule has a single language, and .mjs parses as
-# javascript while .ts parses as typescript (#1816).
+# javascript while .ts parses as typescript (#1816). Any (in)equality that reads
+# `process.argv[1]` on one side and `import.meta.url` on the other is an entry guard: resolve(),
+# path.resolve(), no resolve at all or pathToFileURL(...).href all miss a symlinked invocation.
 id: no-symlink-blind-main-guard
 language: javascript
 severity: error
-message: "Use `isMain(import.meta.url)` from scripts/js/is-main.mjs. `path.resolve(process.argv[1])` keeps the symlink the script was invoked through while `import.meta.url` is resolved, so through a link the guard is false and the script exits 0 without running (#1816)."
+message: "Use `isMain(import.meta.url)` from is-main.mjs. Comparing `process.argv[1]` with `import.meta.url` misses a script invoked through a symlink (argv[1] keeps the link, import.meta.url is resolved), so the guard is false and the script exits 0 without running (#1816)."
 rule:
-  any:
-    - pattern: resolve(process.argv[1]) === $X
-    - pattern: $X === resolve(process.argv[1])
+  kind: binary_expression
+  all:
+    - has:
+        field: operator
+        regex: ^[!=]==?$
+    - has:
+        stopBy: end
+        pattern: process.argv[1]
+    - has:
+        stopBy: end
+        pattern: import.meta.url
 ---
 id: no-symlink-blind-main-guard-ts
 language: typescript
 severity: error
-message: "Use `isMain(import.meta.url)` from scripts/js/is-main.mjs. `path.resolve(process.argv[1])` keeps the symlink the script was invoked through while `import.meta.url` is resolved, so through a link the guard is false and the script exits 0 without running (#1816)."
+message: "Use `isMain(import.meta.url)` from is-main.mjs. Comparing `process.argv[1]` with `import.meta.url` misses a script invoked through a symlink (argv[1] keeps the link, import.meta.url is resolved), so the guard is false and the script exits 0 without running (#1816)."
 rule:
-  any:
-    - pattern: resolve(process.argv[1]) === $X
-    - pattern: $X === resolve(process.argv[1])
+  kind: binary_expression
+  all:
+    - has:
+        field: operator
+        regex: ^[!=]==?$
+    - has:
+        stopBy: end
+        pattern: process.argv[1]
+    - has:
+        stopBy: end
+        pattern: import.meta.url
