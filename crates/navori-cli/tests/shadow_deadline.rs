@@ -39,6 +39,29 @@ fn alive(pid: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// A body that starts a grandchild, publishes its pid in one rename (a reader never sees a
+/// half-written file, whose empty pid would make `kill -0` fail and the check pass vacuously) and
+/// then outlives any deadline.
+fn grandchild_script(pidfile: &Path) -> String {
+    format!(
+        "sleep 30 &\necho $! > '{0}.tmp' && mv '{0}.tmp' '{0}'\nsleep 30\n",
+        pidfile.display()
+    )
+}
+
+/// Whether `pid` is gone within 2 s: the group kill is sent at the deadline, but the process
+/// leaves the table when it is reaped, later on a loaded machine.
+fn gone(pid: &str) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if !alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
 fn permit(_: &[u8]) -> Result<Evaluation, navori_hooks::runner::Failure> {
     Ok(Evaluation {
         verdict: Verdict::Permit,
@@ -55,10 +78,7 @@ fn deadline_kills_the_process_group_and_returns_despite_unread_stdin() -> TestRe
     let script = dir.join("hook.sh");
     let pidfile = dir.join("grandchild.pid");
     // The grandchild inherits stdin/stdout/stderr; the script never reads stdin.
-    fs::write(
-        &script,
-        format!("sleep 30 &\necho $! > '{}'\nsleep 30\n", pidfile.display()),
-    )?;
+    fs::write(&script, grandchild_script(&pidfile))?;
     let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
     let payload = vec![b'x'; 256 * 1024];
     let context = Context {
@@ -86,10 +106,9 @@ fn deadline_kills_the_process_group_and_returns_despite_unread_stdin() -> TestRe
     );
     assert!(result.comparison.shell_failed);
     let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
-    std::thread::sleep(Duration::from_millis(200));
-    let survived = alive(&pid);
+    let reaped = gone(&pid);
     let _ = fs::remove_dir_all(&dir);
-    assert!(!survived, "grandchild {pid} survived the group kill");
+    assert!(reaped, "grandchild {pid} survived the group kill");
     // Claude + gating: the safe response is `ask`, never an approval.
     let output: serde_json::Value = serde_json::from_slice(result.shell.stdout())?;
     assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "ask");
@@ -269,10 +288,7 @@ fn fake_journal(dir: &Path, script: &str) -> Result<CliJournal, Box<dyn Error>> 
 fn a_slow_begin_is_killed_with_its_group_at_the_deadline() -> TestResult {
     let dir = scratch("begin")?;
     let pidfile = dir.join("grandchild.pid");
-    let journal = fake_journal(
-        &dir,
-        &format!("sleep 30 &\necho $! > '{}'\nsleep 30", pidfile.display()),
-    )?;
+    let journal = fake_journal(&dir, &grandchild_script(&pidfile))?;
     let started = Instant::now();
     let receipt = journal.begin_until(
         Path::new("/repo"),
@@ -285,10 +301,9 @@ fn a_slow_begin_is_killed_with_its_group_at_the_deadline() -> TestResult {
     assert!(receipt.is_none());
     assert!(elapsed < Duration::from_secs(2), "begin took {elapsed:?}");
     let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
-    std::thread::sleep(Duration::from_millis(200));
-    let survived = alive(&pid);
+    let reaped = gone(&pid);
     let _ = fs::remove_dir_all(&dir);
-    assert!(!survived, "grandchild {pid} survived");
+    assert!(reaped, "grandchild {pid} survived");
     Ok(())
 }
 
@@ -318,10 +333,7 @@ fn a_slow_complete_is_abandoned_at_the_deadline() -> TestResult {
     let dir = scratch("complete")?;
     let pidfile = dir.join("grandchild.pid");
     // Never reads stdin and never exits on its own.
-    let journal = fake_journal(
-        &dir,
-        &format!("sleep 30 &\necho $! > '{}'\nsleep 30", pidfile.display()),
-    )?;
+    let journal = fake_journal(&dir, &grandchild_script(&pidfile))?;
     let started = Instant::now();
     journal.complete_until(
         Path::new("/repo"),
@@ -335,10 +347,9 @@ fn a_slow_complete_is_abandoned_at_the_deadline() -> TestResult {
         "complete took {elapsed:?}"
     );
     let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
-    std::thread::sleep(Duration::from_millis(200));
-    let survived = alive(&pid);
+    let reaped = gone(&pid);
     let _ = fs::remove_dir_all(&dir);
-    assert!(!survived, "grandchild {pid} survived");
+    assert!(reaped, "grandchild {pid} survived");
     Ok(())
 }
 
