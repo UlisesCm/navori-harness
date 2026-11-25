@@ -70,9 +70,9 @@ hooks que llevan 7 días o más en `shadow` deciden en Rust.
 ### M2 — Segundo lote
 Entregable: los 22 hooks deciden en Rust en los tres engines.
 - **A2** [observable] — ningún hook queda en `shadow` y el segundo lote tiene su evidencia · `node scripts/js/hook-verdict-replay.mjs --impl rust && node scripts/js/hook-shadow-report.mjs --window 7 && cd packages/cli && bun run vitest run src/__tests__/native-hook-failclosed.test.ts src/__tests__/rust-manifest-check.test.ts` → exit 0; 0 divergencias; 0 hooks en `shadow`
-- [ ] **T5** (R81, R82, R83) — lote 2: la misma evidencia de T3 para los hooks que entraron en `shadow` con 0060 E1 (T13, T14), E2 y E3, su paso a `active` y la matriz de T4 extendida a ellos · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"los 22 hooks active"
+- [x] **T5** (R81, R82, R83) — lote 2: la misma evidencia de T3 para los hooks que entraron en `shadow` con 0060 E1 (T13, T14), E2 y E3, su paso a `active` y la matriz de T4 extendida a ellos · effect: behavior · test: `crates/navori-hooks/tests/golden/wiring.snap`::"los 22 hooks active"
   - Fuera de alcance (2026-11-02, enmienda de `requirements.md`): `audit-mode-trigger`, `audit-mode-close` y `stop-verify-reminder` (replay, fuzz y sombra): no tienen puerto. Al cerrar el lote 2 quedan 15 hooks en `active` en Claude y Pi, no 22; los congelados y los de solo Codex quedan en la lista de hooks shell permanentes.
-  - Estado (2026-11-24): 11 de los 12 hooks de `crates/ported.json` están `active` (lotes guard, B, C y D: #1823, #1825, #1811 y #1826); falta `subagent-stop-handoff`, todavía en `shadow`. T5 se cierra cuando se active. Registro de la activación: "Nota sobre el registro de la activación (2026-11-24)" en `requirements.md` (#1829).
+  - Estado (2026-11-24): los 12 hooks de `crates/ported.json` están `active`: lotes guard, B, C y D (#1823, #1825, #1811 y #1826) y `subagent-stop-handoff`, el último, activado por orden de Ulises el 24 nov (#1833), que también vacía la lista transitoria de hooks de `scripts/js/rust-areas.mjs`. Con eso T5 se cierra. Registro de la activación: "Nota sobre el registro de la activación (2026-11-24)" en `requirements.md` (#1829).
 
 ## E2 — Ensayo de distribución, sin publicar
 Estimated LOC: 3500
