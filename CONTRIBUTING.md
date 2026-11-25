@@ -90,10 +90,25 @@ For **doc-only** changes (.md), `bun run lint` and `bun run format:check` are en
 - **`NAVORI_TEST_WORKERS`** (a positive integer) sets Vitest's worker count. Without it, the count is
   `min(CPUs - 1, 4, file-descriptor budget)`.
 
+## Rust CLI (0.13)
+
+- **Build and test with cargo as well as bun:** `cargo fmt --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace --locked`.
+  The toolchain is pinned in `rust-toolchain.toml`.
+- **Hooks:** `crates/navori-hooks` is the source of a native hook. Its rendered copies in `.claude/hooks`
+  and `.pi/navori/hooks`, their signed `navori:native-hook` header and the hashes in
+  `crates/ported.json` are regenerated with `bun run rust:hooks-sync`, never by hand. After a merge
+  or a conflict in those files, follow the `rebase-rerender` skill.
+- **`packages/cli/src` is frozen:** it is the TypeScript CLI that ships as `navori-legacy` for the
+  permanent delegation and for platforms without a binary. The cutover (spec 0062 T10) deletes its
+  sources and keeps only the artifact suites under `packages/cli/src`.
+- **History:** `crates/ported-history.jsonl` is append-only (`rust-manifest-check.mjs`): a wrong line
+  is not edited; a later line or the spec records the correction.
+
 ## Rust migration branch (`navori-rust` local)
 
-Only on `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md)); `dev` and npm
-stay TypeScript-only.
+These notes describe the coexistence on `migration/rust` ([spec 0057](specs/0057-migracion-rust/requirements.md))
+until the cutover (spec 0062 T10) reaches `dev`; until then, `dev` and npm stay TypeScript-only.
 
 - **Install next to the TS CLI:** `cargo install --path crates/navori-cli --locked` installs
   `navori-rust` and never replaces `navori` (`command -v navori` keeps its path).
