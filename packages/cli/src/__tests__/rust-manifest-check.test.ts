@@ -29,6 +29,7 @@ interface ManifestCheck {
     previous: string,
     current: string,
     now?: number,
+    imported?: boolean,
   ) => string[];
   checkHashes: (root: string, manifest: Manifest) => void;
   checkCommands: (manifest: CommandManifest) => void;
@@ -104,6 +105,30 @@ it("activar sin línea activate o sin sombra previa falla", (): void => {
   expect((): string[] => run(shadow, shadow, [activate])).toThrow("without a shadow to active");
   expect((): string[] => run(active, active, [deactivate])).toThrow("without an active to shadow");
   expect(run(active, active, [])).toEqual([]);
+});
+
+// Covers: R79, R80, R24
+it("una base sin manifiesto (el corte a dev) valida cada modo contra su propio historial", (): void => {
+  const port = event("port", "example");
+  const activate = event("activate", "example");
+  const deactivate = event("deactivate", "example");
+  // The whole history is new: the base has neither ported.json nor ported-history.jsonl.
+  const imported = (after: Manifest, history: string[]): string[] =>
+    checks.checkHistory(withMode(undefined), after, "", history.join("\n"), Date.now(), true);
+  const shadow = withMode("shadow");
+  const active = withMode("active");
+  expect(imported(active, [port, activate])).toEqual([]);
+  expect(imported(shadow, [port])).toEqual([]);
+  expect(imported(shadow, [port, activate, deactivate])).toEqual([]);
+  expect((): string[] => imported(active, [port])).toThrow("does not end on an activate record");
+  expect((): string[] => imported(active, [port, activate, deactivate])).toThrow(
+    "does not end on an activate record",
+  );
+  expect((): string[] => imported(shadow, [port, activate])).toThrow("ends on an activate record");
+  // Without the flag, the same tree fails as before: R79 needs shadow in the merge-base.
+  expect((): string[] =>
+    checks.checkHistory(withMode(undefined), active, "", [port, activate].join("\n")),
+  ).toThrow("without shadow in the merge-base");
 });
 
 // Covers: R10

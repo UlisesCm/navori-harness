@@ -106,8 +106,29 @@ function checkTransitions(before, after, added) {
   }
 }
 
-/** Validate append-only history and require a NEW unport for every removed entry. */
-export function checkHistory(before, after, previousText, currentText, now = Date.now()) {
+const MODE_OPS = new Set(["activate", "deactivate"]);
+
+/**
+ * A base without `crates/ported.json` (the cutover PR into `dev`, which brings the whole Rust tree at
+ * once) has no merge-base mode to compare: each hook's mode must instead agree with its own history.
+ * An `active` hook's last activate/deactivate event is `activate`; a `shadow` hook never ends on
+ * `activate`. R79/R80 against the merge-base apply again from the next PR on.
+ */
+function checkImportedModes(after, events) {
+  for (const [id, hook] of Object.entries(after.hooks)) {
+    const last = events.filter((event) => event.id === id && MODE_OPS.has(event.op)).at(-1)?.op;
+    if (hook.mode === "active" && last !== "activate")
+      throw new Error(`${id} is active but its history does not end on an activate record`);
+    if (hook.mode === "shadow" && last === "activate")
+      throw new Error(`${id} is in shadow but its history ends on an activate record`);
+  }
+}
+
+/**
+ * Validate append-only history and require a NEW unport for every removed entry.
+ * @param {boolean} [imported] the merge-base has no manifest (see `checkImportedModes`)
+ */
+export function checkHistory(before, after, previousText, currentText, now = Date.now(), imported = false) {
   const lines = (text) => (text.trimEnd() === "" ? [] : text.trimEnd().split("\n"));
   const previous = lines(previousText);
   const current = lines(currentText);
@@ -134,7 +155,8 @@ export function checkHistory(before, after, previousText, currentText, now = Dat
     if (!active.has(id) && latestNew.get(id)?.op !== "unport")
       throw new Error(`removed ${id} without a new unport record`);
   }
-  checkTransitions(before, after, events.slice(previous.length));
+  if (imported) checkImportedModes(after, events);
+  else checkTransitions(before, after, events.slice(previous.length));
   const latest = new Map(
     events.filter((event) => PORTING_OPS.has(event.op)).map((event) => [event.id, event]),
   );
@@ -264,7 +286,8 @@ export function checkManifest(root, base = "origin/migration/rust") {
     git(["ls-tree", "--name-only", mergeBase, "--", path])
       ? git(["show", `${mergeBase}:${path}`])
       : "";
-  const before = JSON.parse(readAtBase(MANIFEST) || '{"schema":2,"commands":[],"hooks":{}}');
+  const baseManifest = readAtBase(MANIFEST);
+  const before = JSON.parse(baseManifest || '{"schema":2,"commands":[],"hooks":{}}');
   const after = json(join(root, MANIFEST));
   checkCommands(after);
   const warnings = checkHistory(
@@ -272,6 +295,8 @@ export function checkManifest(root, base = "origin/migration/rust") {
     after,
     readAtBase(HISTORY),
     readFileSync(join(root, HISTORY), "utf8"),
+    Date.now(),
+    baseManifest === "",
   );
   checkHashes(root, after);
   return warnings;
