@@ -34,6 +34,11 @@ fn install_executable(path: &std::path::Path, body: &str, mode: u32) -> TestResu
     Ok(())
 }
 
+/// The endpoint the worker asks for engram (`latestRelease` of `packages/plugins/engram`): curl's
+/// last argument.
+const ENGRAM_URL: &str =
+    "https://api.github.com/repos/Gentleman-Programming/engram/releases/latest";
+
 const CONFIG: &str = r#"{"name":"x","version":"1.0.0","harnessVersion":"0.12.2","engines":["claude"],"preset":"custom","language":"en","branchBase":"main","gitignoreHarness":"off","commits":"conventional-es","plugins":{"engram":{"enabled":true}},"qualityGate":{"fast":"bun run fast","full":"bun run check"}}"#;
 
 fn executable(path: &Path, body: &str) -> TestResult {
@@ -52,12 +57,17 @@ fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
     let dir = fs::canonicalize(dir)?;
     fs::write(dir.join("repo/navori.config.json"), CONFIG)?;
     executable(&dir.join("bin/engram"), "#!/bin/sh\necho engram 1.2.3\n")?;
+    // The fake records its parent first (the worker, which runs curl itself), then its argv, so
+    // once the argv is visible the worker's pid is too.
     let record = dir.join("curl-argv");
+    let parent = dir.join("worker-pid");
     executable(
         &dir.join("bin/curl"),
         &format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}.tmp' && mv '{0}.tmp' '{0}'\nexit 7\n",
-            record.display()
+            "#!/bin/sh\necho \"$PPID\" > '{1}.tmp' && mv '{1}.tmp' '{1}'\n\
+             printf '%s\\n' \"$@\" > '{0}.tmp' && mv '{0}.tmp' '{0}'\nexit 7\n",
+            record.display(),
+            parent.display()
         ),
     )?;
     Ok(dir)
@@ -72,6 +82,26 @@ fn wait_for(path: &Path) -> Option<String> {
         std::thread::sleep(Duration::from_millis(50));
     }
     None
+}
+
+/// Whether the detached worker whose pid the fake curl recorded has exited, polled up to 10 s: a
+/// late write to `latest.json` or into the scratch directory would otherwise race the checks.
+fn worker_exited(pidfile: &Path) -> Result<bool, Box<dyn Error>> {
+    let pid = fs::read_to_string(pidfile)?;
+    let pid = pid.trim();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let alive = Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status()?
+            .success();
+        if !alive {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ok(false)
 }
 
 struct Case {
@@ -162,7 +192,11 @@ fn el_worker_de_versiones_es_el_binario_nativo_y_solo_alcanza_la_red_por_el_curl
         // read once curl has been reached: a valid curl call proves the native worker was launched
         // with the reserved token.
         let argv = if case.spawns {
-            wait_for(&record)
+            let argv = wait_for(&record);
+            if argv.is_some() && !worker_exited(&dir.join("worker-pid"))? {
+                failures.push(format!("{}: the worker outlived 10 s", case.name));
+            }
+            argv
         } else {
             std::thread::sleep(Duration::from_millis(300));
             fs::read_to_string(&record).ok()
@@ -172,7 +206,7 @@ fn el_worker_de_versiones_es_el_binario_nativo_y_solo_alcanza_la_red_por_el_curl
             || (attempts.starts_with(r#"{"engram":{"at":"#)
                 && attempts.ends_with(r#","token":null}}"#));
         let argv_ok = match &argv {
-            Some(argv) => case.spawns && argv.contains("://"),
+            Some(argv) => case.spawns && argv.lines().last() == Some(ENGRAM_URL),
             None => !case.spawns,
         };
         if !out.status.success() && case.args[1] == "notice"
