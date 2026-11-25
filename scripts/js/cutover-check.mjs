@@ -59,16 +59,33 @@ const GUARD_LONG_COMMANDS =
  * cells the comparable run on H (997128b9, run 45535565662, initial load 1.50) left over
  * `HOOK_P95_BUDGET_MS`. One entry is one cell (engine, scenario and hook, exactly); `cutover:check`
  * reports a covered cell apart as `r17-debt` and does not block. Everything else of R17 still
- * blocks: no report, a report that is not comparable, `--version`, and any uncovered cell.
- * @type {ReadonlyArray<{ engine: string, scenario: string, hook: string, reason: string }>}
+ * blocks: no report, a report that is not comparable, `--version`, any uncovered cell, and a
+ * declared cell over its own ceiling `maxMs`, so the debt cannot grow unnoticed.
+ *
+ * `maxMs` is the measured p95 × 1.5, rounded up, taking the slower scenario of each pair (Grep and
+ * NoGrep of one command size share a ceiling): session-start-context 75.7 → 114; guard in claude
+ * 6k 9.5 → 15 and 40k 12.7 → 19; in pi 6k 11.7 → 18 and 40k 15.1 → 23.
+ * @type {ReadonlyArray<{ engine: string, scenario: string, hook: string, maxMs: number, reason: string }>}
  */
 export const R17_DEBT = [
-  { engine: "claude", scenario: "SessionStart", hook: "session-start-context.sh", reason: ONCE_PER_SESSION },
-  ...["claude", "pi"].flatMap((engine) =>
-    ["BashLong6kGrep", "BashLong6kNoGrep", "BashLong40kGrep", "BashLong40kNoGrep"].map((scenario) => ({
+  {
+    engine: "claude",
+    scenario: "SessionStart",
+    hook: "session-start-context.sh",
+    maxMs: 114,
+    reason: ONCE_PER_SESSION,
+  },
+  ...[
+    ["claude", "6k", 15],
+    ["claude", "40k", 19],
+    ["pi", "6k", 18],
+    ["pi", "40k", 23],
+  ].flatMap(([engine, size, maxMs]) =>
+    ["Grep", "NoGrep"].map((grep) => ({
       engine,
-      scenario,
+      scenario: `BashLong${size}${grep}`,
       hook: "guard-destructive.sh",
+      maxMs,
       reason: GUARD_LONG_COMMANDS,
     })),
   ),
@@ -76,9 +93,9 @@ export const R17_DEBT = [
 validateR17Debt(R17_DEBT);
 
 /**
- * Throws when an R17 debt entry lacks a field or a reason, or repeats a cell: debt is declared
- * cell by cell, each with its why.
- * @param {ReadonlyArray<{ engine: string, scenario: string, hook: string, reason: string }>} list
+ * Throws when an R17 debt entry lacks a field or a reason, has no ceiling above the budget, or
+ * repeats a cell: debt is declared cell by cell, each with its why and its limit.
+ * @param {ReadonlyArray<{ engine: string, scenario: string, hook: string, maxMs: number, reason: string }>} list
  */
 export function validateR17Debt(list) {
   const seen = new Set();
@@ -86,6 +103,8 @@ export function validateR17Debt(list) {
     for (const field of ["engine", "scenario", "hook", "reason"])
       if (typeof entry[field] !== "string" || entry[field].trim() === "")
         throw new Error(`R17_DEBT entry ${JSON.stringify(entry)} has no ${field}`);
+    if (!Number.isFinite(entry.maxMs) || entry.maxMs <= HOOK_P95_BUDGET_MS)
+      throw new Error(`R17_DEBT entry ${JSON.stringify(entry)} has no maxMs above ${HOOK_P95_BUDGET_MS} ms`);
     const cell = `${entry.engine}/${entry.scenario}/${entry.hook}`;
     if (seen.has(cell)) throw new Error(`R17_DEBT repeats ${cell}`);
     seen.add(cell);
@@ -236,11 +255,15 @@ export function cutoverFindings(input) {
       const debt = r17Debt.find(
         (d) => d.engine === row.engine && d.scenario === row.scenario && d.hook === row.hook,
       );
-      findings.push(
-        debt === undefined
-          ? { check: "R17", detail: `${row.engine ?? "?"}/${row.hook ?? "?"} ${over}` }
-          : { check: "r17-debt", detail: `${row.engine}/${row.scenario}/${row.hook} ${over} (${debt.reason})` },
-      );
+      const cell = `${row.engine}/${row.scenario}/${row.hook}`;
+      if (debt === undefined)
+        findings.push({ check: "R17", detail: `${row.engine ?? "?"}/${row.hook ?? "?"} ${over}` });
+      else if (row.wallMsP95 > debt.maxMs)
+        findings.push({
+          check: "R17",
+          detail: `${cell} p95 ${row.wallMsP95.toFixed(3)} ms > its R17_DEBT ceiling ${debt.maxMs} ms`,
+        });
+      else findings.push({ check: "r17-debt", detail: `${cell} ${over} (<= ${debt.maxMs} ms; ${debt.reason})` });
     }
   }
   if (input.versionMs === null)

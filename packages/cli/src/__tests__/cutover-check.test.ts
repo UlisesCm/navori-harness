@@ -46,6 +46,7 @@ interface R17Debt {
   engine: string;
   scenario: string;
   hook: string;
+  maxMs: number;
   reason: string;
 }
 interface Cutover {
@@ -295,6 +296,7 @@ describe("cutover-check (spec 0062 T8)", () => {
         engine: "claude",
         scenario: "SessionStart",
         hook: "session-start-context.sh",
+        maxMs: over + 1,
         reason: "una vez por sesión",
       },
     ];
@@ -323,10 +325,29 @@ describe("cutover-check (spec 0062 T8)", () => {
       {
         check: "r17-debt",
         detail:
-          "claude/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms (una vez por sesión)",
+          "claude/SessionStart/session-start-context.sh p95 6.000 ms > 5 ms (<= 7 ms; una vez por sesión)",
       },
       { check: "R17", detail: "pi/session-start-context.sh p95 6.000 ms > 5 ms" },
       { check: "R17", detail: "claude/session-start-context.sh p95 6.000 ms > 5 ms" },
+    ]);
+    // over its own ceiling, the declared cell blocks again: the debt cannot grow unnoticed
+    input.bench = {
+      comparable: true,
+      measurements: [
+        {
+          engine: "claude",
+          scenario: "SessionStart",
+          hook: "session-start-context.sh",
+          wallMsP95: over + 2,
+        },
+      ],
+    };
+    expect(cutover.cutoverFindings(input)).toEqual([
+      {
+        check: "R17",
+        detail:
+          "claude/SessionStart/session-start-context.sh p95 8.000 ms > its R17_DEBT ceiling 7 ms",
+      },
     ]);
     // a declared cell within budget reports nothing; a non-comparable report still blocks
     input.bench = {
@@ -359,7 +380,28 @@ describe("cutover-check (spec 0062 T8)", () => {
       ].sort(),
     );
     for (const d of cutover.R17_DEBT) expect(d.reason.trim()).not.toBe("");
-    const cell = { engine: "pi", scenario: "Bash", hook: "guard-destructive.sh", reason: "r" };
+    const ceilings = Object.fromEntries(
+      cutover.R17_DEBT.map((d) => [`${d.engine}/${d.scenario}/${d.hook}`, d.maxMs]),
+    );
+    // measured p95 x 1.5, rounded up, on the slower scenario of each pair (comparable run on H)
+    expect(ceilings["claude/SessionStart/session-start-context.sh"]).toBe(114);
+    for (const grep of ["Grep", "NoGrep"]) {
+      expect(ceilings[`claude/BashLong6k${grep}/guard-destructive.sh`]).toBe(15);
+      expect(ceilings[`claude/BashLong40k${grep}/guard-destructive.sh`]).toBe(19);
+      expect(ceilings[`pi/BashLong6k${grep}/guard-destructive.sh`]).toBe(18);
+      expect(ceilings[`pi/BashLong40k${grep}/guard-destructive.sh`]).toBe(23);
+    }
+    const cell = {
+      engine: "pi",
+      scenario: "Bash",
+      hook: "guard-destructive.sh",
+      maxMs: 10,
+      reason: "r",
+    };
+    expect(() => cutover.validateR17Debt([{ ...cell, maxMs: cutover.HOOK_P95_BUDGET_MS }])).toThrow(
+      /has no maxMs above 5 ms/,
+    );
+    expect(() => cutover.validateR17Debt([{ ...cell, maxMs: Number.NaN }])).toThrow(/has no maxMs/);
     expect(() => cutover.validateR17Debt([{ ...cell, reason: " " }])).toThrow(/has no reason/);
     expect(() => cutover.validateR17Debt([{ ...cell, scenario: "" }])).toThrow(/has no scenario/);
     expect(() => cutover.validateR17Debt([cell, { ...cell }])).toThrow(
