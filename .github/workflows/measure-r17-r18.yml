@@ -35,6 +35,19 @@ jobs:
           nproc
           cat /proc/loadavg
           git status --porcelain
+      - name: wait for an idle runner (bench comparability, load <= min(4, CPUs/2))
+        run: |
+          limit=$(awk -v c="$(nproc)" 'BEGIN { l = c / 2; if (l > 4) l = 4; print l }')
+          for i in $(seq 1 90); do
+            load=$(cut -d' ' -f1 /proc/loadavg)
+            if awk -v a="$load" -v b="$limit" 'BEGIN { exit !(a <= b - 0.3) }'; then
+              echo "idle after ${i}0 s: load $load <= $limit"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "runner never got idle: load $(cut -d' ' -f1 /proc/loadavg) > $limit" >&2
+          exit 1
       - name: bench:hooks --impl rust
         env:
           NAVORI_RUST_BIN: ${{ github.workspace }}/target/release/navori-rust
