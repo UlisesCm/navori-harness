@@ -10,8 +10,8 @@ use navori_core::{STAMP_VERSION, VERSION};
 
 // Covers: R38
 #[test]
-fn rust_prerelease_orders_as_its_core_and_the_stamp_is_the_ts_version() -> Result<(), Box<dyn Error>>
-{
+fn rust_prerelease_orders_as_its_core_and_the_stamp_is_the_release_version()
+-> Result<(), Box<dyn Error>> {
     // The hazard D20 exists for: the workspace prerelease is "newer" than the TS CLI.
     assert_eq!(
         compare(Some("0.13.0-rust.1"), Some("0.13.0")),
@@ -22,9 +22,12 @@ fn rust_prerelease_orders_as_its_core_and_the_stamp_is_the_ts_version() -> Resul
     let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/package.json");
     let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(&package)?)?;
     assert_eq!(Some(STAMP_VERSION), json["version"].as_str());
-    assert_ne!(
+    // From 0.13.0 on (D20 amended, decision of 23 Nov): the binary answers `--version` with VERSION
+    // and the hooks run ported subcommands in process only when it is the stamp, so a release
+    // carries one number in both (`check-pin` checks it again before publishing).
+    assert_eq!(
         STAMP_VERSION, VERSION,
-        "the stamp must never be the Rust prerelease"
+        "Cargo.toml and packages/cli/package.json must carry the same release version"
     );
     Ok(())
 }

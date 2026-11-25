@@ -238,6 +238,13 @@ backup y poda no dependan del reloj.
   versión (`version=` del marker, `$navori.version`, `harnessVersion`, `readCliVersion()` en
   `remove_managed_section_guarded`) usa ese valor. `navori_core::VERSION` queda solo para
   `--version` (R25). La regla vale hasta el corte; D17 de 0057 redefine las dos versiones en 0060.
+- **Enmienda (23 nov 2026, decisiones-ulises/2026-11-23-version-stamp):** desde 0.13.0 las dos
+  versiones son la misma. El binario responde `--version` con `VERSION`, y los hooks corren en
+  proceso solo si esa respuesta es la versión de sello (`hook_facts.rs` `in_process`, plan-gate
+  `same_version`). El bump del release sube `Cargo.toml` y `packages/cli/package.json` juntos.
+  `tests/semver.rs` exige la igualdad y `check-pin` la vuelve a comprobar al publicar (#1788). El
+  riesgo que motivó D20, un prerelease de Rust sellado como "más nuevo", desaparece porque ya no se
+  sella un prerelease.
 - Lo fuerza R9 (diferencial cero), así que no se deja como pregunta abierta.
 
 ### D21 — Puerto literal de los markers (R35–R37)

@@ -1,5 +1,5 @@
-# navori:native-hook v=1 file=sha256:62cd16e1d7953ec66be7f2cfdc567d0cee00793342f630c20ccb1e6e0216c0e5 impl=sha256:afca09803078a862cb61c3a1986d37856ac93d15f9bce074181b46b96f982dd5
-# navori:managed start id="subagent-stop-handoff-base" hash="fb0e811d" version="0.12.5" source="@navori/core"
+# navori:native-hook v=1 file=sha256:ea6e7d622d59e98b77bb3c5f8a0a12907e53ada3df632db06d237d1a31ffcba4 impl=sha256:afca09803078a862cb61c3a1986d37856ac93d15f9bce074181b46b96f982dd5
+# navori:managed start id="subagent-stop-handoff-base" hash="fb0e811d" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
 # navori:native-runtime start
 if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
