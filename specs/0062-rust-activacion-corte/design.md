@@ -1,0 +1,204 @@
+# Migración a Rust, fase 5: activación, distribución y corte — Design
+
+**Estado:** aceptada (Q26–Q29 resueltas por el usuario el 2026-10-31; R18 resuelta el 2026-11-02; Q24 resuelta el 2026-11-24, plan B) · **Fecha:**
+2026-10-31 · **Base:** `migration/rust` en `e8859f49` (merge de #1465).
+
+**Alcance del documento:** activación de los 22 hooks, ensayo de distribución y corte. Sale de E4–E6
+de la versión anterior de 0060. Reutiliza D1–D48; las decisiones nuevas siguen la numeración (D49 en
+adelante), igual que los modos de falla (F44 en adelante). Aplica la política de velocidad de D47 de
+0060.
+
+## Approach
+
+Tres entregas y cuatro PRs. E1 y E2 corren en paralelo entre sí y con 0059 y 0060; E3 va al final:
+
+| Entrega | PR | Entregable |
+|---|---|---|
+| E1 | dos, contra `migration/rust` | Los 22 hooks deciden en Rust (`active`), en dos lotes: primero los que llevan 7 días o más en `shadow`, después los de la cola larga |
+| E2 | contra `migration/rust` | El paquete instala y responde en macOS y Linux, sin publicar; `cutover:check` existe y está en verde |
+| E3 | contra `dev` | `navori` es el binario Rust en `dev`, con el TS congelado como respaldo y para las delegaciones permanentes |
+
+**Por qué así.** La activación se desacopla del calendario de la cola larga: un hook en `shadow`
+desde hace 7 días con replay y fuzz en cero se puede activar aunque su área tenga comandos sin
+portar, porque el hook no depende de ellos (R72 de 0060). El corte deja de esperar al último
+subcomando raro: el TS congelado ya viaja en el paquete (R22) y atiende las delegaciones
+permanentes, así que exigir el 100 % nativo solo retrasaba el corte sin bajar el riesgo.
+
+## Decisions
+
+### D49 — Activación por evidencia mínima, sin umbral por clase (R79–R83; reemplaza D45 de 0060)
+
+- **Evidencia (R81).** `scripts/js/hook-shadow-report.mjs` lee el ledger de `navori tools
+  rust-shadow` y reporta, por hook y engine, invocaciones y divergencias dentro de una ventana (7 días
+  por defecto). Sale en rojo con cualquier divergencia. No aplica umbrales por clase.
+- **Con compuerta:** replay nativo a cero, fuzz de 100 000 entradas a cero (una sola corrida, en
+  lote, antes del PR; ver D47 de 0060) y sombra sin divergencias. Sin tráfico en un engine, la
+  activación en ese engine necesita la aprobación por hook de R82.
+- **Advisory:** replay nativo a cero. La sombra se reporta, pero no bloquea.
+- **Lotes.** E1 activa en dos PRs, cada hook con su línea `activate`: el lote 1 son los hooks con 7
+  días o más en `shadow` al abrir el PR (los siete de las fases 1–3 y los de 0060 E1 ya portados);
+  el lote 2, los de 0060 E1 (T13, T14), E2 y E3 cuando cumplan su ventana. Son dos PRs porque la
+  ventana es calendario: un solo PR dejaría esperando a los hooks que ya cumplen. E3 exige que no
+  quede ninguno en `shadow` (R20).
+- **Transiciones (R79, R80).** `scripts/js/rust-manifest-check.mjs` añade la regla de transiciones
+  (antes T2 de 0058).
+
+### D50 — Corte con delegación permanente (R20, R22, R24; enmienda D17 de 0057 y D46 de 0060)
+
+- La lista de delegación permanente vive en `scripts/js/rust-areas.mjs` (D41 y D48 de 0060), junto
+  al inventario. `cutover:check` acepta un subcomando o flag que esté en el manifiesto o en esa lista.
+- El lanzador ejecuta el binario. El binario conserva el mecanismo de delegación de 0057 y, después
+  del corte, lo dirige al TS congelado de `legacy/` en vez de al `dist/` del repo.
+- El PR de corte borra `packages/cli/src` salvo lo que exige el TS congelado (que es el `dist/`
+  publicado, no el fuente) y las suites de artefacto, y elimina el oráculo TS.
+- **Enmienda del 2026-11-24 (opción C; requirements.md, "Enmienda del corte").** El PR de corte no
+  borra `packages/cli/src` ni el oráculo diferencial: los dos borrados pasan a un PR posterior. En el
+  checkout el binario sigue pudiendo delegar al `dist/` del repo; en el paquete publicado responde
+  `legacy/`.
+
+### D46 (de 0060) — Distribución según D17 de 0057 (R18, R21, R22, R84, R85)
+
+Se conserva sin cambios de fondo: patrón esbuild (`navori` con lanzador JS y
+`optionalDependencies` por plataforma, `postinstall` que enlaza solo si `--version` coincide),
+`legacy/` con el `dist/` exacto del último TS publicado verificado por `integrity`, binarios musl
+estáticos en Linux, sondas de `scripts/js/dist-probe.mjs` y `check:post-cutover` cronometrado.
+
+### D51 — Nombres de los paquetes de plataforma (Q24 resuelta: plan B; R21)
+
+- **Enmienda del 2026-11-24 (Ulises mergeó #1808).** Los paquetes de plataforma se publican sin
+  scope: `navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64` y `navori-linux-x64`,
+  y `navori` los declara en `optionalDependencies`. El legacy es `navori-legacy`. Los nombres
+  viven en `dist-assemble.mjs` y en `platformPackage` del lanzador.
+- Antes (ensayo de E2) eran provisionales con scope, `@navori/<os>-<cpu>`. La decisión del
+  2026-11-20 (crear la org `navori` en npm, plan A) queda reemplazada.
+
+### D52 — R18 por host y oráculo de hooks en paralelo (R18; enmienda D17 de 0057)
+
+- **Medición en CI.** Con la composición de D17 y sin `navori-oracle-tests`, que el corte elimina
+  (R24), el gate tarda unos 620 s en `ubuntu-latest` con caché de cargo. El replay de hooks, serial
+  y con un proceso por caso, se lleva unos 400 s.
+- **Paralelo.** `hook-verdict-replay.mjs --shard i/n` replica una rebanada disjunta del corpus
+  (casos por turno, así cada rebanada mezcla todos los hooks) y `check:post-cutover` corre una por
+  núcleo a la vez, cada una con su propio scratch.
+- **Presupuesto por host.** El registro guarda `host`: `ci` con `GITHUB_ACTIONS=true` y
+  `reference` en otro caso. R18 vale 300 s en la máquina de referencia y 600 s en CI, donde sirve
+  de guarda de regresión. Un registro sin `host` se juzga con 300 s. `cutover:check` aplica el
+  presupuesto del host del registro.
+
+### D53 — Ensayo del paquete sin tocar `packages/cli` (R21, R22, R84; enmienda D17 de 0057)
+
+- **Aparte del TS.** Mientras dure la convivencia, `packages/cli` sigue publicando el TS sin
+  artefactos Rust ni `postinstall` (R4). El paquete del corte se arma aparte:
+  `scripts/js/dist-assemble.mjs` copia `packaging/npm/` (bins JS, `lib/`, `postinstall.js`),
+  hereda los metadatos de `packages/cli/package.json` y deja `navori` y los
+  `navori-<os>-<cpu>` (D51) con la versión del workspace de Cargo, la que responde el binario.
+- **`legacy/` es el paquete legacy (enmienda del 2026-11-20, R22).** El TS congelado del commit
+  anterior al PR de corte se publica como paquete aparte, `LEGACY_PACKAGE` de `dist-assemble.mjs`
+  (`navori-legacy`, D51), con la versión del release.
+  `dist-assemble.mjs legacy --from <commit> --version <release> --write-pin` lo construye, lo
+  empaqueta y escribe `packaging/legacy.json` (`version`, `integrity`, `commit`); el ensamblado lo
+  baja de npm, verifica la `integrity` y desempaca `package/navori/` en `legacy/`.
+  El tarball replica el layout del checkout, porque el TS solo carga `crates/ported.json` desde
+  `<dir>/packages/cli/dist` con `<dir>/crates/ported.json`
+  (`packages/cli/src/lib/render/native-hook.ts:42-60`); sin él renderiza hooks shell y pelea con
+  los bloques `navori:native-runtime` del binario. Dentro de `package/navori/`:
+  `packages/cli/package.json` (con `name: "navori"`, que exige `readCliVersion`, y la versión del
+  release), `packages/cli/dist/**`, `crates/ported.json` del mismo commit, `dist/index.js` (una
+  línea que importa `../packages/cli/dist/index.js`) y un `package.json` sin nombre con
+  `type: module`. Así el lanzador y `delegate.rs` siguen ejecutando `legacy/dist/index.js`.
+  El ensamblado rechaza un legacy cuyo `crates/ported.json` difiera del checkout que compila los
+  binarios, y la versión del pin y la del TS anidado deben ser la de `packages/cli/package.json`
+  del checkout que ensambla (el `STAMP_VERSION` del binario), o los marcadores no coinciden; el
+  ensamblado rechaza cualquier diferencia. `--from-dir` rechaza un checkout con cambios sin
+  guardar, porque el pin registra su `HEAD`. El ensayo de `rust-release.yml` lo construye con
+  `legacy --from-pin`: el commit y la versión que fija `packaging/legacy.json`, o `HEAD` mientras
+  el pin esté vacío (después del corte, un pin vacío es un error, porque `HEAD` ya no tiene
+  `packages/cli/src/index.ts`); no acepta `--version`, exige que el commit fijado sea un SHA de 40
+  hex y, si el pin trae `integrity`, que el tarball reconstruido la reproduzca byte a byte (el build
+  del legacy es reproducible). `scripts/js/dist-legacy-cutover.mjs` (job `legacy-cutover`) lee el
+  comando de ese job del workflow y lo corre en un commit local que, como T10, borra el TS salvo las
+  suites de artefacto bajo `packages/cli/src` y fija el pin en el commit anterior: el job tiene que
+  construir el commit fijado, y el comando previo (`--from HEAD`) tiene que fallar en el build.
+  `scripts/js/dist-legacy-smoke.mjs` comprueba la delegación.
+  **Antes de publicar,** `dist-assemble.mjs check-pin` falla si `packaging/legacy.json` no trae un
+  `commit` de 40 hex, una `integrity` sha512 y la versión de `packages/cli/package.json`; el ensayo
+  acepta el pin vacío, la publicación no.
+  Fuera de alcance: `doctor --json` (que sigue en el TS) reporta como `entrypointSha256` el hash del
+  shim `legacy/dist/index.js`, constante en cada release, no el del bundle; el `argv[1]` del shim y
+  el aviso de `update-notice` tampoco cambian. Son cosméticos.
+  **`crates/ported.json` queda fijado al commit del legacy:** después del corte, cualquier cambio
+  en `crates/ported.json` (una re-firma de hooks) obliga a publicar un legacy nuevo desde un commit
+  con ese manifiesto, o el ensamblado lo rechaza.
+  **Orden en el release:** como el pin debe llevar la versión que estampan los binarios, la versión
+  de `packages/cli/package.json` sube a la del release en el mismo PR que llena el pin (o antes);
+  si el pin entra antes, el job `package` del ensayo queda en rojo hasta el bump.
+- **Sin binario**, `navori` ejecuta `legacy/dist/index.js` con Node y `navori-native-hook` sale con
+  127, así el prólogo del hook corre su cuerpo shell.
+- **pnpm.** Sus shims de `.bin` ejecutan `node <bin>`, así que el `postinstall` deja los bins JS
+  bajo pnpm (`npm_config_user_agent`), y el lanzador quita del `NODE_PATH` las rutas `/.pnpm/` que
+  agrega el shim: con ellas el binario declara el hook no elegible (`NODE_*`).
+- **Delegación.** El binario busca el TS congelado junto a sí mismo
+  (`<paquete>/legacy/dist/index.js`, después de `NAVORI_TS_CLI` y antes del `dist/` del checkout),
+  sin aviso de versión: la diferencia es deliberada. Por Node, el lanzador fija `NAVORI_TS_CLI`.
+- **Sonda.** `dist-probe.mjs` instala tarballs locales. pnpm no empareja `allowBuilds: navori` con
+  un id `navori@file:<ruta>`, así que el caso con scripts habilita los builds de su proyecto
+  desechable. Mientras la lista de delegación permanente esté vacía, la delegación se prueba con un
+  subcomando que nadie porta y exige el banner del TS congelado.
+- **Workflow.** `.github/workflows/rust-release.yml` compila los cuatro binarios (musl estático
+  comprobado con `ldd`), arma los paquetes y corre la sonda en cada plataforma. No publica.
+
+### D54 — Integración del corte y orden del legacy (R20, R22, R24; T10 opción C)
+
+- **Merge commit, nunca squash ni rebase.** El pin del legacy (`packaging/legacy.json`) apunta a H, el
+  commit anterior al PR de corte. H tiene que quedar en la historia de `dev` y de `main` para que
+  `legacy --from-pin` pueda reconstruir el TS. `check-pin` lo verifica (`git merge-base --is-ancestor`)
+  en el job `legacy-pin` de `ci.yml`, que corre en todo PR a `main`.
+- **El legacy se publica como primer paso de g, no antes.** npm no permite republicar una versión: si
+  el legacy sale antes y después cambia el TS o `crates/ported.json`, todo el conjunto pasa a 0.13.1.
+- **`crates/ported.json` congelado entre el pin y g.** El legacy tiene que llevar el manifiesto del
+  release (`dist-assemble.mjs` rechaza otro); un cambio en ese tramo obliga a un pin nuevo y a una
+  versión nueva.
+- **`packages/cli` es privado.** Sigue siendo la fuente de la versión (`STAMP_VERSION`, el tag), pero
+  npm solo publica lo que arma `dist-assemble.mjs`; `check-pin` exige `private: true`.
+
+## Failure modes
+
+- **F44 — Un hook activado diverge en uso real.** Mitigación: R80 (vuelta a `shadow` con
+  `deactivate`) y la matriz fail-closed de R83.
+- **F45 — Una delegación permanente queda sin TS que la atienda.** Si el paquete se instala sin
+  `legacy/`, el subcomando delegado falla. Mitigación: la sonda de R84 ejecuta también un
+  subcomando de la lista de delegación permanente.
+- **F43 (de 0060) — El postinstall no corre o el binario no coincide.** Mitigación: lanzador por
+  Node o TS congelado (R22) y la sonda de R84.
+
+## Testing strategy
+
+- **Activación:** `hook-shadow-report.mjs` (R81, R82), `rust-manifest-check.mjs` con transiciones
+  (R79, R80), replay nativo de los 22 hooks, el fuzz de 100 000 entradas de los hooks con compuerta
+  (una corrida por lote) y la matriz fail-closed por engine (R83).
+- **Distribución y corte:** sondas de R84, `check:post-cutover` cronometrado (R18) y
+  `cutover:check` (R20).
+
+## NOT in scope
+
+- Portar los subcomandos de la lista de delegación permanente: siguen en el TS congelado y se
+  pueden portar después del corte, en specs propias.
+- Windows y otras plataformas sin binario: reciben el TS congelado (R22).
+- Publicar en npm: E2 ensaya sin publicar; la publicación sigue el paso manual del README tras E3.
+
+## Decisiones del usuario
+
+| Q | Resolución |
+|---|---|
+| Q26 | (2026-10-31) Partir la fase 4: 0060 se queda con la cola larga y 0062 con la activación, la distribución y el corte |
+| Q27 | (2026-10-31) Activación por evidencia mínima (D49): replay, fuzz de 100 000 y 7 días de sombra sin divergencias para hooks con compuerta; solo replay para advisory; sin umbral por clase |
+| Q28 | (2026-10-31) Corte con delegación permanente de subcomandos raros al TS congelado (D50) |
+| Q29 | (2026-10-31) Política de velocidad de D47 de 0060 en las tres specs abiertas (0059, 0060, 0062) |
+| Q30 | (2026-11-02) Partir el PR 1a: las herramientas (T1, T2, T4) entran sin esperar la ventana de sombra, que empezó el 2026-11-02; el lote 1 (T3) y el reporte de sombra de A1 van en 1a′ |
+| R18 | (2026-11-02) Paralelizar el replay de hooks y medir R18 por host: 300 s en la máquina de referencia y 600 s en CI (D52) |
+
+## Preguntas (abiertas)
+
+- **Q24 [human] — Cómo publicar los binarios.** Resuelta el 2026-11-24: plan B, paquetes de
+  plataforma sin scope (D51, #1808). Historial: aplazada el 2026-11-02; el 2026-11-20 se eligió
+  el plan A (org `navori`), reemplazado por el B.

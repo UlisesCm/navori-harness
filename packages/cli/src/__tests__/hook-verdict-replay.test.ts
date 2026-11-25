@@ -6,17 +6,25 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { expandHookIncludes } from "../lib/render/hook-includes.ts";
 import { getCoreRoot } from "../lib/render/bundled-assets.ts";
 import { runHookBatch, runHookIsolated } from "./helpers/hook-batch.ts";
-import { normalizeCorpusText, recordHookCase, type RawCorpusLine } from "./helpers/hook-corpus.ts";
+import {
+  normalizeCorpusText,
+  recordHookCase,
+  recordSpawnedHook,
+  type RawCorpusLine,
+} from "./helpers/hook-corpus.ts";
 
 /**
  * Spec 0055 R13 — corpus capture (inside the hook helpers) and replay tool. Fixed fixtures and a
@@ -31,13 +39,32 @@ interface Case {
   input: string;
   envDelta: Record<string, string>;
   cwdKind: "none" | "repo";
+  args?: string[];
+  fixture?: { path: string; content: string; mode?: number }[];
 }
 interface Verdict {
   status: number;
   stdout: string;
   stderr: string;
 }
+/** A committed corpus case: the invocation plus its recorded verdicts. */
+type CorpusCase = Case & {
+  expected: {
+    off: Verdict;
+    active: Verdict & { event: { metadata?: Record<string, unknown> }[] };
+  };
+};
 interface Replay {
+  readCorpus: () => CorpusCase[];
+  parseReplayArgs: (args: string[]) => {
+    impl: "shell" | "rust";
+    modes: string[];
+    only?: string[];
+    shell?: string;
+    registered?: boolean;
+    shard?: { index: number; count: number };
+  };
+  shardCases: <T>(cases: T[], shard: { index: number; count: number } | undefined) => T[];
   caseKey: (c: Case) => string;
   coverageRows: (
     cases: Case[],
@@ -58,12 +85,51 @@ interface Replay {
   replayCorpus: (options: {
     corpus: (Case & { expected: Record<string, unknown> })[];
     modes?: string[];
+    impl?: "shell" | "rust";
+    only?: string[];
     deps: {
       runHookBatch: typeof runHookBatch;
       resolveHook: (hook: string, engine: string, scratch: { bin: string }) => string;
     };
   }) => Promise<{ ok: boolean; cases: number; failure?: string }>;
   withActiveSession: (input: string) => string;
+  signedAssets: () => Promise<string>;
+  createScratch: () => { cleanup: () => void };
+  runMode: (
+    cases: Case[],
+    mode: "off" | "active",
+    deps:
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          binary: string;
+          impl: "rust";
+          scratch: { cleanup: () => void };
+        }
+      | {
+          resolveHook: (hook: string, engine: string) => string;
+          runHookBatch: typeof runHookBatch;
+          scratch: { cleanup: () => void };
+        },
+  ) => (Verdict & { event?: unknown[] })[];
+}
+
+type NativeResult =
+  | { available: true; status: number; stdout: Buffer; stderr: Buffer }
+  | { available: false; reason: string; modeDeferred?: true; toolDeferred?: true };
+interface RustAdapter {
+  runRustHook: (options: {
+    binary: string;
+    script: string;
+    input: string;
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    args?: string[];
+    timeoutMs?: number;
+  }) => NativeResult;
+  prepareRustReplay: (options: { manifestPath: string; binary: string; scriptsRoot?: string }) => {
+    binary: string;
+    resolveHook: (hook: string, engine: string) => string;
+  };
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +137,23 @@ const replay = (await import(
   pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "hook-verdict-replay.mjs"))
     .href
 )) as Replay;
+const { corpusAsset } = (await import(
+  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "corpus-asset.mjs")).href
+)) as { corpusAsset: (hooksDir: string, name: string) => string };
+const rustAdapter = (await import(
+  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "rust-hook-adapter.mjs"))
+    .href
+)) as RustAdapter;
+const replayPath = resolve(
+  here,
+  "..",
+  "..",
+  "..",
+  "..",
+  "scripts",
+  "js",
+  "hook-verdict-replay.mjs",
+);
 
 const mkdirp = (path: string): void => void mkdirSync(path, { recursive: true });
 const dirs: string[] = [];
@@ -124,7 +207,663 @@ const base = (input: string): Case => ({
   cwdKind: "repo",
 });
 
+/** Executable process-protocol fixture, never a native implementation or signed hook. */
+function nativeFixture(dir: string, source: string): string {
+  const path = join(dir, "native-process");
+  writeFileSync(path, `#!${process.execPath}\n${source}\n`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+describe("native hook replay transport", () => {
+  // Covers: R11
+  it("without a hooks dir, signs the expanded assets the corpus recorded, with their deps", async () => {
+    const repo = resolve(here, "..", "..", "..", "..");
+    const manifest = JSON.parse(readFileSync(join(repo, "crates", "ported.json"), "utf8")) as {
+      hooks: Record<string, { impl: string; deps?: Record<string, string> }>;
+    };
+    const dir = await replay.signedAssets();
+    try {
+      expect(Object.keys(manifest.hooks)).toContain("guard-destructive");
+      for (const [id, hook] of Object.entries(manifest.hooks)) {
+        // The bytes the corpus recorded: includes expanded and the roster policies rendered.
+        const asset = corpusAsset(join(repo, "packages/core/core-assets/hooks"), `${id}.sh`);
+        for (const engine of [".claude", ".codex", ".pi/navori"]) {
+          const signed = readFileSync(join(dir, engine, "hooks", `${id}.sh`), "utf8");
+          const header = /^# navori:native-hook v=1 file=sha256:([a-f0-9]{64}) impl=(\S+)\n/.exec(
+            signed,
+          );
+          expect(header?.[2]).toBe(hook.impl);
+          expect(signed.slice(header?.[0].length)).toBe(asset);
+          const digest = createHash("sha256").update(
+            signed.replace(/file=sha256:[a-f0-9]{64}/, `file=sha256:${"0".repeat(64)}`),
+          );
+          for (const [name, pinned] of Object.entries(hook.deps ?? {}).sort()) {
+            const bytes = readFileSync(join(dir, engine, name));
+            // The dependency is the source asset the manifest pins, not a rendered copy.
+            expect(`sha256:${createHash("sha256").update(bytes).digest("hex")}`).toBe(pinned);
+            digest.update(bytes);
+          }
+          expect(header?.[1]).toBe(digest.digest("hex"));
+        }
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R11
+  it("selects the same 232 corpus cases for a bare hook id and its .sh filename", () => {
+    const short = replay.parseReplayArgs([
+      "--impl",
+      "rust",
+      "--audit",
+      "off",
+      "--only",
+      "subagent-no-background",
+    ]);
+    const full = replay.parseReplayArgs([
+      "--impl",
+      "rust",
+      "--audit",
+      "off",
+      "--only",
+      "subagent-no-background.sh",
+    ]);
+    expect(short.only).toEqual(["subagent-no-background.sh"]);
+    const corpus = replay.readCorpus();
+    const selected = corpus.filter((entry) => short.only?.includes(entry.hook));
+    expect(selected).toHaveLength(232);
+    expect(selected).toEqual(corpus.filter((entry) => full.only?.includes(entry.hook)));
+    expect(short.modes).toEqual(["off"]);
+    expect(
+      replay.parseReplayArgs(["--impl", "rust", "--only", "subagent-no-background"]).modes,
+    ).toEqual(["off", "active"]);
+  });
+
+  // Covers: R81
+  it("--registered selects the manifest hooks and only for the native replay", () => {
+    expect(replay.parseReplayArgs(["--impl", "rust", "--registered"])).toMatchObject({
+      impl: "rust",
+      registered: true,
+    });
+    expect(() => replay.parseReplayArgs(["--registered"])).toThrow("--registered applies only");
+    expect(() =>
+      replay.parseReplayArgs(["--impl", "rust", "--registered", "--only", "a.sh"]),
+    ).toThrow("--registered applies only");
+  });
+
+  // Covers: R11
+  it("parses implementation, audit and hook selection explicitly", () => {
+    expect(replay.parseReplayArgs([])).toMatchObject({ impl: "shell", modes: ["off", "active"] });
+    expect(
+      replay.parseReplayArgs(["--impl", "rust", "--audit", "off", "--only", "a.sh,b.sh"]),
+    ).toMatchObject({
+      impl: "rust",
+      modes: ["off"],
+      only: ["a.sh", "b.sh"],
+    });
+    expect(
+      replay.parseReplayArgs(["--hook", "a.sh", "--audit", "active", "--shell", "zsh"]),
+    ).toMatchObject({
+      impl: "shell",
+      modes: ["active"],
+      only: ["a.sh"],
+      shell: "zsh",
+    });
+    for (const args of [
+      ["--impl", "other"],
+      ["--audit", "both"],
+      ["--unknown"],
+      ["--impl"],
+      ["--only", ""],
+      ["--only", "a.sh,"],
+      ["--hook", "../a.sh"],
+      ["--hook", "a.sh", "--only", "b.sh"],
+      ["--impl", "rust", "--shell", "bash"],
+      ["--coverage", "--impl", "shell"],
+      ["--generate", "raw", "--audit", "off"],
+      ["--check-stable"],
+      ["unexpected"],
+    ])
+      expect(() => replay.parseReplayArgs(args)).toThrow();
+  });
+
+  // Covers: R18
+  it("--shard i/n parte la selección en rebanadas disjuntas que juntas la cubren", () => {
+    expect(replay.parseReplayArgs(["--impl", "rust", "--shard", "2/4"]).shard).toEqual({
+      index: 2,
+      count: 4,
+    });
+    for (const args of [
+      ["--shard", "0/4"],
+      ["--shard", "5/4"],
+      ["--shard", "1"],
+      ["--shard", "1/0"],
+      ["--shard", "a/b"],
+      ["--coverage", "--shard", "1/2"],
+      ["--generate", "raw", "--shard", "1/2"],
+    ])
+      expect(() => replay.parseReplayArgs(args)).toThrow();
+    const corpus = replay.readCorpus();
+    const slices = [1, 2, 3, 4].map((index) => replay.shardCases(corpus, { index, count: 4 }));
+    expect(slices.flat().map(replay.caseKey).sort()).toEqual(corpus.map(replay.caseKey).sort());
+    expect(new Set(slices.flat()).size).toBe(corpus.length);
+    // round-robin: no slice is more than one case larger than another
+    const sizes = slices.map((s) => s.length);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+    expect(replay.shardCases(corpus, undefined)).toBe(corpus);
+  });
+
+  // Covers: R11
+  it("rejects unknown flags and zero selection at the actual CLI", () => {
+    for (const args of [
+      ["--unsupported"],
+      ["--only", "no-such-hook.sh"],
+      ["--only", "audit-writer"],
+      ["--generate", tmp()],
+    ]) {
+      const output = spawnSync(process.execPath, [replayPath, ...args], {
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      expect(output.error).toBeUndefined();
+      expect(output.status).toBe(1);
+      expect(output.stdout).not.toContain("cases identical");
+      expect(output.stderr).toMatch(/unknown option|no corpus cases/);
+    }
+  });
+
+  // Covers: R11
+  it("cannot substitute shell dependencies or zero runs for native execution", async () => {
+    const deps = {
+      runHookBatch: (): never => {
+        throw new Error("shell must not execute");
+      },
+      resolveHook: (): string => {
+        throw new Error("shell expansion must not execute");
+      },
+    };
+    const corpus = [{ ...base(""), expected: { off: { status: 0, stdout: "", stderr: "" } } }];
+    expect(await replay.replayCorpus({ corpus: [], deps })).toMatchObject({ ok: false, cases: 0 });
+    expect(await replay.replayCorpus({ corpus, modes: [], deps })).toMatchObject({ ok: false });
+    expect(await replay.replayCorpus({ corpus, only: ["other.sh"], deps })).toMatchObject({
+      ok: false,
+      cases: 0,
+    });
+    expect(await replay.replayCorpus({ corpus, modes: ["off"], impl: "rust", deps })).toMatchObject(
+      {
+        ok: false,
+        cases: 1,
+        // Empty registry or missing binary: either way no native verdict, never shell parity.
+        failure: expect.stringMatching(/^native unavailable: /),
+      },
+    );
+  });
+
+  // Covers: R11
+  it("rust reproduce el corpus o la categoría de su divergencia: active reads the native spool event", () => {
+    const dir = tmp();
+    const write = `const fs = require('node:fs'), path = require('node:path');
+const spool = path.join(process.env.NAVORI_AUDITS_ROOT, 'project', 'spool-corpus-active');
+fs.writeFileSync(path.join(spool, 'e-1.json'), JSON.stringify({ v: 1, host: 'claude', metadata: { ms: 7, tsMs: 1756000000123 } }));`;
+    const cases = [{ ...base('{"tool_name":"Bash"}') }];
+    const run = (source: string): (Verdict & { event?: unknown[] })[] => {
+      const scratch = replay.createScratch();
+      try {
+        return replay.runMode(cases, "active", {
+          resolveHook: () => join(dir, ".claude", "hooks", "fake.sh"),
+          binary: nativeFixture(dir, source),
+          impl: "rust",
+          scratch,
+        });
+      } finally {
+        scratch.cleanup();
+      }
+    };
+    const [recorded] = run(write);
+    const event = { v: 1, host: "claude", metadata: { ms: "<int>=0", tsMs: "<int13>" } };
+    expect(recorded).toEqual({ status: 0, stdout: "", stderr: "", event: [event] });
+    // A native run that records nothing cannot pass for the shell's event.
+    const [silent] = run("process.exit(0);");
+    expect(silent?.event).toEqual([]);
+    expect(replay.firstDifference(recorded as Verdict, silent as Verdict)).toMatchObject({
+      field: "event",
+    });
+  });
+
+  // Covers: R11, R12
+  it("spawns the supplied executable directly with exact argv/stdin and forced Rust", () => {
+    const dir = tmp();
+    const binary = nativeFixture(
+      dir,
+      `
+const fs = require('node:fs');
+process.stdout.write(JSON.stringify({ args: process.argv.slice(2), input: fs.readFileSync(0, 'utf8'), impl: process.env.NAVORI_HOOK_IMPL, cwd: process.cwd() }));
+process.stderr.write('diagnostic\\n\\n');
+process.exit(1);`,
+    );
+    const script = join(dir, ".codex", "hooks", "fixture.sh");
+    const input = '{"tool_input":{"command":"literal $(never-run)"}}\n\n';
+    const result = rustAdapter.runRustHook({
+      binary,
+      script,
+      input,
+      cwd: dir,
+      env: { NAVORI_HOOK_IMPL: "shell", PATH: "" },
+    });
+    expect(result.available).toBe(true);
+    if (!result.available) throw new Error(result.reason);
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout.toString("utf8")) as unknown).toEqual({
+      args: ["hook", "--via-script", script],
+      input,
+      impl: "rust",
+      cwd: realpathSync(dir),
+    });
+    expect(result.stderr).toEqual(Buffer.from("diagnostic\n\n"));
+    for (const status of [0, 2]) {
+      const native = nativeFixture(
+        dir,
+        `process.stdout.write('verdict\\n\\n'); process.exit(${status});`,
+      );
+      expect(rustAdapter.runRustHook({ binary: native, script, input })).toEqual({
+        available: true,
+        status,
+        stdout: Buffer.from("verdict\n\n"),
+        stderr: Buffer.alloc(0),
+      });
+    }
+    const bytes = nativeFixture(dir, "process.stdout.write(Buffer.from([0xff, 0, 10]));");
+    expect(rustAdapter.runRustHook({ binary: bytes, script, input })).toMatchObject({
+      available: true,
+      stdout: Buffer.from([0xff, 0, 10]),
+    });
+  });
+
+  // Covers: R51
+  it("tells a mode deferred by design apart from any other deferral", () => {
+    const dir = tmp();
+    const script = join(dir, ".codex", "hooks", "fixture.sh");
+    const rows: Array<[string, boolean]> = [
+      ["navori-rust: hook deferred: hook mode is not ported", true],
+      ["navori-rust: hook deferred: hook is ineligible: unsupported locale", false],
+      ["navori-rust: hook deferred: hook mode is not ported, eventually", true],
+      ["hook mode is not ported", false],
+    ];
+    for (const [stderr, byMode] of rows) {
+      const result = rustAdapter.runRustHook({
+        binary: nativeFixture(
+          dir,
+          `process.stderr.write(${JSON.stringify(`${stderr}\n`)}); process.exit(1);`,
+        ),
+        script,
+        input: "",
+        args: ["codex", "capture-start"],
+      });
+      if (stderr.startsWith("navori-rust: hook deferred: ")) {
+        expect(result).toMatchObject({ available: false });
+        expect(!result.available && result.modeDeferred === true).toBe(byMode);
+      } else {
+        expect(result).toMatchObject({ available: true, status: 1 });
+      }
+    }
+  });
+
+  // Covers: R51
+  it("reads the verdict of a process that ends before taking all of stdin (EPIPE)", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    // Larger than any pipe buffer, so the write is still pending when the process is gone.
+    const input = "x".repeat(4 * 1024 * 1024);
+    const deferred = nativeFixture(
+      dir,
+      `process.stderr.write(${JSON.stringify("navori-rust: hook deferred: hook is ineligible: unsupported locale\n")}); process.exit(1);`,
+    );
+    expect(rustAdapter.runRustHook({ binary: deferred, script, input })).toEqual({
+      available: false,
+      reason: "native runtime deferred; no native verdict was evaluated",
+    });
+    const blocks = nativeFixture(dir, "process.stdout.write('blocked'); process.exit(2);");
+    expect(rustAdapter.runRustHook({ binary: blocks, script, input })).toMatchObject({
+      available: true,
+      status: 2,
+      stdout: Buffer.from("blocked"),
+    });
+  });
+
+  // Covers: R70
+  it("retries once a call deferred by an expired probe deadline, and only that deferral", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    const count = join(dir, "count");
+    // Defers with `cause` on the first `defers` calls, then answers; counts every call.
+    const flaky = (cause: string, defers: number): string =>
+      nativeFixture(
+        dir,
+        [
+          "const fs = require('node:fs');",
+          `const n = fs.existsSync(${JSON.stringify(count)}) ? Number(fs.readFileSync(${JSON.stringify(count)}, 'utf8')) : 0;`,
+          `fs.writeFileSync(${JSON.stringify(count)}, String(n + 1));`,
+          `if (n < ${defers}) { process.stderr.write(${JSON.stringify(`navori-rust: hook deferred: hook is ineligible: ${cause}\n`)}); process.exit(1); }`,
+          "process.stdout.write('verdict');",
+        ].join("\n"),
+      );
+    const calls = (): number => Number(readFileSync(count, "utf8"));
+    const run = (binary: string): unknown => {
+      rmSync(count, { force: true });
+      return rustAdapter.runRustHook({ binary, script, input: "" });
+    };
+    expect(run(flaky("probe deadline expired resolving Bash", 1))).toMatchObject({
+      available: true,
+      status: 0,
+      stdout: Buffer.from("verdict"),
+    });
+    expect(calls()).toBe(2);
+    expect(run(flaky("probe deadline expired", 2))).toMatchObject({ available: false });
+    expect(calls()).toBe(2);
+    expect(run(flaky("unsupported locale", 1))).toMatchObject({ available: false });
+    expect(calls()).toBe(1);
+  });
+
+  // Covers: R70
+  it("accepts a missing-text-tool deferral only where the recorded shell died on that tool", () => {
+    const dir = tmp();
+    const absent =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: required legacy text tool is absent\\n'); process.exit(1);";
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, absent), script, input: "" }),
+    ).toMatchObject({ available: false, toolDeferred: true });
+    const noBash =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: legacy Bash is absent\\n'); process.exit(1);";
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, noBash), script, input: "" }),
+    ).toMatchObject({ available: false, toolDeferred: true });
+    const other =
+      "process.stderr.write('navori-rust: hook deferred: hook is ineligible: unsupported locale\\n'); process.exit(1);";
+    expect(
+      rustAdapter.runRustHook({ binary: nativeFixture(dir, other), script, input: "" }),
+    ).not.toHaveProperty("toolDeferred");
+    const run = (status: number): unknown => {
+      const scratch = replay.createScratch();
+      // The recorded verdict travels with the case, as in the committed corpus.
+      const recorded = { ...base("{}"), expected: { off: { status, stdout: "", stderr: "" } } };
+      try {
+        return replay.runMode([recorded], "off", {
+          resolveHook: () => script,
+          binary: nativeFixture(dir, absent),
+          impl: "rust",
+          scratch,
+        });
+      } finally {
+        scratch.cleanup();
+      }
+    };
+    expect(run(127)).toEqual([{ deferred: true, tool: true }]);
+    // A recorded verdict the shell did reach cannot be skipped by the same deferral.
+    expect(() => run(0)).toThrow(/native unavailable/);
+  });
+
+  // Covers: R11, R12
+  it("treats defer, forced missing implementation and process failures as unavailable", () => {
+    const dir = tmp();
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    for (const source of [
+      "process.stdout.write('discard partial'); process.exit(3);",
+      "process.stderr.write('navori-rust: hook deferred: hook has no compiled implementation\\n'); process.exit(1);",
+      "process.kill(process.pid, 'SIGTERM');",
+      "process.exit(101);",
+      "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);",
+    ]) {
+      const result = rustAdapter.runRustHook({
+        binary: nativeFixture(dir, source),
+        script,
+        input: "payload",
+        timeoutMs: 250,
+      });
+      expect(result).toMatchObject({ available: false });
+      expect(result).not.toHaveProperty("stdout");
+    }
+    expect(
+      rustAdapter.runRustHook({ binary: join(dir, "missing"), script, input: "" }),
+    ).toMatchObject({
+      available: false,
+    });
+    const denied = nativeFixture(dir, "process.exit(0);");
+    chmodSync(denied, 0o644);
+    expect(rustAdapter.runRustHook({ binary: denied, script, input: "" })).toMatchObject({
+      available: false,
+    });
+    expect(
+      rustAdapter.runRustHook({
+        binary: process.execPath,
+        script,
+        input: "",
+        cwd: join(dir, "missing"),
+      }),
+    ).toMatchObject({
+      available: false,
+      reason: "native process error: ENOENT",
+    });
+  });
+
+  // Covers: R11
+  it("requires a registered supported hook mode and an existing prepared script", () => {
+    const dir = tmp();
+    const manifestPath = join(dir, "ported.json");
+    const prepare = (): ReturnType<RustAdapter["prepareRustReplay"]> =>
+      rustAdapter.prepareRustReplay({ manifestPath, binary: process.execPath, scriptsRoot: dir });
+    writeFileSync(manifestPath, JSON.stringify({ schema: 2, hooks: {} }));
+    expect(prepare).toThrow("hook registry is empty");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "unknown" } } }),
+    );
+    expect(() => prepare().resolveHook("fixture.sh", "claude")).toThrow("unsupported hook mode");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
+    );
+    expect(() => prepare().resolveHook("other.sh", "claude")).toThrow("not registered");
+    expect(() =>
+      rustAdapter
+        .prepareRustReplay({ manifestPath, binary: process.execPath })
+        .resolveHook("fixture.sh", "claude"),
+    ).toThrow("prepared scripts are missing");
+    expect(() => prepare().resolveHook("fixture.sh", "claude")).toThrow();
+    // No signature or implementation is manufactured by the replay. Runtime validation is still required.
+    mkdirp(join(dir, ".claude", "hooks"));
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    writeFileSync(script, "transport fixture only");
+    expect(prepare().resolveHook("fixture.sh", "claude")).toBe(script);
+  });
+
+  // Covers: R11, R12
+  it("runs a shadow descriptor only through forced native argv and rejects an old deferring binary", () => {
+    const dir = tmp();
+    const binary = nativeFixture(
+      dir,
+      `
+const args = process.argv.slice(2);
+if (process.env.NAVORI_HOOK_IMPL !== 'rust' || args.length !== 3 || args[0] !== 'hook' || args[1] !== '--via-script') process.exit(101);
+process.stdout.write(JSON.stringify({ args, impl: process.env.NAVORI_HOOK_IMPL }));
+process.exit(1);`,
+    );
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    mkdirp(dirname(script));
+    writeFileSync(script, "transport fixture only; no real handler parity");
+    const manifestPath = join(dir, "ported.json");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "shadow" } } }),
+    );
+    const prepared = rustAdapter.prepareRustReplay({ manifestPath, binary, scriptsRoot: dir });
+    const resolved = prepared.resolveHook("fixture.sh", "claude");
+    const options = {
+      binary: prepared.binary,
+      script: resolved,
+      input: "payload",
+      env: { NAVORI_HOOK_IMPL: "shell" },
+    };
+    const result = rustAdapter.runRustHook(options);
+    expect(result.available).toBe(true);
+    if (!result.available) throw new Error(result.reason);
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout.toString("utf8"))).toEqual({
+      args: ["hook", "--via-script", script],
+      impl: "rust",
+    });
+    for (const source of [
+      "process.stdout.write('automatic shell verdict'); process.exit(3);",
+      "process.stderr.write('navori-rust: hook deferred: shadow execution is unavailable\\n'); process.exit(1);",
+    ]) {
+      writeFileSync(binary, `#!${process.execPath}\n${source}\n`);
+      expect(rustAdapter.runRustHook(options)).toMatchObject({
+        available: false,
+        reason: expect.stringContaining("deferred"),
+      });
+      expect(rustAdapter.runRustHook(options)).not.toHaveProperty("stdout");
+    }
+  });
+
+  // Covers: R11, R12
+  it("pins relative harness paths and PATH binaries before entering a restricted case", () => {
+    const dir = tmp();
+    const binary = nativeFixture(dir, "process.stdout.write(process.argv[4]);");
+    const script = join(dir, ".codex", "hooks", "fixture.sh");
+    mkdirp(dirname(script));
+    writeFileSync(script, "transport fixture only");
+    const manifestPath = join(dir, "ported.json");
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({ schema: 2, hooks: { fixture: { mode: "active" } } }),
+    );
+    const prepared = rustAdapter.prepareRustReplay({
+      manifestPath,
+      binary: relative(process.cwd(), binary),
+      scriptsRoot: relative(process.cwd(), dir),
+    });
+    const pinnedScript = prepared.resolveHook("fixture.sh", "codex");
+    expect(prepared.binary).toBe(realpathSync(binary));
+    expect(pinnedScript).toBe(script);
+    const elsewhere = tmp();
+    expect(
+      rustAdapter.runRustHook({
+        binary: prepared.binary,
+        script: pinnedScript,
+        input: "",
+        cwd: elsewhere,
+        env: { PATH: "" },
+      }),
+    ).toMatchObject({
+      available: true,
+      status: 0,
+      stdout: Buffer.from(script),
+    });
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = dir;
+      const pathBinary = rustAdapter.prepareRustReplay({
+        manifestPath,
+        binary: basename(binary),
+        scriptsRoot: dir,
+      });
+      expect(pathBinary.binary).toBe(realpathSync(binary));
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
+});
+
+/**
+ * Spec 0059 D35: the verdict classes each session hook must have in the committed corpus, per
+ * engine and registered mode, before it enters shadow. A class is the audit verdicts of the active
+ * run (`verdict` or `verdict:reason`, joined by `>`), or, for the advisory hooks whose verdict is
+ * always `skip`, whether stdout carries a notice.
+ */
+const SESSION_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  ...["claude", "codex", "pi"].map((engine) => ({
+    hook: "quality-gate-pre-commit.sh",
+    engine,
+    mode: "",
+    classes: [
+      "skip",
+      "gate-started>allow",
+      "gate-started>block",
+      "block",
+      ...(engine === "codex" ? [] : ["ask"]),
+    ],
+  })),
+  {
+    hook: "plan-gate.sh",
+    engine: "claude",
+    mode: "",
+    classes: [
+      "allow",
+      "block:plan-denied",
+      "ask:subcommand-unavailable",
+      "ask:binary-missing",
+      "block:binary-missing",
+    ],
+  },
+  {
+    hook: "plan-gate.sh",
+    engine: "codex",
+    mode: "",
+    classes: ["allow", "block:plan-denied", "block:subcommand-unavailable", "block:binary-missing"],
+  },
+  { hook: "subagent-stop-handoff.sh", engine: "codex", mode: "codex", classes: ["clean", "dirty"] },
+  ...["claude-session-start", "claude-post-model-switch"].map((mode) => ({
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode,
+    classes: ["silent"],
+  })),
+  {
+    hook: "model-advisor.sh",
+    engine: "claude",
+    mode: "claude-stop",
+    classes: ["notice", "silent"],
+  },
+  {
+    hook: "model-advisor.sh",
+    engine: "codex",
+    mode: "codex-session-start",
+    classes: ["notice", "silent"],
+  },
+];
+
 describe("hook verdict corpus", () => {
+  // Covers: R54
+  it("cada hook de sesi\u00f3n cubre cada clase de veredicto y modo por engine", () => {
+    const corpus = replay.readCorpus();
+    const classOf = (c: (typeof corpus)[number]): string => {
+      if (c.hook === "model-advisor.sh")
+        return c.expected.off.stdout.includes('"systemMessage"') ? "notice" : "silent";
+      return c.expected.active.event
+        .map(({ metadata = {} }) => {
+          const reason = metadata.reason;
+          return typeof reason === "string" && reason !== "unspecified" && reason !== ""
+            ? `${String(metadata.verdict)}:${reason}`
+            : String(metadata.verdict);
+        })
+        .join(">");
+    };
+    const missing = SESSION_HOOK_CLASSES.flatMap(({ hook, engine, mode, classes }) => {
+      const seen = new Set(
+        corpus
+          .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+          .map(classOf),
+      );
+      return classes
+        .filter((cls) => !seen.has(cls))
+        .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   // Covers: R13
   it("replays recorded CLI and Node paths without exposing tools to restricted cases", async () => {
     const dir = tmp();
@@ -309,10 +1048,25 @@ describe("hook verdict corpus", () => {
     expect(added[2]?.envDelta).toEqual({ CLAUDE_PROJECT_DIR: "@CWD@" });
     expect(added[2]?.input).toBe('{"cwd":"@CWD@","tool_name":"Agent"}');
 
+    // Covers: R54 — a state dir outside the case's temp cwd outlives the run: excluded.
+    const pad = (scratchpad: string) => JSON.stringify({ scratchpad_dir: scratchpad });
+    recordHookCase(hook, "bash", { input: pad(`${namedCwd}/pad`), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")), cwd: namedCwd });
+    recordHookCase(hook, "bash", { input: pad(join(dir, "pad")) });
+    expect(
+      rawLines(raw)
+        .slice(before + 4)
+        .map((l) => [l.status, l.reason ?? l.cwdKind]),
+    ).toEqual([
+      ["included", "none"],
+      ["excluded", "state-outside-cwd"],
+      ["excluded", "state-outside-cwd"],
+    ]);
+
     // Without the variable nothing is written.
     delete process.env.NAVORI_HOOK_CORPUS;
     runHookIsolated(hook, "bash", { input: payload });
-    expect(rawLines(raw)).toHaveLength(before + 4);
+    expect(rawLines(raw)).toHaveLength(before + 7);
   });
 
   // Covers: R13
@@ -383,6 +1137,120 @@ describe("hook verdict corpus", () => {
     ).toBeNull();
   });
 
+  // Covers: R54
+  it("los argumentos del hook viajan de la captura al replay shell y nativo", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const hook = installCoreHook(dir, "general-purpose-confirm.sh");
+    const payload = JSON.stringify({ tool_name: "Agent" });
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    // A direct spawn with a mode is recorded with it; without one the line has no `args` key, so
+    // every corpus recorded before modes keeps its exact bytes.
+    recordSpawnedHook("bash", [[hook, "claude-stop"], { input: payload }]);
+    recordSpawnedHook("bash", [[hook], { input: payload }]);
+    recordSpawnedHook("bash", [[hook, 3], { input: payload }]);
+    runHookBatch(hook, "bash", [{ input: payload, args: ["codex", "capture-start"] }]);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const lines = rawLines(raw);
+    expect(lines.map((l) => l.args)).toEqual([
+      ["claude-stop"],
+      undefined,
+      ["codex", "capture-start"],
+    ]);
+    expect(Object.keys(lines[1] ?? {})).not.toContain("args");
+
+    // Arguments make distinct cases; an argument-less key is the one recorded before T5.
+    const { cases } = replay.mergeRaw(lines);
+    expect(cases).toHaveLength(3);
+    const plain = base("x");
+    expect(replay.caseKey(plain)).toBe(
+      JSON.stringify([plain.hook, plain.engine, plain.shell, plain.cwdKind, "x", []]),
+    );
+    expect(replay.caseKey({ ...plain, args: [] })).toBe(replay.caseKey(plain));
+
+    // The batch and the isolated spawn hand the hook the same `$@` (quoting kept).
+    const echo = join(dir, "fixture", "echo.sh");
+    mkdirp(dirname(echo));
+    writeFileSync(echo, `printf '[%s]' "$@"\n`);
+    const args = ["codex", "two words", "it's"];
+    const [batched, none] = runHookBatch(echo, "bash", [{ input: "", args }, { input: "" }]);
+    expect(batched?.stdout).toBe("[codex][two words][it's]");
+    expect(none?.stdout).toBe("[]");
+    expect(runHookIsolated(echo, "bash", { input: "", args }).stdout).toBe(batched?.stdout);
+
+    // The native transport passes them after the script, as the rendered prologue passes `"$@"`.
+    const binary = nativeFixture(
+      dir,
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)));",
+    );
+    const script = join(dir, ".claude", "hooks", "fixture.sh");
+    const native = rustAdapter.runRustHook({ binary, script, input: "", args: ["claude-stop"] });
+    if (!native.available) throw new Error(native.reason);
+    expect(JSON.parse(native.stdout.toString("utf8")) as unknown).toEqual([
+      "hook",
+      "--via-script",
+      script,
+      "claude-stop",
+    ]);
+  });
+
+  // Covers: R54
+  it("el estado declarado del caso se recrea en el replay", () => {
+    const dir = tmp();
+    const raw = join(dir, "raw");
+    const cwd = mkdtempSync(join(tmpdir(), "navori-fixture-cwd-"));
+    dirs.push(cwd);
+    // A hook that reads declared state and runs a declared tool stub from the case's PATH.
+    const hook = join(dir, ".claude", "hooks", "fixture.sh");
+    mkdirp(dirname(hook));
+    writeFileSync(hook, 'cat state/flag\nprintf "|"\nnavori --version\n');
+    const fixture = [
+      { path: "state/flag", content: `at ${cwd}\n` },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ];
+    const c = { input: "{}", cwd, env: { PATH: `${cwd}/bin:/usr/bin:/bin` }, fixture };
+    const expected = `at ${cwd}\n|stub-9.9.9\n`;
+    expect(runHookBatch(hook, "bash", [c])[0]?.stdout).toBe(expected);
+    expect(runHookIsolated(hook, "bash", c).stdout).toBe(expected);
+
+    // Recorded with the cwd as a token, then replayed in a fresh empty cwd that never saw it.
+    process.env.NAVORI_HOOK_CORPUS = raw;
+    const core = installCoreHook(dir, "general-purpose-confirm.sh");
+    recordHookCase(core, "bash", c);
+    delete process.env.NAVORI_HOOK_CORPUS;
+    const [line] = rawLines(raw);
+    expect(line?.fixture).toEqual([
+      { path: "state/flag", content: "at @CWD@\n" },
+      { path: "bin/navori", content: "#!/bin/sh\necho stub-9.9.9\n", mode: 0o755 },
+    ]);
+    expect(line?.envDelta).toEqual({ PATH: "@CWD@/bin:/usr/bin:/bin" });
+    const [merged] = replay.mergeRaw(line === undefined ? [] : [line]).cases;
+    if (merged === undefined) throw new Error("no case");
+    expect(replay.caseKey(merged)).not.toBe(replay.caseKey({ ...merged, fixture: undefined }));
+    const scratch = replay.createScratch();
+    try {
+      const [out] = replay.runMode([merged], "off", {
+        resolveHook: () => hook,
+        runHookBatch,
+        scratch,
+      });
+      expect(out?.stdout).toBe("at @CASE@/none\n|stub-9.9.9\n");
+    } finally {
+      scratch.cleanup();
+    }
+
+    // A fixture never lands outside a temp cwd, nor escapes it, nor races another lane.
+    expect(() => runHookIsolated(hook, "bash", { ...c, cwd: process.cwd() })).toThrow(
+      /not under the temp dir/,
+    );
+    expect(() =>
+      runHookIsolated(hook, "bash", { ...c, fixture: [{ path: "../x", content: "" }] }),
+    ).toThrow(/stay under the case cwd/);
+    expect(() =>
+      runHookBatch(hook, "bash", [c, { ...c, fixture: [{ path: "other", content: "" }] }]),
+    ).toThrow(/different fixtures/);
+  });
+
   // Covers: R13
   it("ignora solo el número de línea de los diagnósticos del shell", () => {
     const base = { status: 2, stdout: "" };
@@ -420,5 +1288,99 @@ describe("hook verdict corpus", () => {
         { ...actual, event: { verdict: "deny" } },
       ),
     ).toMatchObject({ field: "event" });
+  });
+});
+
+/** A committed corpus case with what the class table reads (spec 0060 R71). */
+interface ClassedCase extends Case {
+  args?: string[];
+  expected: { active: { event: Array<{ metadata?: Record<string, unknown> }> } };
+}
+
+/**
+ * Verdict class of a case: the audit verdicts of its active run (`verdict` or `verdict:reason`,
+ * joined by `>`), the same reading as the session hooks of spec 0059 D35.
+ */
+function verdictClass(c: ClassedCase): string {
+  return c.expected.active.event
+    .map(({ metadata = {} }) => {
+      const reason = metadata.reason;
+      return typeof reason === "string" && reason !== "unspecified" && reason !== ""
+        ? `${String(metadata.verdict)}:${String(reason)}`
+        : String(metadata.verdict);
+    })
+    .join(">");
+}
+
+/**
+ * Classes each phase-4 hook must have in the corpus, per engine and mode, before shadow (R71).
+ * Pi runs these scripts too; its rows arrive with its native wiring (spec 0059 T29).
+ */
+const PHASE4_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  { hook: "general-purpose-confirm.sh", engine: "claude", mode: "", classes: ["skip", "ask"] },
+  { hook: "general-purpose-confirm.sh", engine: "codex", mode: "", classes: ["skip", "deny"] },
+];
+
+/**
+ * E1 hooks (spec 0060 T7). `master-plan-context` and the `navori codex approval request` arm of
+ * `pr-publisher-confirm` run a `navori` stub from the case's fixture
+ * (`session-hooks-corpus.test.ts`): the arm keeps the `deny` class whether it forwards navori's
+ * deny or falls back to the fixed one, and `master-plan-context` allows on every branch, so its
+ * cases tell the branches apart by output, not by class.
+ */
+const E1_HOOK_CLASSES: { hook: string; engine: string; mode: string; classes: string[] }[] = [
+  ...["claude", "codex"].flatMap((engine) => [
+    { hook: "master-plan-context.sh", engine, mode: "", classes: ["allow"] },
+    {
+      hook: "master-accept-confirm.sh",
+      engine,
+      mode: "",
+      classes: ["skip", engine === "codex" ? "deny" : "ask"],
+    },
+    { hook: "implementer-no-markdown.sh", engine, mode: "", classes: ["skip", "allow", "block"] },
+    {
+      hook: "comment-draft-confirm.sh",
+      engine,
+      mode: "",
+      classes: ["skip", engine === "codex" ? "deny" : "ask"],
+    },
+  ]),
+  {
+    hook: "pr-publisher-confirm.sh",
+    engine: "claude",
+    mode: "",
+    classes: ["skip", "allow", "ask"],
+  },
+  { hook: "pr-publisher-confirm.sh", engine: "codex", mode: "", classes: ["skip", "deny"] },
+  { hook: "role-guard.sh", engine: "codex", mode: "", classes: ["skip", "allow", "block"] },
+  { hook: "engram-write-guard.sh", engine: "codex", mode: "", classes: ["skip", "allow", "block"] },
+];
+
+/** `hook engine mode: class` for every class of `table` the committed corpus lacks. */
+function missingClasses(
+  table: { hook: string; engine: string; mode: string; classes: string[] }[],
+): string[] {
+  const corpus = replay.readCorpus() as ClassedCase[];
+  return table.flatMap(({ hook, engine, mode, classes }) => {
+    const seen = new Set(
+      corpus
+        .filter((c) => c.hook === hook && c.engine === engine && (c.args?.[0] ?? "") === mode)
+        .map((c) => verdictClass(c)),
+    );
+    return classes
+      .filter((cls) => !seen.has(cls))
+      .map((cls) => `${hook} ${engine} ${mode || "-"}: ${cls}`);
+  });
+}
+
+describe("hook verdict corpus — phase 4 classes", () => {
+  // Covers: R71
+  it("general-purpose-confirm cubre cada clase de veredicto por engine", () => {
+    expect(missingClasses(PHASE4_HOOK_CLASSES)).toEqual([]);
+  });
+
+  // Covers: R71
+  it("los hooks de E1 cubren cada clase de veredicto y modo por engine", () => {
+    expect(missingClasses(E1_HOOK_CLASSES)).toEqual([]);
   });
 });

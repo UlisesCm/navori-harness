@@ -1,0 +1,328 @@
+//! The managed-file branch of `collectRequest` (`engines/shared/execute-plan.ts`) and
+//! `planManagedFile` (`engines/claude/index.ts`), with `attachResolution` (spec 0058 T14): one
+//! asset rendered onto its destination becomes a write, a skip or nothing.
+
+use std::path::Path;
+
+use crate::STAMP_VERSION;
+use crate::i18n;
+use crate::markers::{
+    CommentStyle, InjectOptions, InjectStatus, MarkerMeta, inject_managed_section,
+};
+use crate::render::context::Lang;
+use crate::render::managed_file::{
+    ManagedFileDelegate, RenderManagedFileInput, forced_managed_file_content, render_managed_file,
+};
+use crate::render::plan::CORE_SOURCE_ID;
+
+/// Read access to the repo being rendered, by path relative to its root.
+pub trait RepoView {
+    /// `existsSync` + `readFileSync`: follows symlinks; `None` when absent or unreadable.
+    fn read(&self, rel: &str) -> Option<String>;
+    /// The content of a regular file (`lstat().isFile()`): `None` for symlinks and directories.
+    fn read_regular(&self, rel: &str) -> Option<String>;
+    /// `existsSync`: follows symlinks, true for directories.
+    fn exists(&self, rel: &str) -> bool;
+    /// `lstatSync(p, { throwIfNoEntry: false }) !== undefined`: true for a dangling symlink.
+    fn lexists(&self, rel: &str) -> bool;
+    /// `readdirSync` entry names; `None` when it throws.
+    fn list_dir(&self, rel: &str) -> Option<Vec<String>>;
+    /// `lstatSync(p).isSymbolicLink()`: `Some(false)` when absent (`ENOENT`), `None` when the
+    /// `lstat` fails any other way.
+    fn symlink(&self, rel: &str) -> Option<bool>;
+}
+
+/// [`RepoView`] over the repo on disk, rooted at its directory.
+#[derive(Debug, Clone, Copy)]
+pub struct DiskView<'a>(pub &'a Path);
+
+impl RepoView for DiskView<'_> {
+    fn read(&self, rel: &str) -> Option<String> {
+        std::fs::read_to_string(self.0.join(rel)).ok()
+    }
+
+    fn read_regular(&self, rel: &str) -> Option<String> {
+        let path = self.0.join(rel);
+        if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+            return None;
+        }
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn exists(&self, rel: &str) -> bool {
+        self.0.join(rel).exists()
+    }
+
+    fn lexists(&self, rel: &str) -> bool {
+        std::fs::symlink_metadata(self.0.join(rel)).is_ok()
+    }
+
+    fn list_dir(&self, rel: &str) -> Option<Vec<String>> {
+        let entries = std::fs::read_dir(self.0.join(rel)).ok()?;
+        Some(
+            entries
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect(),
+        )
+    }
+
+    fn symlink(&self, rel: &str) -> Option<bool> {
+        match std::fs::symlink_metadata(self.0.join(rel)) {
+            Ok(meta) => Some(meta.file_type().is_symlink()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(false),
+            Err(_) => None,
+        }
+    }
+}
+
+/// The path exists but `readFileSync` throws on it (a directory, say).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unreadable;
+
+/// `existsSync(p) ? readFileSync(p, "utf-8") : null`.
+///
+/// # Errors
+/// [`Unreadable`] when the path exists and is not a readable text file, where the TS throws.
+pub fn read_if_exists(view: &dyn RepoView, rel: &str) -> Result<Option<String>, Unreadable> {
+    if !view.exists(rel) {
+        return Ok(None);
+    }
+    view.read(rel).map(Some).ok_or(Unreadable)
+}
+
+/// A file the render would write (`PendingWrite`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingWrite {
+    /// Path relative to the repo root.
+    pub rel_path: String,
+    /// Full content.
+    pub content: String,
+    /// `created` or `updated`.
+    pub status: InjectStatus,
+    /// `chmod +x` after the write.
+    pub chmod_exec: bool,
+}
+
+/// A file navori refused to touch (`SkippedFile`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedFile {
+    /// Path relative to the repo root.
+    pub rel_path: String,
+    /// Localized reason.
+    pub reason: String,
+    /// `user-modified-skipped` or `downgrade-skipped`; `None` where the TS leaves it unset.
+    pub status: Option<InjectStatus>,
+    /// `resolution.content`: what `sync` would write to accept the rendered version.
+    pub resolution: Option<String>,
+    /// `markerlessResolution.content`: the whole-file replace only `sync --interactive` offers.
+    pub markerless_resolution: Option<String>,
+    /// `resolution.chmodExec`: the destination is written executable.
+    pub chmod_exec: bool,
+}
+
+/// What one managed file contributes to the plan.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Collected {
+    /// The write, when the destination changes.
+    pub write: Option<PendingWrite>,
+    /// The skip, when the destination is kept.
+    pub skip: Option<SkippedFile>,
+    /// `collision.overwrittenKeys`: a markerless destination adopted by name.
+    pub collision: Option<Vec<String>>,
+}
+
+/// Renders `input` (whose `existing` is the destination read through `view`) onto `rel_path`.
+///
+/// # Errors
+/// [`ManagedFileDelegate`] where the TS throws.
+pub fn collect_managed(
+    view: &dyn RepoView,
+    rel_path: &str,
+    input: &RenderManagedFileInput<'_>,
+    chmod_exec: bool,
+    lang: Lang,
+) -> Result<Collected, ManagedFileDelegate> {
+    let rendered = render_managed_file(input)?;
+    let mut collected = Collected {
+        collision: rendered.collision,
+        ..Collected::default()
+    };
+    match rendered.status {
+        InjectStatus::Unchanged => {}
+        InjectStatus::UserModifiedSkipped => {
+            // `attachResolution`: an existing regular file whose forced render differs can be
+            // resolved by `sync`, and the reason says so.
+            let resolution = input
+                .existing
+                .and(view.read_regular(rel_path))
+                .and(forced_managed_file_content(input).ok().flatten());
+            let reason = if resolution.is_some() {
+                i18n::managed_file_edited_resolvable(lang)
+            } else {
+                i18n::managed_block_edited_by_hand(lang)
+            };
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: reason.to_owned(),
+                status: Some(rendered.status),
+                resolution,
+                markerless_resolution: None,
+                chmod_exec,
+            });
+        }
+        InjectStatus::DowngradeSkipped => {
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: i18n::block_from_newer_navori(
+                    lang,
+                    rendered.details.existing_version.as_deref(),
+                ),
+                status: Some(rendered.status),
+                resolution: None,
+                markerless_resolution: None,
+                chmod_exec: false,
+            });
+        }
+        status => {
+            collected.write = Some(PendingWrite {
+                rel_path: rel_path.to_owned(),
+                content: rendered.content,
+                status,
+                chmod_exec,
+            });
+        }
+    }
+    Ok(collected)
+}
+
+/// A `PlacementRequest` with a `body` instead of an asset.
+#[derive(Debug, Clone, Copy)]
+pub struct BodyRequest<'a> {
+    /// `destRelPath`.
+    pub rel_path: &'a str,
+    /// `managedId`.
+    pub managed_id: &'a str,
+    /// The block body.
+    pub body: &'a str,
+    /// `commentStyle`.
+    pub style: CommentStyle,
+    /// `firstRenderSeed.header`: what an absent destination starts as.
+    pub header: &'a str,
+    /// `firstRenderSeed.trailer`: appended after the block on the first render.
+    pub trailer: &'a str,
+}
+
+impl<'a> BodyRequest<'a> {
+    /// A request without a first-render seed.
+    #[must_use]
+    pub const fn new(
+        rel_path: &'a str,
+        managed_id: &'a str,
+        body: &'a str,
+        style: CommentStyle,
+    ) -> Self {
+        Self {
+            rel_path,
+            managed_id,
+            body,
+            style,
+            header: "",
+            trailer: "",
+        }
+    }
+}
+
+/// A `body` request of `collectRequest`: `body` injected as navori's block into the destination
+/// (the seed header when absent), with `attachResolution` for a hand-edited block.
+///
+/// # Errors
+/// [`Unreadable`] when the destination exists but cannot be read.
+pub fn collect_body(
+    view: &dyn RepoView,
+    request: &BodyRequest<'_>,
+    ambient_floor: Option<&str>,
+    lang: Lang,
+) -> Result<Collected, Unreadable> {
+    let BodyRequest {
+        rel_path,
+        managed_id,
+        body,
+        style,
+        header,
+        trailer,
+    } = *request;
+    let existing = read_if_exists(view, rel_path)?;
+    let basis = existing.clone().unwrap_or_else(|| header.to_owned());
+    let meta = MarkerMeta {
+        source: Some(CORE_SOURCE_ID.to_owned()),
+        version: Some(STAMP_VERSION.to_owned()),
+        ..MarkerMeta::default()
+    };
+    let inject = |force_overwrite: bool| {
+        inject_managed_section(
+            &basis,
+            managed_id,
+            body,
+            &meta,
+            InjectOptions {
+                shell: style == CommentStyle::Shell,
+                force_overwrite,
+                ambient_floor,
+                ..InjectOptions::default()
+            },
+        )
+    };
+    let result = inject(false);
+    let mut collected = Collected::default();
+    match result.status {
+        InjectStatus::Unchanged => {}
+        InjectStatus::UserModifiedSkipped => {
+            let forced = inject(true);
+            let resolution = existing
+                .as_ref()
+                .and(view.read_regular(rel_path))
+                .filter(|_| forced.details.downgrade != Some(true))
+                .map(|_| forced.output)
+                .filter(|content| *content != basis);
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: if resolution.is_some() {
+                    i18n::managed_file_edited_resolvable(lang)
+                } else {
+                    i18n::managed_block_edited_by_hand(lang)
+                }
+                .to_owned(),
+                status: Some(result.status),
+                resolution,
+                markerless_resolution: None,
+                chmod_exec: false,
+            });
+        }
+        InjectStatus::DowngradeSkipped => {
+            collected.skip = Some(SkippedFile {
+                rel_path: rel_path.to_owned(),
+                reason: i18n::block_from_newer_navori(
+                    lang,
+                    result.details.existing_version.as_deref(),
+                ),
+                status: Some(result.status),
+                resolution: None,
+                markerless_resolution: None,
+                chmod_exec: false,
+            });
+        }
+        status => {
+            let mut content = result.output;
+            if existing.is_none() {
+                content.push_str(trailer);
+            }
+            collected.write = Some(PendingWrite {
+                rel_path: rel_path.to_owned(),
+                content,
+                status,
+                chmod_exec: false,
+            });
+        }
+    }
+    Ok(collected)
+}

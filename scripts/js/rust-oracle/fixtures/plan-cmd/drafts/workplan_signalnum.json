@@ -1,0 +1,12 @@
+{
+  "files": [
+    {
+      "path": "a.ts"
+    }
+  ],
+  "classification": {
+    "signals": [
+      1
+    ]
+  }
+}

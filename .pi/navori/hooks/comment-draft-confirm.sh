@@ -1,5 +1,19 @@
-# navori:managed start id="comment-draft-confirm-base" hash="33ed30fa" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:44f9131da1062ee8fccffeca67a0d95f616d9cef30933fac4e51b944b5b2c78d impl=sha256:cd9655219d8641d08c21230ac2525a1835f4e9f7c0540f27b646d52e99fe2eaf
+# navori:managed start id="comment-draft-confirm-base" hash="38fba89b" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: comment-draft-confirm native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: comment-draft-confirm could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: comment-draft-confirm native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
 # issue — `gh pr/issue comment`, `gh pr review` with a body, `gh issue create`,

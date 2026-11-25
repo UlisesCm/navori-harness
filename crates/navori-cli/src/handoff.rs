@@ -1,0 +1,1445 @@
+//! `navori handoff check|render|log-review <feature>`, native (spec 0060 T10, R73/R74).
+//!
+//! The command layer of `commands/handoff.ts` over `navori_core::handoff`. Everything is read and
+//! decided before the first byte of output or the first write, so whatever Rust does not
+//! reproduce returns `None` and the invocation goes to the TS: an argv citty might read
+//! differently, a config `readConfig` rejects, a JSON `JSON.parse` or zod would reject (their
+//! messages are V8's and zod's), a file that is not UTF-8, review evidence the core does not
+//! model (`navori_core::handoff::review_evidence`), a `--since` that is not ISO UTC, the
+//! scribe's `--parallel` authority, a state root the TS would throw on outside a caught path,
+//! and a possible audit event (`log-review` with an audit session).
+//! `attest` is native over `navori_core::handoff::attest`. The parallel producers
+//! (`prepare-parallel`, `begin-parallel`, `complete-parallel`, `finalize-parallel`) are not in the
+//! manifest: they always delegate.
+
+use std::ffi::OsString;
+use std::path::Path;
+use std::process::{Command, ExitCode, Stdio};
+
+use navori_core::config::Config;
+use navori_core::fs::{Fs, RealFs};
+use navori_core::handoff::attest::{Attest, AttestInput, plan_attest};
+use navori_core::handoff::implementation::{self, ImplHandoff};
+use navori_core::handoff::review::{self, FINDINGS_LOG_NAME};
+use navori_core::handoff::review_check::{ReviewCheck, check_review_handoff};
+use navori_core::handoff::review_evidence::{EvidenceOptions, review_evidence_warning};
+use navori_core::js_json::{self, JsValue};
+use navori_core::posix::js_trim;
+use navori_core::state_files::{self, Refusal, StateRoot};
+use sha2::{Digest as _, Sha256};
+
+use crate::help::{ArgDef, ArgKind, CommandDef, Paint, Parent, citty_no_color};
+use crate::native_io::{Output, json_line, member, number, object, read_config, string};
+use crate::{NativeCall, Outcome};
+
+const FEATURE: ArgDef = ArgDef {
+    name: "feature",
+    kind: ArgKind::Positional,
+    description: "Feature slug",
+};
+const JSON: ArgDef = ArgDef {
+    name: "json",
+    kind: ArgKind::Boolean,
+    description: "Output as JSON",
+};
+
+const CHECK: CommandDef = CommandDef {
+    name: "check",
+    description: "Validate impl_<feature>.json (or .md under scribeOwnsMarkdown:false) before dispatch",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "for",
+            kind: ArgKind::String,
+            description: "Consumer running the check: orchestrator (default), scribe or publisher",
+        },
+        ArgDef {
+            name: "produced-by",
+            kind: ArgKind::String,
+            description: "Validate the handoff a role produced instead of one a consumer needs: reviewer (review_<feature>.md/.json + sealed evidence)",
+        },
+        ArgDef {
+            name: "since",
+            kind: ArgKind::String,
+            description: "With --produced-by reviewer: ISO UTC time the review must have begun at or after",
+        },
+        ArgDef {
+            name: "target",
+            kind: ArgKind::String,
+            description: "Current review target branch",
+        },
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "Progress directory",
+        },
+        ArgDef {
+            name: "cwd",
+            kind: ArgKind::String,
+            description: "Checkout to validate (scribe: the one it will edit)",
+        },
+        JSON,
+        ArgDef {
+            name: "parallel",
+            kind: ArgKind::Boolean,
+            description: "Validate prior parallel authority for the scribe",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const LOG_REVIEW: CommandDef = CommandDef {
+    name: "log-review",
+    description: "Validate review_<feature>.json and append findings with score >= 50 to findings.jsonl (deduped)",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "Progress directory",
+        },
+        ArgDef {
+            name: "cwd",
+            kind: ArgKind::String,
+            description: "Checkout to operate on",
+        },
+        JSON,
+    ],
+    sub_commands: &[],
+};
+
+const RENDER: CommandDef = CommandDef {
+    name: "render",
+    description: "Render impl_<feature>.md from impl_<feature>.json (only with harness.scribeOwnsMarkdown: true)",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "State directory",
+        },
+        ArgDef {
+            name: "cwd",
+            kind: ArgKind::String,
+            description: "Checkout to operate on",
+        },
+        JSON,
+    ],
+    sub_commands: &[],
+};
+
+const P_FEATURE: ArgDef = ArgDef {
+    name: "feature",
+    kind: ArgKind::Positional,
+    description: "Feature slug",
+};
+const P_TARGET: ArgDef = ArgDef {
+    name: "target",
+    kind: ArgKind::String,
+    description: "Review target branch",
+};
+const P_TARGET_REQUIRED: ArgDef = ArgDef {
+    name: "target",
+    kind: ArgKind::RequiredString,
+    description: "Review target branch",
+};
+const P_DIR: ArgDef = ArgDef {
+    name: "dir",
+    kind: ArgKind::String,
+    description: "State directory",
+};
+const P_JSON: ArgDef = ArgDef {
+    name: "json",
+    kind: ArgKind::Boolean,
+    description: "Output JSON",
+};
+const P_RUN: ArgDef = ArgDef {
+    name: "run",
+    kind: ArgKind::RequiredString,
+    description: "Run ID from prior authorization",
+};
+
+const PREPARE: CommandDef = CommandDef {
+    name: "prepare-parallel",
+    description: "Bind immutable approved level-3 parallel scope",
+    args: &[
+        P_FEATURE,
+        P_TARGET_REQUIRED,
+        P_DIR,
+        P_JSON,
+        ArgDef {
+            name: "request",
+            kind: ArgKind::RequiredString,
+            description: "Prior parallel request JSON file",
+        },
+        ArgDef {
+            name: "supersede",
+            kind: ArgKind::String,
+            description: "Explicit previous parallel run ID",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const BEGIN: CommandDef = CommandDef {
+    name: "begin-parallel",
+    description: "Start the native producer's immutable parallel work interval",
+    args: &[P_FEATURE, P_TARGET, P_DIR, P_JSON, P_RUN],
+    sub_commands: &[],
+};
+
+const COMPLETE: CommandDef = CommandDef {
+    name: "complete-parallel",
+    description: "Seal the native producer's own parallel paths",
+    args: &[
+        P_FEATURE,
+        P_TARGET,
+        P_DIR,
+        P_JSON,
+        P_RUN,
+        ArgDef {
+            name: "status",
+            kind: ArgKind::RequiredString,
+            description: "DONE or BLOCKED",
+        },
+        ArgDef {
+            name: "reason",
+            kind: ArgKind::String,
+            description: "Required blocker description when status is BLOCKED",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const FINALIZE: CommandDef = CommandDef {
+    name: "finalize-parallel",
+    description: "Join both producers after serial render and shared checks",
+    args: &[P_FEATURE, P_TARGET_REQUIRED, P_DIR, P_JSON],
+    sub_commands: &[],
+};
+
+const ATTEST: CommandDef = CommandDef {
+    name: "attest",
+    description: "Attest delivery ownership from the native producer context",
+    args: &[
+        FEATURE,
+        ArgDef {
+            name: "target",
+            kind: ArgKind::String,
+            description: "Review target branch",
+        },
+        ArgDef {
+            name: "dir",
+            kind: ArgKind::String,
+            description: "State directory",
+        },
+        ArgDef {
+            name: "json",
+            kind: ArgKind::Boolean,
+            description: "Output JSON",
+        },
+    ],
+    sub_commands: &[],
+};
+
+const HANDOFF: CommandDef = CommandDef {
+    name: "handoff",
+    description: "Validate the implementer's handoff before dispatch",
+    args: &[],
+    sub_commands: &[
+        (
+            "prepare-parallel",
+            "Bind immutable approved level-3 parallel scope",
+        ),
+        (
+            "begin-parallel",
+            "Start the native producer's immutable parallel work interval",
+        ),
+        (
+            "complete-parallel",
+            "Seal the native producer's own parallel paths",
+        ),
+        (
+            "finalize-parallel",
+            "Join both producers after serial render and shared checks",
+        ),
+        (
+            "attest",
+            "Attest delivery ownership from the native producer context",
+        ),
+        ("check", CHECK.description),
+        ("log-review", LOG_REVIEW.description),
+        ("render", RENDER.description),
+    ],
+};
+
+/// Names `name in subCommands` finds on `Object.prototype`: citty would run them as commands.
+const PROTOTYPE_KEYS: &[&str] = &[
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+    "__proto__",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+];
+
+const ROOT: Parent<'static> = Parent {
+    name: "navori",
+    version: Some(navori_core::VERSION),
+};
+
+const HANDOFF_PARENT: Parent<'static> = Parent {
+    name: "handoff",
+    version: None,
+};
+
+/// Which manifest entry selected the invocation: each row runs only its own subcommand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Group,
+    Check,
+    Render,
+    LogReview,
+    Attest,
+    Prepare,
+    Begin,
+    Complete,
+    Finalize,
+}
+
+/// `handoff prepare-parallel`.
+#[must_use]
+pub fn run_prepare(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Prepare))
+}
+
+/// `handoff begin-parallel`.
+#[must_use]
+pub fn run_begin(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Begin))
+}
+
+/// `handoff complete-parallel`.
+#[must_use]
+pub fn run_complete(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Complete))
+}
+
+/// `handoff finalize-parallel`.
+#[must_use]
+pub fn run_finalize(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Finalize))
+}
+
+/// `handoff attest`.
+#[must_use]
+pub fn run_attest(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Attest))
+}
+
+/// `handoff` alone: usage, `--help` and unknown subcommands.
+#[must_use]
+pub fn run_group(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Group))
+}
+
+/// `handoff check`.
+#[must_use]
+pub fn run_check(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Check))
+}
+
+/// `handoff render`.
+#[must_use]
+pub fn run_render(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::Render))
+}
+
+/// `handoff log-review`.
+#[must_use]
+pub fn run_log_review(call: &NativeCall<'_>) -> Outcome {
+    outcome(run(call.args, Row::LogReview))
+}
+
+fn outcome(code: Option<ExitCode>) -> Outcome {
+    code.map_or(Outcome::Delegate, Outcome::Exit)
+}
+
+fn run(args: &[OsString], row: Row) -> Option<ExitCode> {
+    let argv: Vec<&str> = args.iter().map(|a| a.to_str()).collect::<Option<_>>()?;
+    let (first, rest) = argv.split_first()?;
+    if *first != "handoff" || rest.contains(&"--") {
+        return None;
+    }
+    let is_help = |a: &&str| *a == "--help" || *a == "-h";
+    let help = rest.iter().any(is_help);
+    let at = rest.iter().position(|a| !a.starts_with('-'));
+    if rest[..at.unwrap_or(rest.len())].iter().any(|a| !is_help(a)) {
+        return None;
+    }
+    let Some(at) = at else {
+        if row != Row::Group {
+            return None;
+        }
+        let error = (!help).then(|| "No command specified.".to_owned());
+        return Some(Output::usage(&HANDOFF, ROOT, error).emit());
+    };
+    let (leaf, leaf_row) = match rest[at] {
+        "check" => (&CHECK, Row::Check),
+        "render" => (&RENDER, Row::Render),
+        "log-review" => (&LOG_REVIEW, Row::LogReview),
+        "attest" => (&ATTEST, Row::Attest),
+        "prepare-parallel" => (&PREPARE, Row::Prepare),
+        "begin-parallel" => (&BEGIN, Row::Begin),
+        "complete-parallel" => (&COMPLETE, Row::Complete),
+        "finalize-parallel" => (&FINALIZE, Row::Finalize),
+        name if row != Row::Group
+            || PROTOTYPE_KEYS.contains(&name)
+            || HANDOFF.sub_commands.iter().any(|(sub, _)| *sub == name) =>
+        {
+            return None;
+        }
+        name => {
+            let error = (!help).then(|| {
+                let paint = Paint {
+                    color: !citty_no_color(),
+                };
+                format!("Unknown command {}", paint.cyan(name))
+            });
+            return Some(Output::usage(&HANDOFF, ROOT, error).emit());
+        }
+    };
+    if leaf_row != row {
+        return None;
+    }
+    if help {
+        return Some(Output::usage(leaf, HANDOFF_PARENT, None).emit());
+    }
+    let strings: &[&str] = match row {
+        Row::Check => &[
+            "for",
+            "target",
+            "dir",
+            "cwd",
+            "produced-by",
+            "since",
+            "parallel",
+        ],
+        Row::Attest | Row::Finalize => &["target", "dir"],
+        Row::Prepare => &["target", "dir", "request", "supersede"],
+        Row::Begin => &["target", "dir", "run"],
+        Row::Complete => &["target", "dir", "run", "status", "reason"],
+        _ => &["dir", "cwd"],
+    };
+    let options = parse_leaf(&rest[at + 1..], strings)?;
+    let Some(feature) = options.feature else {
+        let error = "Missing required positional argument: FEATURE".to_owned();
+        return Some(Output::usage(leaf, HANDOFF_PARENT, Some(error)).emit());
+    };
+    let process_cwd = std::env::current_dir().ok()?;
+    let process_cwd = process_cwd.to_str()?;
+    let out = match row {
+        Row::Check => check(feature, &options, process_cwd)?,
+        Row::Render => render(feature, &options, process_cwd)?,
+        Row::LogReview => log_review(feature, &options, process_cwd)?,
+        Row::Attest => attest(feature, &options, process_cwd)?,
+        Row::Prepare | Row::Begin | Row::Complete | Row::Finalize => {
+            producer(row, feature, &options, process_cwd)?
+        }
+        Row::Group => return None,
+    };
+    Some(out.emit())
+}
+
+/// The args of a leaf as citty would read them.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct LeafOptions<'a> {
+    feature: Option<&'a str>,
+    strings: Vec<(&'static str, &'a str)>,
+    json: bool,
+    /// `--parallel` (only `check` declares it).
+    parallel: bool,
+}
+
+impl<'a> LeafOptions<'a> {
+    fn get(&self, name: &str) -> Option<&'a str> {
+        self.strings
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| *value)
+    }
+}
+
+/// `None` for any shape whose citty reading is not certain: unknown or short options, `--no-*`,
+/// `--json=<v>`, a repeated string option, or a value that is empty or looks like an option.
+fn parse_leaf<'a>(tokens: &[&'a str], names: &[&'static str]) -> Option<LeafOptions<'a>> {
+    let mut options = LeafOptions::default();
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = tokens[index];
+        index += 1;
+        if token == "--json" {
+            options.json = true;
+            continue;
+        }
+        if token == "--parallel" && names.contains(&"parallel") {
+            options.parallel = true;
+            continue;
+        }
+        let Some(body) = token.strip_prefix("--") else {
+            if token.starts_with('-') {
+                return None;
+            }
+            if options.feature.is_none() {
+                options.feature = Some(token);
+            }
+            continue;
+        };
+        let (name, inline) = body
+            .split_once('=')
+            .map_or((body, None), |(n, v)| (n, Some(v)));
+        let name = *names
+            .iter()
+            .find(|known| **known == name && **known != "parallel")?;
+        if options.get(name).is_some() {
+            return None;
+        }
+        let value = if let Some(inline) = inline {
+            inline
+        } else {
+            let next = *tokens.get(index)?;
+            index += 1;
+            next
+        };
+        if value.is_empty() || value.starts_with('-') {
+            return None;
+        }
+        options.strings.push((name, value));
+    }
+    Some(options)
+}
+
+/// `git <args>` in `cwd` as `spawnSync` runs it: the trimmed stdout, or `None` when git fails.
+/// `Err` when its output is not UTF-8.
+fn git(cwd: &str, args: &[&str]) -> Result<Option<String>, ()> {
+    let Ok(output) = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Ok(None);
+    };
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8(output.stdout).map_err(|_| ())?;
+    Ok(Some(js_trim(&text).to_owned()))
+}
+
+fn realpath(path: &str) -> Option<Option<String>> {
+    match std::fs::canonicalize(path) {
+        Ok(real) => real.to_str().map(|s| Some(s.to_owned())),
+        Err(_) => Some(None),
+    }
+}
+
+fn print_warnings(out: &mut Output, config: &Config) {
+    for warning in &config.warnings {
+        out.stderr.push_str(warning);
+        out.stderr.push('\n');
+    }
+}
+
+/// `readConfig(...).harness?.scribeOwnsMarkdown ?? false`.
+fn scribe_owns_markdown(config: &Config) -> bool {
+    matches!(
+        member(member(Some(&config.data), "harness"), "scribeOwnsMarkdown"),
+        Some(JsValue::Bool(true))
+    )
+}
+
+/// Reads a state artifact as text: `Ok(None)` when absent, `None` when Rust cannot reproduce the
+/// read (an error the TS would throw, or bytes that are not UTF-8).
+fn read_artifact(path: &str) -> Option<Option<String>> {
+    if std::fs::metadata(path).is_err() {
+        return Some(None);
+    }
+    let bytes = std::fs::read(path).ok()?;
+    String::from_utf8(bytes).ok().map(Some)
+}
+
+// ---------------------------------------------------------------------------------------------
+// check
+
+/// `HandoffCheckResult`.
+struct CheckResult {
+    consumer: &'static str,
+    status: &'static str,
+    failures: Vec<(&'static str, String)>,
+    warnings: Vec<(&'static str, String)>,
+    worktree: Option<String>,
+    branch: Option<String>,
+}
+
+impl CheckResult {
+    fn new(consumer: &'static str) -> Self {
+        Self {
+            consumer,
+            status: "ok",
+            failures: Vec::new(),
+            warnings: Vec::new(),
+            worktree: None,
+            branch: None,
+        }
+    }
+
+    fn settle(mut self) -> Self {
+        self.status = if self.failures.is_empty() {
+            "ok"
+        } else {
+            "findings"
+        };
+        self
+    }
+
+    /// The `catch` of `checkHandoffBase`.
+    fn error(consumer: &'static str, detail: String) -> Self {
+        let mut result = Self::new(consumer);
+        result.status = "error";
+        result.failures.push(("exists", detail));
+        result
+    }
+
+    fn to_json(&self, feature: &str) -> JsValue {
+        let entries = |list: &[(&str, String)]| {
+            JsValue::Array(
+                list.iter()
+                    .map(|(check, detail)| {
+                        object(vec![("check", string(check)), ("detail", string(detail))])
+                    })
+                    .collect(),
+            )
+        };
+        let nullable = |v: &Option<String>| v.as_deref().map_or(JsValue::Null, string);
+        object(vec![
+            ("formatVersion", number(1)),
+            ("feature", string(feature)),
+            ("consumer", string(self.consumer)),
+            ("status", string(self.status)),
+            ("failures", entries(&self.failures)),
+            ("warnings", entries(&self.warnings)),
+            ("worktree", nullable(&self.worktree)),
+            ("branch", nullable(&self.branch)),
+        ])
+    }
+
+    /// `formatResult`.
+    fn text(&self) -> String {
+        if self.status == "ok" && self.warnings.is_empty() {
+            return "OK".to_owned();
+        }
+        let lines: Vec<String> = self
+            .failures
+            .iter()
+            .map(|(check, detail)| format!("FAIL[{check}]: {detail}"))
+            .chain(
+                self.warnings
+                    .iter()
+                    .map(|(check, detail)| format!("WARN[{check}]: {detail}")),
+            )
+            .collect();
+        if lines.is_empty() {
+            "OK".to_owned()
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    const fn exit_code(&self) -> u8 {
+        match self.status.as_bytes() {
+            b"ok" => 0,
+            b"error" => 1,
+            _ => 2,
+        }
+    }
+}
+
+/// An artifact path for `checkHandoffBase`: its message is a caught `error` result.
+fn check_artifact(
+    root: &StateRoot,
+    name: &str,
+    consumer: &'static str,
+) -> Option<Result<String, CheckResult>> {
+    match state_files::artifact_path(root, name) {
+        Ok(path) => Some(Ok(path)),
+        Err(Refusal::Message(detail)) => Some(Err(CheckResult::error(consumer, detail))),
+        Err(Refusal::Unmodeled) => None,
+    }
+}
+
+/// `checkLegacyMarkdown`.
+fn check_legacy(root: &StateRoot, feature: &str, consumer: &'static str) -> Option<CheckResult> {
+    let path = match check_artifact(root, &format!("impl_{feature}.md"), consumer)? {
+        Ok(path) => path,
+        Err(error) => return Some(error),
+    };
+    let mut result = CheckResult::new(consumer);
+    result.warnings.push((
+        "legacy-md",
+        "harness.scribeOwnsMarkdown is off; checked impl_<feature>.md instead of the JSON handoff"
+            .to_owned(),
+    ));
+    match read_artifact(&path)? {
+        None => result
+            .failures
+            .push(("exists", format!("{path} not found"))),
+        Some(content) if js_trim(&content).is_empty() => {
+            result.failures.push(("exists", format!("{path} is empty")));
+        }
+        Some(content) if !implementation::has_status_line(&content)? => {
+            result
+                .failures
+                .push(("parse", format!("{path} has no \"Status:\" line")));
+        }
+        Some(_) => {}
+    }
+    Some(result.settle())
+}
+
+/// The scribe's identity check (R16) over a handoff whose feature matched.
+fn check_scribe(
+    result: &mut CheckResult,
+    data: &ImplHandoff,
+    cwd: &str,
+    process_cwd: &str,
+) -> Option<()> {
+    let toplevel = git(cwd, &["rev-parse", "--show-toplevel"]).ok()?;
+    let real_toplevel = match &toplevel {
+        Some(top) => realpath(top)?,
+        None => None,
+    };
+    let real_worktree = realpath(&data.worktree)?;
+    if real_toplevel.is_none() || real_worktree.is_none() || real_toplevel != real_worktree {
+        let shown = real_toplevel
+            .clone()
+            .or_else(|| toplevel.clone())
+            .unwrap_or_else(|| "(unknown)".to_owned());
+        result.failures.push((
+            "worktree",
+            format!(
+                "--cwd resolves to {shown}, registered worktree is {}",
+                data.worktree
+            ),
+        ));
+    }
+    let branch = git(cwd, &["branch", "--show-current"]).ok()?;
+    if branch.as_deref() != Some(data.branch.as_str()) {
+        result.failures.push((
+            "branch",
+            format!(
+                "--cwd is on branch \"{}\", registered branch is \"{}\"",
+                branch.as_deref().unwrap_or("(unknown)"),
+                data.branch
+            ),
+        ));
+    }
+    let worktree = real_worktree.as_deref().unwrap_or(&data.worktree);
+    for request in &data.markdown_requests {
+        if let Some(detail) =
+            implementation::validate_request_path(worktree, &request.path, process_cwd)?
+        {
+            result.failures.push(("path", detail));
+        }
+    }
+    Some(())
+}
+
+/// `checkHandoffBase` for the orchestrator and the scribe.
+fn check_base(
+    root: &StateRoot,
+    feature: &str,
+    consumer: &'static str,
+    legacy: bool,
+    process_cwd: &str,
+) -> Option<CheckResult> {
+    if legacy {
+        return check_legacy(root, feature, consumer);
+    }
+    let path = match check_artifact(root, &format!("impl_{feature}.json"), consumer)? {
+        Ok(path) => path,
+        Err(error) => return Some(error),
+    };
+    let mut result = CheckResult::new(consumer);
+    let Some(raw) = read_artifact(&path)? else {
+        result
+            .failures
+            .push(("exists", format!("{path} not found")));
+        return Some(result.settle());
+    };
+    // A JSON or zod failure prints V8's or zod's text: the TS's.
+    let data = implementation::parse(&js_json::parse(&raw)?)?;
+    if data.feature != feature {
+        result.failures.push((
+            "feature",
+            format!(
+                "{path} belongs to feature \"{}\", not \"{feature}\"",
+                data.feature
+            ),
+        ));
+    }
+    result.worktree = Some(realpath(&data.worktree)?.unwrap_or_else(|| data.worktree.clone()));
+    result.branch = Some(data.branch.clone());
+    match &data.head {
+        None => result.warnings.push((
+            "head",
+            "impl_<feature>.json has no `head`; the checkout may have moved since the handoff"
+                .to_owned(),
+        )),
+        Some(head) => {
+            if let Some(actual) = git(&root.cwd, &["rev-parse", "HEAD"]).ok()?
+                && actual != *head
+            {
+                result.warnings.push((
+                    "head",
+                    format!(
+                        "the checkout has moved since the handoff (handoff head {head}, checkout head {actual})"
+                    ),
+                ));
+            }
+        }
+    }
+    if consumer == "scribe" && result.failures.is_empty() {
+        check_scribe(&mut result, &data, &root.cwd, process_cwd)?;
+    }
+    Some(result.settle())
+}
+
+/// `resolveReceiptOptions(...)`'s `target` and `gate`: `--target ?? prTarget ?? branchBase` and
+/// `qualityGate.full ?? ""`; `None` for a config shape Rust does not model.
+fn receipt_target_gate(config: &Config, target: Option<&str>) -> Option<(String, String)> {
+    let data = Some(&config.data);
+    let target = match target {
+        Some(target) => target.to_owned(),
+        None => match (member(data, "prTarget"), member(data, "branchBase")) {
+            (Some(JsValue::String(t)), _) | (None, Some(JsValue::String(t))) => t.to_rust()?,
+            _ => return None,
+        },
+    };
+    let gate = match member(member(data, "qualityGate"), "full") {
+        None | Some(JsValue::Undefined | JsValue::Null) => String::new(),
+        Some(JsValue::String(t)) => t.to_rust()?,
+        Some(_) => return None,
+    };
+    Some((target, gate))
+}
+
+/// `checkReviewHandoff` (`--produced-by reviewer`).
+fn check_review(
+    root: &StateRoot,
+    feature: &str,
+    since: Option<&str>,
+    evidence: &EvidenceOptions<'_>,
+    target_from_stamp: bool,
+    env: &navori_core::process::Env,
+) -> Option<CheckResult> {
+    match check_review_handoff(root, feature, since, evidence, target_from_stamp, env).ok()? {
+        ReviewCheck::Error(detail) => Some(CheckResult::error("reviewer", detail)),
+        ReviewCheck::Failures(failures) => {
+            let mut result = CheckResult::new("reviewer");
+            result.failures = failures;
+            Some(result.settle())
+        }
+    }
+}
+
+/// `handoff check` for every consumer.
+fn check(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    let consumer = match options.get("for") {
+        Some("scribe") => "scribe",
+        Some("publisher") => "publisher",
+        _ => "orchestrator",
+    };
+    let cwd = options.get("cwd").unwrap_or(process_cwd);
+    // An uncaught throw in the TS: its stack trace is the TS's.
+    let root =
+        state_files::resolve_state_root(cwd, process_cwd, feature, options.get("dir")).ok()?;
+    // `readConfig` twice: for `scribeOwnsMarkdown` (a failure is caught) and in
+    // `resolveReceiptOptions` (a failure throws). Only a config both accept stays native.
+    let config = read_config(&root.cwd)??;
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    print_warnings(&mut out, &config);
+    let legacy = !scribe_owns_markdown(&config);
+    let (target, gate) = receipt_target_gate(&config, options.get("target"))?;
+    let evidence = EvidenceOptions {
+        target: &target,
+        gate: &gate,
+        current_content: None,
+        timeout: None,
+    };
+    let env = navori_core::plan::evidence::process_env();
+    let result = if options.get("produced-by") == Some("reviewer") {
+        // `reviewTargetFromStamp`: neither `--target` nor `--for` was given.
+        let from_stamp = options.get("target").is_none() && options.get("for").is_none();
+        check_review(
+            &root,
+            feature,
+            options.get("since"),
+            &evidence,
+            from_stamp,
+            &env,
+        )?
+    } else if options.parallel {
+        let failure = if consumer == "scribe" && !legacy {
+            // `bindings` reads the config again: its warnings would print once more per read.
+            if !config.warnings.is_empty() {
+                return None;
+            }
+            let ctx = navori_core::handoff::parallel::Context {
+                root: &root,
+                feature,
+                target: &target,
+                process_cwd,
+                env: &env,
+                runner: &navori_core::process::RealRunner,
+                config: &config.data,
+                uuid: "",
+                now: "",
+            };
+            match navori_core::handoff::parallel::check(&ctx)? {
+                navori_core::handoff::parallel::Planned::Error(message) => Some(message),
+                navori_core::handoff::parallel::Planned::Done { .. } => None,
+            }
+        } else {
+            Some("parallel check requires --for scribe, target and scribeOwnsMarkdown".to_owned())
+        };
+        let mut result = CheckResult::new(consumer);
+        if let Some(detail) = failure {
+            result.failures.push(("evidence", detail));
+        }
+        result.settle()
+    } else {
+        let mut result = check_base(&root, feature, consumer, legacy, process_cwd)?;
+        if consumer == "publisher"
+            && let Some(detail) =
+                review_evidence_warning(&root, feature, Some(&evidence), &env).ok()?
+        {
+            result.failures.push(("evidence", detail));
+            result.status = "findings";
+        }
+        result
+    };
+    if options.json {
+        json_line(&mut out, &result.to_json(feature));
+    } else {
+        out.stdout.push_str(&result.text());
+        out.stdout.push('\n');
+    }
+    out.code = result.exit_code();
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// parallel producers
+
+/// The config `bindings` reads on every call: one that prints warnings would print them once
+/// per read, a count this port does not track.
+fn quiet_config(root: &StateRoot) -> Option<Config> {
+    let config = read_config(&root.cwd)??;
+    config.warnings.is_empty().then_some(config)
+}
+
+/// `projectClassifyContext(cwd)` for a config already read.
+fn project(config: &Config) -> Option<navori_core::plan::check::ProjectContext> {
+    let list = |key: &str| -> Option<Option<Vec<String>>> {
+        match member(member(Some(&config.data), "project"), key) {
+            None | Some(JsValue::Undefined | JsValue::Null) => Some(None),
+            Some(JsValue::Array(items)) => items
+                .iter()
+                .map(|v| match v {
+                    JsValue::String(s) => s.to_rust(),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(Some),
+            Some(_) => None,
+        }
+    };
+    Some(navori_core::plan::check::ProjectContext {
+        critical_paths: list("criticalPaths")?,
+        local_skill_ids: list("localSkills")?,
+    })
+}
+
+/// `JSON.parse(readFileSync(path, "utf8"))` for the producers: `Err(message)` for a missing
+/// file (Node's `ENOENT`), `None` for anything Rust does not reproduce.
+fn read_json_or_enoent(path: &str) -> Option<Result<JsValue, String>> {
+    match std::fs::read(path) {
+        Ok(bytes) => js_json::parse(&String::from_utf8(bytes).ok()?).map(Ok),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Err(format!(
+            "ENOENT: no such file or directory, open '{path}'"
+        ))),
+        Err(_) => None,
+    }
+}
+
+/// `prepare-parallel`, `begin-parallel`, `complete-parallel` and `finalize-parallel`:
+/// `resolveReceiptOptions(args)`, the entrypoint, then `emitProducer`.
+fn producer(
+    row: Row,
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Output> {
+    use navori_core::handoff::parallel::{self, Context, Planned};
+    // citty's missing required argument is its usage error: the TS's.
+    let required: &[&str] = match row {
+        Row::Prepare => &["request", "target"],
+        Row::Begin => &["run"],
+        Row::Complete => &["run", "status"],
+        _ => &["target"],
+    };
+    if required.iter().any(|r| options.get(r).is_none()) {
+        return None;
+    }
+    let root =
+        state_files::resolve_state_root(process_cwd, process_cwd, feature, options.get("dir"))
+            .ok()?;
+    let config = quiet_config(&root)?;
+    let (target, _) = receipt_target_gate(&config, options.get("target"))?;
+    let env = navori_core::plan::evidence::process_env();
+    let uuid = navori_core::atomic::random_uuid().ok()?;
+    let now = review::iso_now();
+    let ctx = Context {
+        root: &root,
+        feature,
+        target: &target,
+        process_cwd,
+        env: &env,
+        runner: &navori_core::process::RealRunner,
+        config: &config.data,
+        uuid: &uuid,
+        now: &now,
+    };
+    let (planned, ok) = match row {
+        Row::Prepare => {
+            let request_path = navori_core::posix::resolve(&root.cwd, options.get("request")?);
+            let planned = match read_json_or_enoent(&request_path)? {
+                Err(message) => Planned::Error(message),
+                Ok(request) => {
+                    let workplan =
+                        state_files::artifact_path(&root, &format!("workplan_{feature}.json"))
+                            .ok()?;
+                    match read_json_or_enoent(&workplan)? {
+                        Err(message) => Planned::Error(message),
+                        Ok(raw) => {
+                            let checked = navori_core::plan::check::check_workplan(
+                                &raw,
+                                feature,
+                                &project(&config)?,
+                            );
+                            let ok =
+                                matches!(checked, navori_core::plan::check::Checked::Ok { .. });
+                            parallel::prepare(
+                                &ctx,
+                                &request,
+                                options.get("supersede"),
+                                ok.then_some(true),
+                            )?
+                        }
+                    }
+                }
+            };
+            (planned, "prepared")
+        }
+        Row::Begin => (parallel::begin(&ctx, options.get("run")?)?, "ok"),
+        Row::Complete => (
+            parallel::complete(
+                &ctx,
+                options.get("run")?,
+                options.get("status")?,
+                options.get("reason"),
+            )?,
+            "completed",
+        ),
+        _ => (parallel::finalize(&ctx)?, "finalized"),
+    };
+    let result = match planned {
+        Planned::Error(message) => Err(message),
+        Planned::Done {
+            status,
+            run_id,
+            writes,
+        } => match parallel::apply(&mut RealFs::default(), &root, &writes) {
+            Ok(()) => Ok((status, run_id)),
+            Err(message) => Err(message),
+        },
+    };
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    let fields = match &result {
+        Ok((status, run_id)) => vec![("status", string(status)), ("runId", string(run_id))],
+        Err(message) => vec![("status", string("error")), ("message", string(message))],
+    };
+    if options.json {
+        json_line(&mut out, &object(fields));
+    } else {
+        out.stdout.push_str(match &result {
+            Ok((status, _)) => status,
+            Err(message) => message,
+        });
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(!matches!(&result, Ok((status, _)) if *status == ok));
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// attest
+
+/// `handoff attest`: `attestHandoff(resolveReceiptOptions({ feature, target, dir }))`.
+fn attest(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    // `resolveReceiptOptions` runs outside any `try`: its throws are the TS's.
+    let root =
+        state_files::resolve_state_root(process_cwd, process_cwd, feature, options.get("dir"))
+            .ok()?;
+    let config = read_config(&root.cwd)??;
+    let mut out = Output::default();
+    print_warnings(&mut out, &config);
+    let (target, _) = receipt_target_gate(&config, options.get("target"))?;
+    let env = navori_core::plan::evidence::process_env();
+    let planned = plan_attest(&AttestInput {
+        process_cwd,
+        root: &root,
+        feature,
+        target: &target,
+        env: &env,
+        runner: &navori_core::process::RealRunner,
+    })
+    .ok()?;
+    let error = match planned {
+        Attest::Error(message) => Some(message),
+        Attest::Write(text) => {
+            let name = format!("ownership_{feature}.json");
+            match state_files::plan_state_write(&root, &name, std::process::id()).ok()? {
+                Err(message) => Some(message),
+                Ok(write) => {
+                    state_files::write_state_file(&mut RealFs::default(), &write, &text).err()
+                }
+            }
+        }
+    };
+    let mut result = vec![(
+        "status",
+        string(if error.is_some() { "error" } else { "attested" }),
+    )];
+    if let Some(message) = &error {
+        result.push(("message", string(message)));
+    }
+    if options.json {
+        json_line(&mut out, &object(result));
+    } else {
+        out.stdout.push_str(error.as_deref().unwrap_or("attested"));
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(error.is_some());
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// render
+
+/// A state root for the commands that catch its errors: `Err(message)` is what they report.
+fn caught_root(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Result<StateRoot, String>> {
+    let cwd = options.get("cwd").unwrap_or(process_cwd);
+    match state_files::resolve_state_root(cwd, process_cwd, feature, options.get("dir")) {
+        Ok(root) => Some(Ok(root)),
+        Err(Refusal::Message(message)) => Some(Err(message)),
+        Err(Refusal::Unmodeled) => None,
+    }
+}
+
+fn caught_artifact(root: &StateRoot, name: &str) -> Option<Result<String, String>> {
+    match state_files::artifact_path(root, name) {
+        Ok(path) => Some(Ok(path)),
+        Err(Refusal::Message(message)) => Some(Err(message)),
+        Err(Refusal::Unmodeled) => None,
+    }
+}
+
+/// `renderHandoff`: `Ok(path)` written, `Err(message)` refused.
+fn render_handoff(
+    out: &mut Output,
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+) -> Option<Result<String, String>> {
+    let root = match caught_root(feature, options, process_cwd)? {
+        Ok(root) => root,
+        Err(message) => return Some(Err(message)),
+    };
+    // A missing or unreadable config reads as `false`; one Rust does not model is the TS's.
+    let owns = match read_config(&root.cwd)? {
+        Some(config) => {
+            print_warnings(out, &config);
+            scribe_owns_markdown(&config)
+        }
+        None => false,
+    };
+    if !owns {
+        return Some(Err(
+            "harness.scribeOwnsMarkdown is not true: the implementer writes impl_<feature>.md itself in this mode, so `handoff render` will not overwrite it. FIX: set the flag in navori.config.json, or skip this step.".to_owned(),
+        ));
+    }
+    let json_file = match caught_artifact(&root, &format!("impl_{feature}.json"))? {
+        Ok(path) => path,
+        Err(message) => return Some(Err(message)),
+    };
+    let Some(raw) = read_artifact(&json_file)? else {
+        return Some(Err(format!(
+            "impl_{feature}.json not found in {}",
+            root.dir
+        )));
+    };
+    let data = implementation::parse(&js_json::parse(&raw)?)?;
+    if data.feature != feature {
+        return Some(Err(format!(
+            "impl_{feature}.json belongs to feature \"{}\", not \"{feature}\"",
+            data.feature
+        )));
+    }
+    let content = implementation::render(&data)?;
+    let name = format!("impl_{feature}.md");
+    let write = match state_files::plan_state_write(&root, &name, std::process::id()).ok()? {
+        Ok(write) => write,
+        Err(message) => return Some(Err(message)),
+    };
+    let mut fs = RealFs::default();
+    if let Err(message) = state_files::write_state_file(&mut fs, &write, &content) {
+        return Some(Err(message));
+    }
+    Some(Ok(write.destination().to_owned()))
+}
+
+/// `handoff render`.
+fn render(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    let mut out = Output::default();
+    let result = render_handoff(&mut out, feature, options, process_cwd)?;
+    let (value, text) = match &result {
+        Ok(path) => (
+            object(vec![("status", string("ok")), ("path", string(path))]),
+            format!("OK: {path}"),
+        ),
+        Err(message) => (
+            object(vec![
+                ("status", string("error")),
+                ("message", string(message)),
+            ]),
+            format!("FAIL: {message}"),
+        ),
+    };
+    if options.json {
+        json_line(&mut out, &value);
+    } else {
+        out.stdout.push_str(&text);
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(result.is_err());
+    Some(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// log-review
+
+/// `LogReviewResult`.
+enum LogResult {
+    Appended {
+        hash: String,
+        appended: usize,
+    },
+    Duplicate {
+        hash: String,
+    },
+    Error(String),
+    /// A write failed after every check: the TS throws uncaught, so only stderr reports it.
+    Crash(String),
+}
+
+fn reject(error: &str, why: &str, fix: &str) -> LogResult {
+    LogResult::Error(format!("ERROR: {error}\nWHY: {why}\nFIX: {fix}"))
+}
+
+/// `logReview`, with every write planned before the first one.
+fn log_review_result(
+    feature: &str,
+    options: &LeafOptions<'_>,
+    process_cwd: &str,
+    fs: &mut dyn Fs,
+) -> Option<LogResult> {
+    let name = format!("review_{feature}.json");
+    let unsafe_path = |message: &str| {
+        reject(
+            message,
+            "the feature slug or state directory is not a safe path inside this checkout",
+            "use a lowercase feature slug and a --dir inside the checkout",
+        )
+    };
+    let root = match caught_root(feature, options, process_cwd)? {
+        Ok(root) => root,
+        Err(message) => return Some(unsafe_path(&message)),
+    };
+    let sidecar_path = match caught_artifact(&root, &name)? {
+        Ok(path) => path,
+        Err(message) => return Some(unsafe_path(&message)),
+    };
+    let Some(raw) = read_artifact(&sidecar_path)? else {
+        return Some(reject(
+            &format!("{name} not found in {}", root.dir),
+            "the reviewer must write the sidecar before logging it",
+            &format!("write {name} next to review_{feature}.md and re-run"),
+        ));
+    };
+    let sidecar = review::parse_sidecar(&js_json::parse(&raw)?)?;
+    if sidecar.feature != feature {
+        return Some(reject(
+            &format!(
+                "{name} declares feature \"{}\", expected \"{feature}\"",
+                sidecar.feature
+            ),
+            "a mismatched sidecar would log findings under the wrong feature",
+            "set the sidecar's feature to the slug passed on the command line",
+        ));
+    }
+    let hash: String = Sha256::digest(raw.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    // `ensureStateDirectory` and `stateArtifactPath` throw uncaught here: those are the TS's.
+    if !state_files::plan_state_dirs(&root).ok()?.is_empty() {
+        return None;
+    }
+    let log_path = state_files::artifact_path(&root, FINDINGS_LOG_NAME).ok()?;
+    let existing = match std::fs::symlink_metadata(&log_path) {
+        Ok(meta) if meta.is_file() => read_artifact(&log_path)??,
+        Ok(_) => return None,
+        Err(_) => String::new(),
+    };
+    if existing.contains(&format!("\"sidecarHash\":\"{hash}\"")) {
+        return Some(LogResult::Duplicate { hash });
+    }
+    let at = review::iso_now();
+    let lines = review::findings_lines(&sidecar, &hash, &at)?;
+    if !lines.is_empty() {
+        let prefix = if existing.is_empty() || existing.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
+        let text = format!("{prefix}{}\n", lines.join("\n"));
+        if let Err(error) = fs.append(Path::new(&log_path), text.as_bytes()) {
+            return Some(LogResult::Crash(format!(
+                "navori-rust: cannot append {log_path}: {error}"
+            )));
+        }
+    }
+    Some(LogResult::Appended {
+        hash,
+        appended: lines.len(),
+    })
+}
+
+/// `handoff log-review`.
+fn log_review(feature: &str, options: &LeafOptions<'_>, process_cwd: &str) -> Option<Output> {
+    // `emitReviewOutcome` writes an audit event when a session is in the environment (T18).
+    if crate::audit_target::audit_may_write() {
+        return None;
+    }
+    let mut fs = RealFs::default();
+    let result = log_review_result(feature, options, process_cwd, &mut fs)?;
+    if let LogResult::Crash(message) = &result {
+        return Some(Output {
+            stderr: format!("{message}\n"),
+            code: 1,
+            ..Output::default()
+        });
+    }
+    let (value, text) = match &result {
+        LogResult::Appended { hash, appended } => (
+            object(vec![
+                ("status", string("appended")),
+                ("hash", string(hash)),
+                ("appended", number(*appended)),
+            ]),
+            format!("OK: {appended} finding(s) appended"),
+        ),
+        LogResult::Duplicate { hash } => (
+            object(vec![
+                ("status", string("duplicate")),
+                ("hash", string(hash)),
+                ("appended", number(0)),
+            ]),
+            "DUPLICATE: 0 finding(s) appended".to_owned(),
+        ),
+        LogResult::Error(message) | LogResult::Crash(message) => (
+            object(vec![
+                ("status", string("error")),
+                ("message", string(message)),
+            ]),
+            message.clone(),
+        ),
+    };
+    let mut out = Output::default();
+    if options.json {
+        json_line(&mut out, &value);
+    } else {
+        out.stdout.push_str(&text);
+        out.stdout.push('\n');
+    }
+    out.code = u8::from(matches!(result, LogResult::Error(_) | LogResult::Crash(_)));
+    Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Covers: R73
+    #[test]
+    fn leaf_args_delegate_every_uncertain_shape() {
+        let names = &["for", "dir", "cwd"];
+        let ok = parse_leaf(&["x", "--json", "--for", "scribe", "--cwd=d", "y"], names);
+        assert_eq!(
+            ok,
+            Some(LeafOptions {
+                feature: Some("x"),
+                strings: vec![("for", "scribe"), ("cwd", "d")],
+                json: true,
+                parallel: false,
+            })
+        );
+        for argv in [
+            &["x", "--no-json"][..],
+            &["x", "--json=false"],
+            &["x", "--cwd"],
+            &["x", "--cwd="],
+            &["x", "--cwd", "--json"],
+            &["x", "--cwd", "a", "--cwd", "b"],
+            &["x", "-j"],
+            &["x", "--target", "main"],
+        ] {
+            assert_eq!(parse_leaf(argv, names), None, "{argv:?}");
+        }
+    }
+}

@@ -331,6 +331,26 @@ const EXPECTED_PROMPTS: ReadonlyArray<readonly [string, string]> = [
     "the merge-side counterpart of `git checkout --ours` right above — same reason, same prompt",
   ],
   [
+    "git merge --abort",
+    "discards an in-progress merge and its resolved hunks; `rebase-rerender` orders it before redoing the merge with -X on generated-only conflicts (#247), and throwing work away stays behind the prompt",
+  ],
+  [
+    "git rebase --abort",
+    "the rebase counterpart of `git merge --abort` right above — same reason, same prompt",
+  ],
+  [
+    "git merge -X theirs",
+    "lets git pick a side for every conflicting hunk; `rebase-rerender` allows it only after `--diff-filter=U` lists generated files alone (#247), a condition no prefix rule can check, so the prompt stays",
+  ],
+  [
+    "git cherry-pick -X ours",
+    "the cherry-pick counterpart of `git merge -X theirs` right above — same condition, same prompt",
+  ],
+  [
+    "bun run rust:hooks-sync",
+    "builds the native binary and rewrites crates/ported.json hashes and the hook mirrors' native signatures — a write to tracked files this repo's migration skill orders, not a core-asset need to pre-approve",
+  ],
+  [
     "git worktree list",
     "read-only, but this is a project-local skill's own convenience, not a core-asset need every navori consumer should carry pre-approved; the prompt is accepted here rather than widening `settings-base.json` for one repo's skill",
   ],

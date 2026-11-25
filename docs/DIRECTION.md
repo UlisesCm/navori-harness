@@ -57,7 +57,7 @@ versionable project knowledge. This separation introduces no hidden persistent c
 
 Explicitly **out of scope** unless a strong new reason changes it:
 
-- **Product promotion, branding, marketing, monetization, product localization, or a Rust control plane.**
+- **Product promotion, branding, marketing, monetization, product localization.**
   Public documentation and website localization are an approved exception; CLI localization
   remains out of scope. Navori is a tool for its own team, not a market product (Spec 0003).
 - **Formalized public plugin ecosystem.** Plugins are internal bundles, not a
@@ -85,6 +85,28 @@ Today both are opt-in plugins again, with routing
 - **Doctrine floor per machine in `~/.claude`** (global layer, Spec 0010). It was not adopted: it cost
   ~5.5-6k LOC and retired with Spec 0046; sessions outside a repo with Navori are left without
   harness on purpose.
+
+## Rust migration (after the 0.13 cutover)
+
+From the 0.13 cutover on, `dev` builds the CLI as the Rust binary (`crates/navori-cli`), and 0.13.0
+is the first release that ships it
+([spec 0057](../specs/0057-migracion-rust/requirements.md),
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). The earlier non-goal "Rust control
+plane" no longer applies. These rules hold after the cutover:
+
+- **The TS in `packages/cli/src` is frozen.** It is the source of `navori-legacy`, the TypeScript
+  CLI the package runs for the permanent and the transitional delegation
+  (`scripts/js/rust-areas.mjs`) and on platforms without a binary, and it supports the artifact
+  suites. It changes only to fix the legacy, reviewed by hand. Deleting it, and the differential
+  oracle, is deferred to a later PR (spec 0062 T10, option C).
+- **npm ships only what `scripts/js/dist-assemble.mjs` assembles:** `navori`, the four
+  `navori-<os>-<cpu>` platform packages and `navori-legacy`, pinned in `packaging/legacy.json`.
+  `packages/cli` is private: it is the source of the version (`STAMP_VERSION`, the release tag),
+  not a package.
+- **`crates/ported.json` decides what runs natively,** and `crates/ported-history.jsonl` records
+  every port and activation. The history is append-only (`scripts/js/rust-manifest-check.mjs`).
+- **A change to `crates/ported.json` after the legacy pin forces a new release** (0.13.1 or later),
+  because the legacy must carry the manifest of the release it ships with (spec 0062 D53, D54).
 
 ## Design principles and invariants (do not revisit without a new reason)
 

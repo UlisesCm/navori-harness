@@ -62,3 +62,6 @@ __pycache__/
 
 # jscpd json reporter default output dir (check:dup)
 report/
+
+# Cargo build output (Rust migration, spec 0057)
+target/

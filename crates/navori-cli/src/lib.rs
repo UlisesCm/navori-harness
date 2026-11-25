@@ -1,0 +1,362 @@
+//! `navori-rust`: parser, native command table and delegation to the TS CLI.
+
+pub mod adopt;
+pub mod audit_arm;
+pub(crate) mod audit_target;
+pub mod backup;
+pub(crate) mod clack;
+pub mod commands;
+pub mod delegate;
+pub mod doctor;
+pub mod dominio;
+pub mod dominio_inject;
+pub mod facts_cache;
+pub mod gate_foreign;
+pub mod gate_probe;
+pub mod handoff;
+pub mod help;
+pub mod hook;
+pub mod hook_facts;
+pub mod implementer_no_markdown_hook;
+pub mod journal;
+pub(crate) mod js_path;
+pub mod migrations;
+pub mod model_advisor;
+pub(crate) mod native_io;
+pub mod notices;
+pub mod parser;
+pub mod pii_egress_guard_hook;
+pub mod plan;
+pub mod plan_gate;
+pub mod plan_gate_hook;
+pub mod preset;
+pub mod publish_confirm_hook;
+pub mod quality_gate;
+pub mod remove;
+pub mod render;
+pub mod scan;
+pub mod session_start;
+pub mod shadow;
+pub mod spec;
+pub mod status;
+pub mod subagent_stop;
+pub mod sync;
+pub mod tools;
+
+use std::ffi::OsString;
+use std::process::ExitCode;
+
+use navori_core::manifest::{Command, Manifest};
+
+use parser::Invocation;
+
+/// What a native command receives: the argv and the manifest entry that selected it.
+pub struct NativeCall<'a> {
+    /// The arguments, without the program name.
+    pub args: &'a [OsString],
+    /// The selecting entry, whose `flags` and `when` bound what runs natively (D3).
+    pub entry: &'a Command,
+}
+
+/// How a native command ended.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Outcome {
+    /// It ran; the process exits with this code.
+    Exit(ExitCode),
+    /// The invocation is outside the native subset: the TS runs it. Returned only before any
+    /// output or effect (R39).
+    Delegate,
+}
+
+/// An argv-level result: `None` hands the invocation to the TS before any output (D3).
+fn outcome(code: Option<ExitCode>) -> Outcome {
+    code.map_or(Outcome::Delegate, Outcome::Exit)
+}
+
+/// A natively implemented command. Listing one here is not enough to run it: the manifest must
+/// also select it (R7).
+pub struct NativeCommand {
+    /// Command path, equal to the manifest entry's `path`.
+    pub path: &'static [&'static str],
+    /// The implementation.
+    pub run: fn(&NativeCall<'_>) -> Outcome,
+}
+
+fn print_version(_: &NativeCall<'_>) -> Outcome {
+    println!("{}", navori_core::VERSION);
+    Outcome::Exit(ExitCode::SUCCESS)
+}
+
+fn print_root_help(_: &NativeCall<'_>) -> Outcome {
+    print!("{}", help::root_help(navori_core::VERSION));
+    Outcome::Exit(ExitCode::SUCCESS)
+}
+
+/// Every native implementation in this build.
+pub const NATIVE: &[NativeCommand] = &[
+    NativeCommand {
+        path: &["--version"],
+        run: print_version,
+    },
+    NativeCommand {
+        path: &["--help"],
+        run: print_root_help,
+    },
+    NativeCommand {
+        path: &["audit"],
+        run: audit_arm::run,
+    },
+    NativeCommand {
+        path: &["gate", "foreign"],
+        run: gate_foreign::run,
+    },
+    NativeCommand {
+        path: &["gate", "probe"],
+        run: gate_probe::run,
+    },
+    NativeCommand {
+        path: &["plan", "gate"],
+        run: plan_gate::run,
+    },
+    NativeCommand {
+        path: &["plan", "classify"],
+        run: plan::run_classify,
+    },
+    NativeCommand {
+        path: &["plan", "check"],
+        run: plan::run_check,
+    },
+    NativeCommand {
+        path: &["plan", "render"],
+        run: plan::run_render,
+    },
+    NativeCommand {
+        path: &["plan", "update"],
+        run: plan::run_update,
+    },
+    NativeCommand {
+        path: &["plan", "escalation-reset"],
+        run: plan::run_escalation_reset,
+    },
+    NativeCommand {
+        path: &["plan", "acknowledge"],
+        run: plan::run_acknowledge,
+    },
+    NativeCommand {
+        path: &["plan", "resume"],
+        run: plan::run_resume,
+    },
+    NativeCommand {
+        path: &["plan"],
+        run: plan::run_group,
+    },
+    NativeCommand {
+        path: &["dominio", "inject"],
+        run: dominio_inject::run,
+    },
+    NativeCommand {
+        path: &["dominio", "init"],
+        run: dominio::run_init,
+    },
+    NativeCommand {
+        path: &["dominio", "list"],
+        run: dominio::run_list,
+    },
+    NativeCommand {
+        path: &["dominio", "show"],
+        run: dominio::run_show,
+    },
+    NativeCommand {
+        path: &["dominio", "reindex"],
+        run: dominio::run_reindex,
+    },
+    NativeCommand {
+        path: &["dominio", "doctor"],
+        run: dominio::run_doctor,
+    },
+    NativeCommand {
+        path: &["dominio"],
+        run: dominio::run_group,
+    },
+    NativeCommand {
+        path: &["tools", "notice"],
+        run: tools::notice,
+    },
+    NativeCommand {
+        path: &["tools", "session-context"],
+        run: tools::session_context_command,
+    },
+    NativeCommand {
+        path: &["render"],
+        run: render::run,
+    },
+    NativeCommand {
+        path: &["spec", "classify"],
+        run: spec::run_classify,
+    },
+    NativeCommand {
+        path: &["spec", "check"],
+        run: spec::run_check,
+    },
+    NativeCommand {
+        path: &["spec"],
+        run: spec::run_group,
+    },
+    NativeCommand {
+        path: &["handoff", "check"],
+        run: handoff::run_check,
+    },
+    NativeCommand {
+        path: &["handoff", "render"],
+        run: handoff::run_render,
+    },
+    NativeCommand {
+        path: &["handoff", "log-review"],
+        run: handoff::run_log_review,
+    },
+    NativeCommand {
+        path: &["handoff", "attest"],
+        run: handoff::run_attest,
+    },
+    NativeCommand {
+        path: &["handoff", "prepare-parallel"],
+        run: handoff::run_prepare,
+    },
+    NativeCommand {
+        path: &["handoff", "begin-parallel"],
+        run: handoff::run_begin,
+    },
+    NativeCommand {
+        path: &["handoff", "complete-parallel"],
+        run: handoff::run_complete,
+    },
+    NativeCommand {
+        path: &["handoff", "finalize-parallel"],
+        run: handoff::run_finalize,
+    },
+    NativeCommand {
+        path: &["handoff"],
+        run: handoff::run_group,
+    },
+    NativeCommand {
+        path: &["backup", "list"],
+        run: backup::run_list,
+    },
+    NativeCommand {
+        path: &["backup", "restore"],
+        run: backup::run_restore,
+    },
+    NativeCommand {
+        path: &["backup", "prune"],
+        run: backup::run_prune,
+    },
+    NativeCommand {
+        path: &["backup"],
+        run: backup::run_group,
+    },
+    NativeCommand {
+        path: &["migrations", "list"],
+        run: migrations::run_list,
+    },
+    NativeCommand {
+        path: &["migrations", "restore"],
+        run: migrations::run_restore,
+    },
+    NativeCommand {
+        path: &["migrations"],
+        run: migrations::run_group,
+    },
+    NativeCommand {
+        path: &["preset", "init"],
+        run: preset::run_init,
+    },
+    NativeCommand {
+        path: &["preset"],
+        run: preset::run_group,
+    },
+    NativeCommand {
+        path: &["adopt"],
+        run: adopt::run,
+    },
+    NativeCommand {
+        path: &["sync"],
+        run: sync::run,
+    },
+    NativeCommand {
+        path: &["remove"],
+        run: remove::run,
+    },
+    NativeCommand {
+        path: &["scan"],
+        run: scan::run,
+    },
+    NativeCommand {
+        path: &["status"],
+        run: status::run,
+    },
+    NativeCommand {
+        path: &["doctor"],
+        run: doctor::run,
+    },
+];
+
+/// The native command that runs `invocation` and the entry that selected it, or `None` to
+/// delegate (R5, R7).
+#[must_use]
+pub fn dispatch<'m>(
+    manifest: &'m Manifest,
+    invocation: &Invocation,
+) -> Option<(&'static NativeCommand, &'m Command)> {
+    let entry = manifest.select(&invocation.path, &invocation.flags)?;
+    let native = NATIVE.iter().find(|native| {
+        native
+            .path
+            .iter()
+            .copied()
+            .eq(entry.path.iter().map(String::as_str))
+    })?;
+    Some((native, entry))
+}
+
+/// Entry point shared by the binary and the tests.
+#[must_use]
+pub fn run(args: &[OsString]) -> ExitCode {
+    let looped = delegate::is_loop(
+        std::env::var_os(delegate::DELEGATED_VAR).as_deref(),
+        std::process::id(),
+    );
+    if looped {
+        eprintln!(
+            "navori-rust: delegation loop: {} points back to navori-rust (pid {})",
+            delegate::TS_CLI_VAR,
+            std::process::id()
+        );
+        return ExitCode::from(delegate::EXIT_LOOP);
+    }
+    // Internal hooks never delegate, but still obey the global same-process loop guard.
+    if args.first().is_some_and(|arg| arg == "hook") {
+        return hook::run(&args[1..]);
+    }
+    // `index.ts`'s order: the private workers, then the update notice, then the command.
+    if let Some(code) = notices::worker(args) {
+        return code;
+    }
+    notices::before_command(args);
+    let manifest = match Manifest::embedded() {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            eprintln!("navori-rust: invalid embedded manifest: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let invocation = parser::parse(args);
+    if let Some((native, entry)) = dispatch(&manifest, &invocation)
+        && let Outcome::Exit(code) = (native.run)(&NativeCall { args, entry })
+    {
+        return code;
+    }
+    let subcommand = args
+        .first()
+        .map_or_else(|| "(none)".to_owned(), |a| a.to_string_lossy().into_owned());
+    delegate::run(args, &subcommand)
+}

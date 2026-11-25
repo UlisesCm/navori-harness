@@ -2,6 +2,13 @@ import { chmodSync, copyFileSync, existsSync, readFileSync, rmSync } from "node:
 import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
+
+// Runs at import (no entry guard): the help check must come before the first git call.
+exitOnHelp(
+  process.argv.slice(2),
+  "usage: node scripts/js/install-git-hooks.mjs\n  Installs the navori pre-commit gate into this checkout's .git/hooks and removes the legacy pre-push gate.\n  -h, --help  print this text and exit",
+);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, "..", "git-hooks", "pre-commit");

@@ -1,5 +1,19 @@
-# navori:managed start id="subagent-no-background-base" hash="34903809" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:2d4695f467d8c57a60e17c7b62598b487ebca4eb9c70d315711addfa5b7b5a48 impl=sha256:61722caa43e1b7547b76a24f025caab0784b2b2a62b205452f2f59e42a217021
+# navori:managed start id="subagent-no-background-base" hash="1d6587e4" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-no-background native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: subagent-no-background could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 2 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: subagent-no-background native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Bash|Monitor) guard — the mechanical half of the "no backgrounding
 # inside a subagent" rule (`implementer.md:43`, `reviewer.md:79`,

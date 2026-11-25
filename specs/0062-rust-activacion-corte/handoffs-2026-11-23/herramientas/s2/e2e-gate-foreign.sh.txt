@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# A10 E2E for rust-gate-foreign-native: real `git commit` into fabricated destination repos,
+# gated by quality-gate-pre-commit with this branch's navori-rust as `navori` on PATH.
+set -uo pipefail
+WT=${WT:-$HOME/Documentos/dev/personal/navori-rust/.claude/worktrees/s2-gate-audit}
+BIN=${BIN:-$HOME/.cache/navori-rust/target-s2/debug/navori-rust}
+BUN_REAL=$(readlink -f "$(command -v bun)")
+T=$(mktemp -d /tmp/s2-e2e-foreign.XXXXXX)
+mkdir -p "$T/home" "$T/bin" "$T/tmp"
+ln -s "$BUN_REAL" "$T/bin/bun"   # bun only: no node on PATH, so a delegation to the TS cannot hide
+ln -s "$BIN" "$T/bin/navori-rust"
+ln -s "$BIN" "$T/bin/navori"
+cat > "$T/gitconfig" <<'EOF'
+[user]
+	name = e2e
+	email = e2e@example.invalid
+[init]
+	defaultBranch = main
+EOF
+export HOME="$T/home" TMPDIR="$T/tmp" GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1
+export PATH="$T/bin:/usr/bin:/bin"
+unset NAVORI_TS_CLI NAVORI_HOOK_IMPL
+
+config() { # name
+  printf '{"name":"%s","version":"1.0.0","harnessVersion":"0.12.2","engines":["claude"],"preset":"custom","language":"en","branchBase":"main","gitignoreHarness":"off","commits":"conventional","qualityGate":{"fast":"bun run check","full":"bun run check"}}\n' "$1"
+}
+mkrepo() { # name check-exit
+  local d="$T/$1"
+  mkdir -p "$d" && git -C "$d" init -q
+  printf '{"name":"%s","private":true,"scripts":{"check":"exit %s"}}\n' "$1" "$2" > "$d/package.json"
+  config "$1" > "$d/navori.config.json"
+  git -C "$d" add -A && git -C "$d" commit -qm init
+  echo change > "$d/file.txt" && git -C "$d" add file.txt
+}
+register() { # name
+  local dir="$HOME/.navori/workspaces/ws-$1"
+  mkdir -p "$dir"
+  printf '{"name":"ws-%s","repos":[{"name":"repo","path":"%s"}]}\n' "$1" "$T/$1" > "$dir/workspace.json"
+}
+
+# Origin project A: the hook lives here; the agent commits into another repo with git -C.
+A="$T/origin"
+mkdir -p "$A/.claude/hooks" && git -C "$A" init -q
+cp "$WT/.claude/hooks/quality-gate-pre-commit.sh" "$A/.claude/hooks/"
+config origin > "$A/navori.config.json"
+printf '{"name":"origin","private":true,"scripts":{"check":"exit 0"}}\n' > "$A/package.json"
+git -C "$A" add -A && git -C "$A" commit -qm init
+
+mkrepo green 0 && register green
+mkrepo red 1 && register red
+mkrepo unregistered 0
+
+command -v node >/dev/null && { echo "FAIL: node on PATH"; exit 1; }
+fail=0
+for name in green red unregistered; do
+  B="$T/$name"
+  cmd="git -C $B commit -m e2e"
+  payload=$(printf '{"session_id":"e2e","hook_event_name":"PreToolUse","tool_name":"Bash","permission_mode":"default","cwd":"%s","tool_input":{"command":"%s"}}' "$A" "$cmd")
+  before=$(git -C "$B" rev-parse HEAD)
+  out=$(cd "$A" && printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$A" PWD="$A" bash .claude/hooks/quality-gate-pre-commit.sh 2>"$T/err-$name"); rc=$?
+  err=$(cat "$T/err-$name")
+  denied=0
+  [ "$rc" = 2 ] && denied=1
+  printf '%s' "$out" | grep -q '"permissionDecision":"deny"' && denied=1
+  if [ "$denied" = 0 ]; then (cd "$A" && eval "$cmd" >/dev/null); fi
+  after=$(git -C "$B" rev-parse HEAD)
+  committed=$([ "$before" != "$after" ] && echo yes || echo no)
+  echo "=== $name: hook rc=$rc, committed=$committed"
+  [ -n "$out" ] && echo "stdout: $out"
+  echo "$err" | sed 's/^/stderr: /'
+  if printf '%s\n%s' "$out" "$err" | grep -q 'navori-rust: warning: delegating'; then echo "FAIL: version notice"; fail=1; fi
+  case $name in
+    green) echo "$err" | grep -qF "quality-gate fast passed: $B" && [ "$committed" = yes ] || { echo FAIL; fail=1; } ;;
+    red) echo "$err" | grep -qF "failed in the destination repository $B. Commit aborted." && [ "$committed" = no ] || { echo FAIL; fail=1; } ;;
+    unregistered) echo "$err" | grep -q "gate was NOT run: .*not registered" || { echo FAIL; fail=1; } ;;
+  esac
+done
+echo "logs under $TMPDIR:"; find "$TMPDIR" -maxdepth 2 -name 'navori-gate-foreign-*' -printf '%M %p\n' -o -name 'fast-*.log' -printf '%M %p\n'
+echo "RESULT: $([ $fail = 0 ] && echo PASS || echo FAIL) ($T)"
+exit $fail

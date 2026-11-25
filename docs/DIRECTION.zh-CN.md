@@ -34,7 +34,7 @@ navori **首先服务自己的团队**：每项功能都应回答“它能否帮
 
 除非出现充分的新理由，否则以下事项明确**不在范围内**：
 
-- **推广产品、品牌建设、营销、商业化、产品本身的国际化，或用 Rust 编写控制平面。**公开文档和网站的国际化是已批准的例外；CLI 本地化仍不在范围内。navori 是供团队自用的工具，不是面向市场的产品（规范 0003）。
+- **推广产品、品牌建设、营销、商业化、产品本身的国际化。**公开文档和网站的国际化是已批准的例外；CLI 本地化仍不在范围内。navori 是供团队自用的工具，不是面向市场的产品（规范 0003）。
 - **正式的公共插件生态。**插件是内部软件包，不是市场上的商品。
 - **仿照其他工具的选择性安装架构。**
 - **在现有功能仍需加固时开发大型新功能。**优先级依次为：质量 > token 效率 > 速度。
@@ -46,6 +46,24 @@ navori **首先服务自己的团队**：每项功能都应回答“它能否帮
 - **让 navori 执行智能体工具。**navori 生成工作框架（技能、允许列表、插件和协议）；grep、ast-grep、测试等工具由智能体运行。
 - **“Navori 之声”/应用构建器/4R 审查**——已搁置（规范 0010，后由 0046 取代）。
 - **在每台机器的 `~/.claude` 中设置固定的基础规范**（全局层，规范 0010）。该方案未采用：实现成本约 5.5k–6k 行代码，后来随规范 0046 一并退役。因此，在未配置 navori 的仓库中，会话有意不带此工作框架。
+
+## 迁移到 Rust（0.13 切换之后）
+
+自 0.13 切换起，`dev` 将 CLI 构建为 Rust 二进制程序（`crates/navori-cli`），0.13.0 是首个发布它的版本
+（[spec 0057](../specs/0057-migracion-rust/requirements.md)、
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)）。此前的非目标"Rust 控制平面"不再适用。
+切换之后适用以下规则：
+
+- **`packages/cli/src` 中的 TS 已冻结。** 它是 `navori-legacy` 的来源：该包在永久委托和过渡委托
+  （`scripts/js/rust-areas.mjs`）以及无二进制的平台上运行这个 TypeScript CLI；它也支撑产物测试套件。
+  它只为修复 legacy 而修改，并经人工审查。删除它以及差异 oracle 推迟到后续 PR（spec 0062 T10，方案 C）。
+- **npm 只发布 `scripts/js/dist-assemble.mjs` 组装的内容：** `navori`、四个平台包 `navori-<os>-<cpu>`
+  以及固定于 `packaging/legacy.json` 的 `navori-legacy`。`packages/cli` 是私有的：它是版本号的来源
+  （`STAMP_VERSION`、发布 tag），而不是一个包。
+- **`crates/ported.json` 决定哪些部分原生运行，** `crates/ported-history.jsonl` 记录每一次移植和激活。
+  该历史只能追加（`scripts/js/rust-manifest-check.mjs`）。
+- **在固定 legacy 之后修改 `crates/ported.json` 会强制发布新版本**（0.13.1 或更高），因为 legacy
+  必须携带与其一同发布的版本的 manifest（spec 0062 D53、D54）。
 
 ## 设计原则与不变量（没有新理由时不重新讨论）
 

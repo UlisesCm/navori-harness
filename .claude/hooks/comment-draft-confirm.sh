@@ -1,5 +1,19 @@
-# navori:managed start id="comment-draft-confirm-base" hash="33ed30fa" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:4a2b25c6e8470242a515a403b0c7550c184ecbe95955aa45061c82fd37db9e5c impl=sha256:cd9655219d8641d08c21230ac2525a1835f4e9f7c0540f27b646d52e99fe2eaf
+# navori:managed start id="comment-draft-confirm-base" hash="ca1d59b6" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 2; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: comment-draft-confirm native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"navori: comment-draft-confirm could not evaluate this call (native runtime failed); confirm it manually"}}' >&1 || exit 2; exit 0 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: comment-draft-confirm native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # PreToolUse(Bash): a call that PUBLISHES a comment/review or creates a GitHub
 # issue — `gh pr/issue comment`, `gh pr review` with a body, `gh issue create`,

@@ -1,0 +1,1215 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { computeManagedHash } from "../lib/render/marker.ts";
+
+/**
+ * Spec 0057 R8-R10 / D5 - the differential oracle (`scripts/js/rust-oracle.mjs`). The real
+ * TS-vs-Rust run is `bun run oracle:rust`; here only stub runners and fixed strings, so nothing
+ * needs `dist/` or a Rust build.
+ */
+
+interface Runner {
+  cmd: string;
+  args: string[];
+  version: string;
+}
+interface Difference {
+  kind: string;
+  detail: string;
+}
+interface OracleCase {
+  id: string;
+  fixture: string;
+  args: string[];
+  mask?: string[];
+  native?: boolean;
+  files?: Record<string, string>;
+  setup?: unknown[];
+  readonly?: string[];
+  note?: string;
+  known?: { issue: string; kinds: string[]; why: string };
+}
+interface Rule {
+  name: string;
+  token: string;
+}
+interface Oracle {
+  RULES: Rule[];
+  EMBEDDED_CORE: string;
+  FIXTURES_DIR: string;
+  REPO_SPECS_FIXTURE: string;
+  selectsNative: (
+    manifest: { commands: Array<{ path: string[]; flags?: string[] }> },
+    args: string[],
+  ) => boolean;
+  CASES_DIR: string;
+  RECORDINGS_DIR: string;
+  stubEnv: (work: string, tools: string[], pathValue: string) => Record<string, string>;
+  readAreaCases: (dir: string) => OracleCase[];
+  normalizeText: (text: string) => string;
+  maskSide: (
+    text: string,
+    side: "ts" | "rust",
+    ctx: { tsVersion: string; rustVersion: string; tsCli: string },
+    where: { stream: "stdout" | "stderr" | "file"; mask: string[] },
+  ) => string;
+  loadCases: () => OracleCase[];
+  copyFixture: (from: string, to: string) => void;
+  applyFixtureManifest: (fixtureDir: string, work: string, now: number) => void;
+  relativeTime: (relative: string, now: number) => number;
+  FIXTURE_MANIFEST: string;
+  antiRollbackCases: (cliVersion: string) => OracleCase[];
+  ANTI_ROLLBACK_LEVELS: string[];
+  ANTI_ROLLBACK_OPS: string[];
+  runCase: (
+    testCase: OracleCase,
+    opts: {
+      ts: Runner;
+      rust: Runner;
+      tsCli: string;
+      base: string;
+    },
+  ) => { id: string; exit: number | null; differences: Difference[]; known: Difference[] };
+  runCaseOrSetupFailure: (
+    testCase: OracleCase,
+    opts: {
+      ts: Runner;
+      rust: Runner;
+      tsCli: string;
+      base: string;
+    },
+  ) => { id: string; exit: number | null; differences: Difference[] };
+}
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, "..", "..", "..", "..");
+const oracle = (await import(
+  pathToFileURL(resolve(here, "..", "..", "..", "..", "scripts", "js", "rust-oracle.mjs")).href
+)) as Oracle;
+
+const dirs: string[] = [];
+const tmp = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), "navori-oracle-test-"));
+  dirs.push(dir);
+  return dir;
+};
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A runner that executes `body` with `sh`, in the case's repo dir. */
+function stub(dir: string, name: string, body: string): Runner {
+  const path = join(dir, name);
+  writeFileSync(path, `#!/bin/sh\n${body}\n`);
+  chmodSync(path, 0o755);
+  return { cmd: path, args: [], version: "1.0.0" };
+}
+
+describe("rust oracle", () => {
+  it("una falla de setup es una diferencia de ese caso y el siguiente caso corre", () => {
+    const dir = tmp();
+    const base = tmp();
+    const ts = stub(
+      dir,
+      "ts.sh",
+      `[ "$1" = boom ] && { echo 'setup rejected' >&2; exit 1; }; printf 'out\\n'`,
+    );
+    const rust = stub(dir, "rust.sh", `printf 'out\\n'`);
+    const opts = { ts, rust, tsCli: "/unused/index.js", base };
+
+    const failed = oracle.runCaseOrSetupFailure(
+      { id: "setup-falla", fixture: "empty", args: [], setup: [{ navori: ["boom"] }] },
+      opts,
+    );
+    expect(failed).toMatchObject({ id: "setup-falla", exit: null });
+    expect(failed.differences).toHaveLength(1);
+    expect(failed.differences[0]).toMatchObject({ kind: "setup" });
+    expect(failed.differences[0]?.detail).toContain("setup navori boom failed");
+
+    const next = oracle.runCaseOrSetupFailure(
+      { id: "siguiente", fixture: "empty", args: [] },
+      opts,
+    );
+    expect(next.differences).toEqual([]);
+  });
+
+  // Covers: R8
+  it("una diferencia de un byte en el árbol se reporta", () => {
+    const dir = tmp();
+    const base = tmp();
+    const testCase: OracleCase = { id: "stub", fixture: "empty", args: [] };
+    const run = (rustBody: string) =>
+      oracle.runCase(testCase, {
+        ts: stub(dir, "ts.sh", `printf 'out\\n'; printf 'abc' > result.txt`),
+        rust: stub(dir, "rust.sh", rustBody),
+        tsCli: "/unused/index.js",
+        base,
+      });
+
+    const same = run(`printf 'out\\n'; printf 'abc' > result.txt`);
+    expect(same.differences).toEqual([]);
+
+    const oneByte = run(`printf 'out\\n'; printf 'abd' > result.txt`);
+    expect(oneByte.differences).toHaveLength(1);
+    expect(oneByte.differences[0]).toMatchObject({ kind: "tree:repo" });
+    expect(oneByte.differences[0]?.detail).toContain("result.txt");
+    expect(oneByte.differences[0]?.detail).toContain("byte 2");
+
+    // exit code, stdout and stderr are compared as well
+    expect(run(`printf 'out\\n'; printf 'abc' > result.txt; exit 3`).differences).toMatchObject([
+      { kind: "exit" },
+    ]);
+    expect(run(`printf 'OUT\\n'; printf 'abc' > result.txt`).differences).toMatchObject([
+      { kind: "stdout" },
+    ]);
+    expect(
+      run(`printf 'out\\n'; printf 'abc' > result.txt; echo oops >&2`).differences,
+    ).toMatchObject([{ kind: "stderr" }]);
+    // a mode difference is a difference
+    expect(
+      run(`printf 'out\\n'; printf 'abc' > result.txt; chmod 600 result.txt`).differences,
+    ).toMatchObject([{ kind: "tree:repo", detail: expect.stringContaining("mode") }]);
+  });
+
+  // Covers: R8
+  it("un caso de fallo de escritura corre con el directorio en solo lectura y puede no comparar stderr", () => {
+    const dir = tmp();
+    const base = tmp();
+    // Each side tries to write into a read-only `ro/`; the TS-like stub names its own path on
+    // stderr, as an uncaught exception's stack trace would.
+    const body = (who: string) =>
+      `mkdir -p ro; touch ro/keep; echo ${who} >&2; printf 'x' > ro/new 2>/dev/null || exit 1`;
+    const run = (mask: string[]) =>
+      oracle.runCase(
+        { id: "ro", fixture: "empty", args: [], readonly: ["."], mask },
+        {
+          ts: stub(dir, "ts.sh", body("/ts/dist/render.js:17")),
+          rust: stub(dir, "rust.sh", body("rust message")),
+          tsCli: "/unused/index.js",
+          base,
+        },
+      );
+    const masked = run(["stderr"]);
+    expect(masked.exit).toBe(1);
+    expect(masked.differences).toEqual([]);
+    expect(run([]).differences).toMatchObject([{ kind: "stderr" }]);
+  });
+
+  // Covers: R8
+  it("lo escrito en los roots de backup y auditoría también se compara", () => {
+    const dir = tmp();
+    const base = tmp();
+    const testCase: OracleCase = { id: "roots", fixture: "empty", args: [] };
+    const run = (body: string) =>
+      oracle.runCase(testCase, {
+        ts: stub(
+          dir,
+          "ts.sh",
+          `printf 'x' > "$NAVORI_BACKUP_ROOT/b"; printf 'y' > "$NAVORI_AUDITS_ROOT/a"`,
+        ),
+        rust: stub(dir, "rust.sh", body),
+        tsCli: "/unused/index.js",
+        base,
+      });
+    expect(
+      run(`printf 'x' > "$NAVORI_BACKUP_ROOT/b"; printf 'y' > "$NAVORI_AUDITS_ROOT/a"`).differences,
+    ).toEqual([]);
+    expect(
+      run(`printf 'x' > "$NAVORI_BACKUP_ROOT/b"; printf 'Y' > "$NAVORI_AUDITS_ROOT/a"`).differences,
+    ).toMatchObject([{ kind: "tree:audits" }]);
+    expect(run(`printf 'y' > "$NAVORI_AUDITS_ROOT/a"`).differences).toMatchObject([
+      { kind: "tree:backups" },
+    ]);
+  });
+
+  it("@AUDITS@, el paso chmod y la máscara de ts sobre la raíz de auditorías aislada", () => {
+    const dir = tmp();
+    const base = tmp();
+    const body = (stamp: string, extra = ""): string =>
+      `test "$1" = "$NAVORI_AUDITS_ROOT" || exit 3; test "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" = 700 || exit 4; printf '{"ts":"'%s'"}' '${stamp}' > "$1/.armed"; ${extra}`;
+    const testCase: OracleCase = {
+      id: "audits",
+      fixture: "empty",
+      args: ["@AUDITS@"],
+      setup: [{ chmod: ".", mode: 0o700, in: "audits" }],
+    };
+    const run = (rustBody: string) =>
+      oracle.runCase(testCase, {
+        ts: stub(dir, "ts.sh", body("2020-01-01T00:00:00.000Z")),
+        rust: stub(dir, "rust.sh", rustBody),
+        tsCli: "/unused/index.js",
+        base,
+      });
+    // The marker expands to the root, the chmod applied, and a different ts is only masked.
+    expect(run(body("2031-12-31T23:59:59.999Z")).differences).toEqual([]);
+    // A real difference in the audit tree still shows: another format, another mode.
+    expect(run(body("2031-12-31 23:59:59")).differences).toMatchObject([{ kind: "tree:audits" }]);
+    expect(
+      run(body("2020-01-01T00:00:00.000Z", `chmod 600 "$1/.armed"`)).differences,
+    ).toMatchObject([{ kind: "tree:audits" }]);
+  });
+
+  it("una diferencia conocida solo tolera sus tipos y falla cuando deja de diferir (#1750)", () => {
+    const dir = tmp();
+    const base = tmp();
+    const known = { issue: "#1750", kinds: ["stdout"], why: "Rust is right" };
+    const run = (tsBody: string, rustBody: string, entry: OracleCase["known"] = known) =>
+      oracle.runCase(
+        { id: "known", fixture: "empty", args: [], known: entry },
+        {
+          ts: stub(dir, "ts.sh", tsBody),
+          rust: stub(dir, "rust.sh", rustBody),
+          tsCli: "/unused/index.js",
+          base,
+        },
+      );
+
+    const tolerated = run(`printf 'updated\\n'`, `printf 'unchanged\\n'`);
+    expect(tolerated.differences).toEqual([]);
+    expect(tolerated.known).toMatchObject([{ kind: "stdout" }]);
+
+    // a kind the entry does not list still counts
+    const other = run(`printf 'updated\\n'`, `printf 'unchanged\\n'; printf x > extra`);
+    expect(other.differences).toMatchObject([{ kind: "tree:repo" }]);
+    expect(other.known).toMatchObject([{ kind: "stdout" }]);
+
+    // once both sides agree, the entry itself is a difference
+    const fixed = run(`printf 'unchanged\\n'`, `printf 'unchanged\\n'`);
+    expect(fixed.differences).toMatchObject([
+      { kind: "known", detail: expect.stringContaining("#1750 no longer differs in stdout") },
+    ]);
+    expect(fixed.known).toEqual([]);
+
+    // a partial fix: each listed kind that stops differing is reported on its own
+    const partial = run(`printf 'updated\\n'`, `printf 'unchanged\\n'`, {
+      ...known,
+      kinds: ["stdout", "tree:backups"],
+    });
+    expect(partial.known).toMatchObject([{ kind: "stdout" }]);
+    expect(partial.differences).toMatchObject([
+      { kind: "known", detail: expect.stringContaining("no longer differs in tree:backups") },
+    ]);
+
+    // without issue, kinds and why the entry is rejected
+    expect(() =>
+      run(`printf a`, `printf b`, { issue: "#1750" } as unknown as OracleCase["known"]),
+    ).toThrow("needs issue, kinds and why");
+
+    // the #1750 case is native and tolerates only the TS's `updated` report and its backups
+    const surrogate = oracle
+      .loadCases()
+      .find((c) => c.id === "prose-engines:render-apply-surrogate-cut");
+    expect(surrogate).toMatchObject({
+      native: true,
+      known: { issue: "#1750", kinds: ["stdout", "tree:backups"] },
+    });
+  });
+
+  it("los casos aceptan una nota y retired-context es nativo con la máscara de procedencia", () => {
+    const dir = mkdtempSync(join(tmpdir(), "oracle-note-"));
+    try {
+      const noted = { id: "x:note", fixture: "empty", args: ["status"], note: "texto libre" };
+      writeFileSync(join(dir, "a.json"), JSON.stringify({ schema: 1, cases: [noted] }));
+      expect(oracle.readAreaCases(dir)).toMatchObject([{ id: "x:note", note: "texto libre" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const render = JSON.parse(readFileSync(join(oracle.CASES_DIR, "render.json"), "utf8")) as {
+      cases: OracleCase[];
+    };
+    const retired = render.cases.filter((c) => c.id.startsWith("retired-context:"));
+    expect(retired.map((c) => c.id).sort()).toEqual([
+      "retired-context:render-apply",
+      "retired-context:render-json",
+    ]);
+    for (const c of retired) {
+      expect(c.native, c.id).toBe(true);
+      expect(c.mask, c.id).toEqual(["provenance"]);
+    }
+  });
+
+  // One entry per rule of the closed table: values of the same format, a change outside the
+  // pattern, and a format variant that must stay visible.
+  const mutations: Record<
+    string,
+    { a: string; b: string; outside: string; variantA: string; variantB: string }
+  > = {
+    ISO: {
+      a: "at 2026-01-02T03:04:05.678Z end",
+      b: "at 2027-05-06T07:08:09.111Z end",
+      outside: "at 2026-01-02T03:04:05.678Z enD",
+      variantA: "at 2026-01-02T03:04:05.678+00:00 end",
+      variantB: "at 2027-05-06T07:08:09.111+00:00 end",
+    },
+    EPOCHMS: {
+      a: '{"tsMs":1700000000000,"n":1}',
+      b: '{"tsMs":1800000000123,"n":1}',
+      outside: '{"tsMs":1700000000000,"n":2}',
+      variantA: '{"tsMs":170000000000,"n":1}',
+      variantB: '{"tsMs":180000000000,"n":1}',
+    },
+    UUID: {
+      a: "id 3f2b8c1e-1a2b-4c3d-8e4f-0123456789ab.",
+      b: "id 9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d.",
+      outside: "id 3f2b8c1e-1a2b-4c3d-8e4f-0123456789ab!",
+      variantA: "id 3F2B8C1E-1A2B-4C3D-8E4F-0123456789AB.",
+      variantB: "id 9A8B7C6D-5E4F-4A3B-9C2D-1E0F9A8B7C6D.",
+    },
+    BACKUP: {
+      a: "backups/repo-2026-01-02T03-04-05-678-p123-0/x",
+      b: "backups/repo-2027-05-06T07-08-09-111-p123-0/x",
+      outside: "backups/repo-2026-01-02T03-04-05-678-p123-1/x",
+      variantA: "backups/repo-2026-01-02T03-04-05-67-p123-0/x",
+      variantB: "backups/repo-2027-05-06T07-08-09-11-p123-0/x",
+    },
+    PID: {
+      a: '{"pid":123,"n":1}',
+      b: '{"pid":45678,"n":1}',
+      outside: '{"pid":123,"n":2}',
+      variantA: '{"ppid":123,"n":1}',
+      variantB: '{"ppid":456,"n":1}',
+    },
+    MS: {
+      a: "p95    1.2ms",
+      b: "p95    97.5ms",
+      outside: "p96    1.2ms",
+      variantA: "took 1.2ms",
+      variantB: "took 97.5ms",
+    },
+    FOREIGN_LOG: {
+      a: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-20261121T123456789Z.log\n",
+      b: "log /w/tmp/navori-gate-foreign-Zy8xW2/fast-20271202T010203004Z.log\n",
+      outside: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-20261121T123456789Z.logs\n",
+      variantA: "log /w/tmp/navori-gate-foreign-aB3dE9/fast-2026-11-21T12:34:56.789Z.log\n",
+      variantB: "log /w/tmp/navori-gate-foreign-Zy8xW2/fast-2027-12-02T01:02:03.004Z.log\n",
+    },
+  };
+
+  // Covers: R8, R9
+  it("cada regla de normalización tiene una mutación que la rompe", () => {
+    expect(oracle.RULES.map((rule) => rule.name).sort()).toEqual(Object.keys(mutations).sort());
+    for (const rule of oracle.RULES) {
+      const m = mutations[rule.name];
+      expect(m, `mutation entry for ${rule.name}`).toBeDefined();
+      if (!m) continue;
+      const n = oracle.normalizeText;
+      // the rule recognises its exact format and hides only the value
+      expect(n(m.a), `${rule.name} replaces its token`).toContain(rule.token);
+      expect(n(m.a), `${rule.name}: values of the same format are equal`).toBe(n(m.b));
+      // a difference outside the pattern still fails
+      expect(n(m.a), `${rule.name}: a byte outside the pattern`).not.toBe(n(m.outside));
+      // a format variant does not match, so the difference stays visible
+      expect(n(m.variantA), `${rule.name}: format variant`).not.toBe(n(m.variantB));
+      expect(n(m.variantA)).not.toContain(rule.token);
+    }
+  });
+
+  // Covers: R8
+  it("FOREIGN_LOG no oculta una diferencia real del gate foreign", () => {
+    const n = oracle.normalizeText;
+    const out = (base: string, exit: number, tail: string, rand = "aB3dE9"): string =>
+      `navori gate foreign: exit ${exit} — log ${base}/navori-gate-foreign-${rand}/fast-20261121T123456789Z.log\n${tail}\n`;
+    const same = out("/w/tmp", 3, "--- tail ---\nboom");
+    // only the mkdtemp suffix differs: equal
+    expect(n(same)).toBe(n(out("/w/tmp", 3, "--- tail ---\nboom", "Zy8xW2")));
+    // a different exit, a different tail line and a different base directory stay visible
+    expect(n(same)).not.toBe(n(out("/w/tmp", 0, "--- tail ---\nboom")));
+    expect(n(same)).not.toBe(n(out("/w/tmp", 3, "--- tail ---\nBOOM")));
+    expect(n(same)).not.toBe(n(out("/w/other", 3, "--- tail ---\nboom")));
+  });
+
+  // Covers: R8
+  it("una diferencia dentro de un marker sigue fallando tras normalizar", () => {
+    const marker = (hash: string): string =>
+      `<!-- navori:managed id="x" hash="${hash}" version="0.12.2" source="@navori/core" -->\nbody 2026-01-02T03:04:05.678Z\n`;
+    expect(oracle.normalizeText(marker("5d83b387"))).not.toBe(
+      oracle.normalizeText(marker("5d83b388")),
+    );
+  });
+
+  // Covers: R5, R8
+  it("las máscaras de lado son literales y no tocan lo demás", () => {
+    const ctx = { tsVersion: "0.12.2", rustVersion: "0.13.0-rust.1", tsCli: "/w/dist/index.js" };
+    const notice = `navori-rust: warning: delegating to TS navori 0.12.2 at /w/dist/index.js (navori-rust is 0.13.0-rust.1)\n`;
+    const stderr = { stream: "stderr" as const, mask: [] };
+    expect(oracle.maskSide(`${notice}real error\n`, "rust", ctx, stderr)).toBe("real error\n");
+    // other formats, other paths and the TS side are never dropped
+    expect(oracle.maskSide(notice.replace("0.12.2", "0.12.3"), "rust", ctx, stderr)).toContain(
+      "warning",
+    );
+    expect(oracle.maskSide(notice.replace("/w/", "/x/"), "rust", ctx, stderr)).toContain("warning");
+    expect(oracle.maskSide(notice, "ts", ctx, stderr)).toBe(notice);
+    // the version mask applies only to stdout of the cases that ask for it
+    const stdout = { stream: "stdout" as const, mask: ["version"] };
+    expect(oracle.maskSide("(navori v0.13.0-rust.1)\n", "rust", ctx, stdout)).toBe(
+      "(navori v@VERSION@)\n",
+    );
+    expect(oracle.maskSide("(navori v0.12.2)\n", "ts", ctx, stdout)).toBe("(navori v@VERSION@)\n");
+    expect(oracle.maskSide("0.13.0-rust.1\n", "rust", ctx, { stream: "stdout", mask: [] })).toBe(
+      "0.13.0-rust.1\n",
+    );
+    expect(oracle.maskSide("v0.13.0-rust.10\n", "rust", ctx, stdout)).toBe("v0.13.0-rust.10\n");
+  });
+
+  // Covers: R41
+  it("la máscara de procedencia solo toca su línea literal", () => {
+    const ctx = { tsVersion: "0.12.2", rustVersion: "0.13.0-rust.1", tsCli: "/w/dist/index.js" };
+    const stdout = { stream: "stdout" as const, mask: ["provenance"] };
+    const embedded = `│  core: ${oracle.EMBEDDED_CORE}\n`;
+    const mask = (
+      text: string,
+      side: "ts" | "rust" = "ts",
+      where: { stream: "stdout" | "stderr" | "file"; mask: string[] } = stdout,
+    ): string => oracle.maskSide(text, side, ctx, where);
+    // the bundled TS line, in both languages, becomes the Rust one
+    expect(mask("│  core: /w/dist/assets/core (build copy)\n│  next\n")).toBe(
+      `${embedded}│  next\n`,
+    );
+    expect(mask("│  core: /w/dist/assets/core (copia del build)\n")).toBe(embedded);
+    expect(mask(`  "coreRoot": "/w/dist/assets/core",\n  "bundled": true,\n`)).toBe(
+      `  "coreRoot": "(embedded)",\n  "bundled": true,\n`,
+    );
+    // mutations: another root, the dev sources, a stale core, another key or another
+    // place in the line stay visible
+    for (const visible of [
+      "│  core: /x/dist/assets/core (build copy)\n",
+      "│  core: /w/dist/assets/core (dev sources)\n",
+      "│  core: /w/dist/assets/core (build copy) stale\n",
+      `  "pluginRoot": "/w/dist/assets/core",\n`,
+      `  "coreRoot": "/w/dist/assets/core/x",\n`,
+    ]) {
+      expect(mask(visible), visible).toBe(visible);
+    }
+    // only the TS side, only stdout, only the cases that ask for it
+    const line = "│  core: /w/dist/assets/core (build copy)\n";
+    expect(mask(line, "rust")).toBe(line);
+    expect(mask(line, "ts", { stream: "stderr", mask: ["provenance"] })).toBe(line);
+    expect(mask(line, "ts", { stream: "stdout", mask: [] })).toBe(line);
+  });
+
+  // Covers: R41, R49
+  it("cada comando portado tiene caso en cada fixture aplicable", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(here, "..", "..", "..", "..", "crates", "ported.json"), "utf8"),
+    ) as {
+      commands: Array<{ path: string[]; flags?: string[]; when?: { engines?: string[] } }>;
+    };
+    const cases = oracle.loadCases();
+    const fixtures = readdirSync(oracle.FIXTURES_DIR);
+    const ported = manifest.commands.filter((c) => c.when?.engines);
+    expect(ported.map((c) => c.path.join(" "))).toContain("render");
+    for (const command of ported) {
+      const engines = command.when?.engines ?? [];
+      const languages = new Set<string>();
+      for (const fixture of fixtures) {
+        const configPath = join(oracle.FIXTURES_DIR, fixture, "navori.config.json");
+        if (!existsSync(configPath)) continue;
+        // The fixtures of the `spec`, `master`, `handoff` and `gate` (`gate-symlink`) commands exist to exercise those
+        // commands: they carry a config because every command reads one, not to cover `render`.
+        if (/^(spec|master|chk|handoff|gate)-/.test(fixture)) continue;
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          engines?: string[];
+          language?: string;
+          monorepo?: { enabled?: boolean; workspaces?: unknown[] };
+          project?: { localSkills?: unknown[] };
+        };
+        const workspaces =
+          config.monorepo?.enabled === true && (config.monorepo.workspaces ?? []).length > 0;
+        // Local-skill pointers on the shared `.agents/skills` root (Codex, Pi) stay the TS's
+        // (spec 0059 T19, T20), like workspaces.
+        const localSkillPointers =
+          (config.project?.localSkills ?? []).length > 0 &&
+          (config.engines ?? []).some((e) => e === "codex" || e === "pi");
+        const applicable =
+          !workspaces &&
+          !localSkillPointers &&
+          (config.engines ?? ["claude"]).every((e) => engines.includes(e));
+        if (!applicable) continue;
+        // Cases inside the native subset: the command, then positionals and its declared flags.
+        const declared = (args: string[]): boolean =>
+          args.every(
+            (arg, i) =>
+              !arg.startsWith("-") ||
+              (arg.startsWith("--") && (command.flags ?? []).includes(arg.slice(2))) ||
+              args[i - 1] === "--cwd",
+          );
+        const mine = cases.filter(
+          (c) =>
+            c.fixture === fixture &&
+            command.path.every((part, i) => c.args[i] === part) &&
+            declared(c.args.slice(command.path.length)),
+        );
+        const label = `${command.path.join(" ")} on ${fixture}`;
+        expect(
+          mine.some((c) => !c.args.includes("--json")),
+          label,
+        ).toBe(true);
+        if (command.flags?.includes("json")) {
+          expect(
+            mine.some((c) => c.args.includes("--json")),
+            `${label} --json`,
+          ).toBe(true);
+        }
+        // `render` names the core it read; that line is masked on the TS side.
+        if (command.path.join(" ") === "render") {
+          for (const c of mine) expect(c.mask, c.id).toContain("provenance");
+        }
+        languages.add(config.language ?? "es");
+      }
+      expect([...languages].sort(), command.path.join(" ")).toEqual(["en", "es"]);
+    }
+  });
+
+  // Covers: R45, R49
+  it("los fixtures de escritura se copian con sus mtimes relativos", () => {
+    for (const name of ["aged-backups", "foreign-blocks", "sync-conflicts", "codex-trusted"]) {
+      expect(existsSync(join(oracle.FIXTURES_DIR, name)), name).toBe(true);
+      expect(
+        oracle.loadCases().some((c) => c.fixture === name),
+        `${name} has cases`,
+      ).toBe(true);
+    }
+    const now = Date.UTC(2026, 9, 29, 12, 0, 0);
+    expect(oracle.relativeTime("-40d", now)).toBe(now - 40 * 86_400_000);
+    expect(oracle.relativeTime("-2h", now)).toBe(now - 2 * 3_600_000);
+    expect(oracle.relativeTime("-30m", now)).toBe(now - 30 * 60_000);
+    for (const bad of ["40d", "-40", "-1w", "+1d"]) {
+      expect(() => oracle.relativeTime(bad, now), bad).toThrow();
+    }
+    // A fixture with a manifest: the backups land in the backup root with their ages and
+    // sparse sizes, and the manifest itself never reaches the repo.
+    const fixture = tmp();
+    writeFileSync(join(fixture, "file.txt"), "x");
+    writeFileSync(
+      join(fixture, oracle.FIXTURE_MANIFEST),
+      JSON.stringify({
+        backups: [
+          { name: "old", mtime: "-40d", files: { "a/b.txt": "old" } },
+          { name: "big", mtime: "-2d", sparse: { "big.bin": 3 * 1024 * 1024 * 1024 } },
+        ],
+        symlinks: { "sub/link": "../file.txt" },
+      }),
+    );
+    const work = tmp();
+    oracle.copyFixture(fixture, join(work, "repo"));
+    expect(existsSync(join(work, "repo", oracle.FIXTURE_MANIFEST))).toBe(false);
+    expect(readFileSync(join(work, "repo", "file.txt"), "utf8")).toBe("x");
+    oracle.applyFixtureManifest(fixture, work, now);
+    expect(readFileSync(join(work, "backups", "old", "a", "b.txt"), "utf8")).toBe("old");
+    expect(statSync(join(work, "backups", "old")).mtimeMs).toBe(now - 40 * 86_400_000);
+    expect(statSync(join(work, "backups", "big")).mtimeMs).toBe(now - 2 * 86_400_000);
+    expect(statSync(join(work, "backups", "big", "big.bin")).size).toBe(3 * 1024 * 1024 * 1024);
+    // symlinks are created in the repo copy, verbatim, not committed in the fixture
+    expect(readlinkSync(join(work, "repo", "sub", "link"))).toBe("../file.txt");
+    expect(readFileSync(join(work, "repo", "sub", "link"), "utf8")).toBe("x");
+  });
+
+  // Covers: R76
+  it("los stubs de PATH responden por argv desde las grabaciones y registran cada llamada", () => {
+    const work = mkdtempSync(join(tmpdir(), "oracle-stubs-"));
+    try {
+      const env = oracle.stubEnv(work, ["gh", "npm"], process.env.PATH ?? "");
+      const recorded = JSON.parse(readFileSync(join(oracle.RECORDINGS_DIR, "gh.json"), "utf8")) as {
+        version: string;
+        responses: Array<{ args: string[]; stdout: string }>;
+      };
+      expect(recorded.version).toMatch(/^gh version /);
+      const run = (tool: string, args: string[]) =>
+        spawnSync(tool, args, { env: { ...process.env, ...env }, encoding: "utf8" });
+      const version = run("gh", ["--version"]);
+      expect(version.status).toBe(0);
+      expect(version.stdout).toBe(recorded.responses[0]?.stdout);
+      const missing = run("gh", ["api", "user"]);
+      expect(missing.status).toBe(127);
+      expect(missing.stderr).toBe("oracle stub: no recording for gh api user\n");
+      // A tool with no recordings file answers nothing, without reaching the real one.
+      expect(run("npm", ["view", "navori"]).status).toBe(127);
+      expect(
+        readFileSync(env.NAVORI_ORACLE_CALLS ?? "", "utf8")
+          .trim()
+          .split("\n"),
+      ).toEqual([
+        JSON.stringify({ tool: "gh", args: ["--version"] }),
+        JSON.stringify({ tool: "gh", args: ["api", "user"] }),
+        JSON.stringify({ tool: "npm", args: ["view", "navori"] }),
+      ]);
+      expect(() => oracle.stubEnv(work, ["curl"], "")).toThrow(/curl is not a stubbed tool/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R77
+  it("los casos viven en un archivo por área y un id repetido entre archivos falla", () => {
+    const names = readdirSync(oracle.CASES_DIR).filter((n) => n.endsWith(".json"));
+    for (const area of ["plan", "handoff", "spec", "render"])
+      expect(names, area).toContain(`${area}.json`);
+    for (const name of names) {
+      const area = name.slice(0, -".json".length);
+      const file = JSON.parse(readFileSync(join(oracle.CASES_DIR, name), "utf8")) as {
+        cases: OracleCase[];
+      };
+      for (const c of file.cases)
+        expect(c.args[0]?.startsWith("-") ? "cli" : c.args[0], c.id).toBe(area);
+    }
+    const dir = mkdtempSync(join(tmpdir(), "oracle-areas-"));
+    try {
+      const one = { id: "x:dup", fixture: "empty", args: ["status"] };
+      writeFileSync(join(dir, "a.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(oracle.readAreaCases(dir).map((c) => c.id)).toEqual(["x:dup"]);
+      writeFileSync(join(dir, "b.json"), JSON.stringify({ schema: 1, cases: [one] }));
+      expect(() => oracle.readAreaCases(dir)).toThrow(/x:dup in a\.json and b\.json/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Covers: R37, R49, R63
+  it("la matriz anti-rollback tiene cada celda y su bloque se lee como de navori", () => {
+    const cells = oracle.antiRollbackCases("0.12.3");
+    const levels = oracle.ANTI_ROLLBACK_LEVELS;
+    expect(levels).toEqual(["absent", "lower", "equal", "higher"]);
+    expect(oracle.ANTI_ROLLBACK_OPS).toEqual([
+      "inject",
+      "hook",
+      "settings",
+      "remove",
+      "codex-config",
+      "agents-md",
+    ]);
+    const ids = new Set(cells.map((c) => c.id));
+    for (const op of oracle.ANTI_ROLLBACK_OPS)
+      for (const floor of levels)
+        for (const marker of levels)
+          expect(ids.has(`anti-rollback:${op}:floor-${floor}:marker-${marker}`)).toBe(true);
+    expect(cells).toHaveLength(oracle.ANTI_ROLLBACK_OPS.length * levels.length ** 2);
+    // every cell runs in the oracle: a render masked like any render, or a remove of tgrep,
+    // which the cell enables in the config
+    const loaded = new Set(oracle.loadCases().map((c) => c.id));
+    for (const c of cells) {
+      expect(loaded.has(c.id), c.id).toBe(true);
+      if (c.id.startsWith("anti-rollback:remove:")) {
+        expect(c.args).toEqual(["remove", "tgrep", "--yes"]);
+        const config = JSON.parse(c.files?.["navori.config.json"] ?? "{}");
+        expect(config.plugins.tgrep).toEqual({ enabled: true });
+        expect(c.files?.["CLAUDE.md"]).toContain('id="tgrep-search-v2"');
+      } else if (c.id.startsWith("anti-rollback:codex-config:")) {
+        // the Codex config's `#` marker, under a native `sync` (spec 0059 T21)
+        expect(c.fixture).toBe("codex");
+        expect(c.args).toEqual(["sync", "--apply"]);
+        expect(c.native).toBe(true);
+        expect(c.files?.[".codex/config.toml"]).toMatch(
+          /^# navori:managed start id="codex-config-base"/,
+        );
+      } else {
+        expect(c.args).toEqual(["render", "--apply"]);
+        expect(c.mask).toEqual(["provenance"]);
+        if (c.id.startsWith("anti-rollback:agents-md:")) {
+          expect(c.fixture).toBe("prose-engines");
+          expect(c.native).toBe(true);
+          expect(c.files?.["AGENTS.md"]).toContain('id="navori-agents"');
+        }
+      }
+    }
+    // the floor lands in the config, the stamp on the block, and the block hash matches its body
+    const cell = (id: string): OracleCase => {
+      const found = cells.find((c) => c.id === id);
+      if (!found) throw new Error(id);
+      return found;
+    };
+    const higher = cell("anti-rollback:inject:floor-higher:marker-lower").files ?? {};
+    expect(JSON.parse(higher["navori.config.json"] ?? "{}").harnessVersion).toBe("999.0.0");
+    expect(higher["CLAUDE.md"]).toContain('version="0.1.0"');
+    const absent = cell("anti-rollback:inject:floor-absent:marker-absent").files ?? {};
+    expect(JSON.parse(absent["navori.config.json"] ?? "{}")).not.toHaveProperty("harnessVersion");
+    expect(absent["CLAUDE.md"]).not.toContain("version=");
+    expect(absent["CLAUDE.md"]).toContain(`hash="${computeManagedHash("Older body.")}"`);
+    const hook = cell("anti-rollback:hook:floor-equal:marker-equal").files ?? {};
+    expect(hook[".claude/hooks/implementer-no-markdown.sh"]).toContain(
+      `hash="${computeManagedHash("#!/usr/bin/env bash\nexit 0")}" version="0.12.3"`,
+    );
+  });
+
+  // Covers: R9
+  // Covers: R62, R64
+  it("los fixtures multi-engine cubren AGENTS.md compartido", () => {
+    const cases = oracle.loadCases();
+    const configOf = (c: OracleCase): { engines?: string[]; language?: string } =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as { engines?: string[]; language?: string };
+    const prose = ["agents-md", "cursor", "copilot"];
+    for (const fixture of ["prose-engines", "multi-engine"]) {
+      const mine = cases.filter((c) => c.fixture === fixture && c.args[0] === "render");
+      // native, so a delegation is a difference; preview and apply, human and --json, es and en
+      for (const c of mine) expect(c.native, c.id).toBe(true);
+      for (const apply of [false, true])
+        for (const json of [false, true])
+          expect(
+            mine.some(
+              (c) => c.args.includes("--apply") === apply && c.args.includes("--json") === json,
+            ),
+            `${fixture} apply=${apply} json=${json}`,
+          ).toBe(true);
+      expect(new Set(mine.map((c) => configOf(c).language)), fixture).toEqual(
+        new Set(["es", "en"]),
+      );
+      for (const c of mine)
+        expect(configOf(c).engines, c.id).toEqual(expect.arrayContaining(prose));
+    }
+    // multi-engine: Claude beside the three prose engines, AGENTS.md is the user's own file, and
+    // the other two cover a hand-edited block and a block from a newer navori
+    const multi = JSON.parse(
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", "navori.config.json"), "utf8"),
+    ) as { engines: string[] };
+    expect(multi.engines).toContain("claude");
+    const fixtureFile = (rel: string): string =>
+      readFileSync(join(oracle.FIXTURES_DIR, "multi-engine", `${rel}.fixture`), "utf8");
+    expect(fixtureFile("AGENTS.md")).not.toContain("navori:managed");
+    expect(fixtureFile(".github/copilot-instructions.md")).toContain('hash="00000000"');
+    expect(fixtureFile(".cursor/rules/navori.mdc")).toContain('version="99.0.0"');
+    // a re-render: the first apply makes AGENTS.md navori's, which the guard then owns
+    expect(cases.some((c) => c.fixture === "multi-engine" && (c.setup ?? []).length > 0)).toBe(
+      true,
+    );
+    // with Pi and a foreign Pi resource, Rust vetoes the Pi generation natively (spec 0059 T20)
+    const foreign = cases.find((c) => c.id === "multi-engine:pi-foreign-writes-nothing");
+    expect(foreign?.native).toBe(true);
+    expect(configOf(foreign!).engines).toContain("pi");
+    expect(Object.keys(foreign?.files ?? {})).toContain(".pi/extensions/navori.ts");
+  });
+
+  // Covers: R62, R63
+  it("render, sync, remove y adopt nativos en multi-engine", () => {
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8")) as {
+      commands: Array<{ path: string[]; when?: { engines?: string[] } }>;
+    };
+    const r62 = ["claude", "agents-md", "cursor", "copilot", "codex", "pi"];
+    for (const name of ["render", "sync", "remove"]) {
+      const entry = manifest.commands.find((c) => c.path.join(" ") === name);
+      expect(entry?.when?.engines, name).toEqual(r62);
+    }
+    // `adopt` touches only `.claude/**/*.md`, so it never had an engine subset
+    expect(manifest.commands.find((c) => c.path.join(" ") === "adopt")?.when).toBeUndefined();
+    const cases = oracle.loadCases();
+    const enginesOf = (c: OracleCase): string[] =>
+      (
+        JSON.parse(
+          c.files?.["navori.config.json"] ??
+            readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+        ) as { engines?: string[] }
+      ).engines ?? ["claude"];
+    for (const name of ["render", "sync", "remove", "adopt"]) {
+      const native = cases.filter((c) => c.args[0] === name && c.native === true);
+      // every engine of R62 on its own, and a fixture with several engines beside Claude
+      for (const engine of r62.filter((e) => e !== "claude"))
+        expect(
+          native.some((c) => enginesOf(c).includes(engine)),
+          `${name} native with ${engine}`,
+        ).toBe(true);
+      expect(
+        native.some((c) => enginesOf(c).includes("claude") && enginesOf(c).length >= 4),
+        `${name} native on a multi-engine fixture`,
+      ).toBe(true);
+    }
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    // sync resolves a Codex file natively, and hands the TS a prose file its apply cannot bind
+    expect(byId.get("codex:sync-accept-new-files")?.native).toBe(true);
+    expect(byId.get("codex:sync-config-edited")?.native).toBe(true);
+    expect(byId.get("sync-delegates:prose-accept-new-files")?.native).toBeUndefined();
+    // the four commands, one after another, on Claude, the prose engines and Pi
+    const chained = byId.get("multi-engine-pi:sync-after-adopt");
+    expect(chained?.native).toBe(true);
+    expect(chained?.setup).toEqual([
+      ["render", "--apply"],
+      ["adopt", ".claude/agents/mine.md", "--apply"],
+    ]);
+    expect(byId.get("multi-engine-pi:remove-yes")?.native).toBe(true);
+  });
+
+  // Covers: R19
+  it("cada dimensión de config de las suites de aceptación de Pi y Codex tiene fixture", () => {
+    interface Config {
+      engines?: string[];
+      harness?: Record<string, boolean>;
+      qualityGate?: { fast?: string };
+      plugins?: Record<string, { enabled?: boolean }>;
+      models?: { codexMap?: Record<string, string> };
+    }
+    const configOf = (c: OracleCase): Config =>
+      JSON.parse(
+        c.files?.["navori.config.json"] ??
+          readFileSync(join(oracle.FIXTURES_DIR, c.fixture, "navori.config.json"), "utf8"),
+      ) as Config;
+    const pluginsDir = join(root, "packages", "plugins");
+    const mcp = readdirSync(pluginsDir).filter((id) => {
+      const manifest = join(pluginsDir, id, "plugin.json");
+      return existsSync(manifest) && "mcpServer" in JSON.parse(readFileSync(manifest, "utf8"));
+    });
+    expect(mcp.length).toBeGreaterThan(0);
+    // A file overwritten after a first render: the user's edit the next render must respect.
+    const edited = (c: OracleCase): boolean => {
+      const steps = (c.setup ?? []) as unknown[];
+      const rendered = steps.findIndex(
+        (s) => Array.isArray(s) && s[0] === "render" && s.includes("--apply"),
+      );
+      return (
+        rendered >= 0 &&
+        steps
+          .slice(rendered + 1)
+          .some((s) => typeof s === "object" && s !== null && "write" in s && !("in" in s))
+      );
+    };
+    const role = (name: string, on: boolean) => (c: Config) => (c.harness?.[name] ?? true) === on;
+    // D39: the dimensions the first-class Pi suites and the Codex parity and trust suites exercise.
+    const dimensions: Array<[string, string[], (config: Config, c: OracleCase) => boolean]> = [
+      ["harness.planTiers", ["pi", "codex"], (c) => c.harness?.planTiers === true],
+      ["harness.masterPlan", ["pi"], (c) => c.harness?.masterPlan === true],
+      ["harness.scribeOwnsMarkdown", ["pi"], (c) => c.harness?.scribeOwnsMarkdown === true],
+      ["qualityGate.fast", ["pi", "codex"], (c) => Boolean(c.qualityGate?.fast)],
+      ["rol publisher", ["pi"], role("publisher", true)],
+      ["sin rol publisher", ["pi"], role("publisher", false)],
+      ["rol scout", ["pi"], role("scout", true)],
+      ["sin rol scout", ["pi"], role("scout", false)],
+      [
+        "plugins MCP",
+        ["pi", "codex"],
+        (c) => Object.entries(c.plugins ?? {}).some(([id, p]) => p.enabled && mcp.includes(id)),
+      ],
+      ["codexMap", ["pi", "codex"], (c) => Object.keys(c.models?.codexMap ?? {}).length > 0],
+      ["recurso editado por el usuario", ["pi", "codex"], (_, c) => edited(c)],
+    ];
+    // Tree equality needs a write: native renders with --apply.
+    const applied = oracle
+      .loadCases()
+      .filter((c) => c.native === true && c.args[0] === "render" && c.args.includes("--apply"));
+    for (const [name, engines, holds] of dimensions)
+      for (const engine of engines)
+        expect(
+          applied.some(
+            (c) => (configOf(c).engines ?? ["claude"]).includes(engine) && holds(configOf(c), c),
+          ),
+          `${name} with ${engine}`,
+        ).toBe(true);
+  });
+
+  it("los casos cubren el repo con contenido de usuario y la superficie del golden", () => {
+    const cases = oracle.loadCases();
+    const user = cases.find((c) => c.id === "user-content-outside-markers");
+    expect(user, "case user-content-outside-markers").toBeDefined();
+    for (const c of cases) {
+      if (c.fixture === oracle.REPO_SPECS_FIXTURE) continue;
+      expect(existsSync(join(oracle.FIXTURES_DIR, c.fixture)), `fixture of ${c.id}`).toBe(true);
+    }
+    // the fixture really has hand-written content outside the markers
+    const claude = readFileSync(
+      join(oracle.FIXTURES_DIR, "user-content", "CLAUDE.md.fixture"),
+      "utf8",
+    );
+    expect(claude.startsWith("# Project notes (hand-written")).toBe(true);
+    expect(claude).toContain("Hand-written note between two managed blocks.");
+    expect(claude).toContain("Trailing hand-written footer.");
+    // one surface case per entry of cli-surface.golden.json
+    const golden = JSON.parse(
+      readFileSync(resolve(here, "fixtures", "cli-surface.golden.json"), "utf8"),
+    ) as { cases: Array<{ args: string[] }> };
+    const surface = cases.filter((c) => c.id.startsWith("surface:"));
+    expect(surface.map((c) => c.args)).toEqual(golden.cases.map((c) => c.args));
+    // natively ported commands mask the Rust version; delegated ones mask nothing
+    expect(surface.find((c) => c.id === "surface:--version")?.mask).toEqual(["version"]);
+    expect(surface.find((c) => c.id === "surface:init_--help")?.mask).toBeUndefined();
+    expect(surface.find((c) => c.id === "surface:spec_--help")?.mask).toEqual(["version"]);
+  });
+
+  // Covers: R73
+  it("spec check y classify sobre las specs reales y fixtures con errores", () => {
+    const cases = oracle.loadCases();
+    const real = cases.filter((c) => c.fixture === oracle.REPO_SPECS_FIXTURE);
+    const specs = readdirSync(join(root, "specs"), { withFileTypes: true }).filter(
+      (e) => e.isDirectory() && !e.name.startsWith("_"),
+    );
+    expect(real.map((c) => c.args[2]).sort()).toEqual(specs.map((e) => e.name).sort());
+    expect(real.every((c) => c.native === true && c.args[1] === "check")).toBe(true);
+    const fixtures = cases.filter((c) => c.id.startsWith("spec:"));
+    for (const sub of ["check", "classify"]) {
+      expect(fixtures.some((c) => c.args[1] === sub && c.args.includes("--json") && c.native)).toBe(
+        true,
+      );
+      expect(
+        fixtures.some((c) => c.args[1] === sub && !c.args.includes("--json") && c.native),
+      ).toBe(true);
+    }
+    expect(fixtures.find((c) => c.id === "spec:check-findings")?.native).toBe(true);
+    // `spec-master` carries a master-plan layout, which no native `spec check` case asserts.
+    expect(cases.find((c) => c.id === "spec-master:check-delegates")?.native).toBeUndefined();
+  });
+
+  // Covers: R73, R74
+  it("handoff en todos sus subcomandos", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("handoff:"));
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
+    const native = manifest.commands
+      .filter((c: { path: string[] }) => c.path[0] === "handoff" && c.path.length === 2)
+      .map((c: { path: string[] }) => c.path[1]);
+    expect(native.sort()).toEqual([
+      "attest",
+      "begin-parallel",
+      "check",
+      "complete-parallel",
+      "finalize-parallel",
+      "log-review",
+      "prepare-parallel",
+      "render",
+    ]);
+    for (const sub of native) {
+      for (const json of [true, false]) {
+        expect(
+          cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
+        ).toBe(true);
+      }
+      const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
+      expect(cases.some((c) => c.args[1] === sub && help(c) && c.native)).toBe(true);
+      expect(cases.some((c) => c.args[1] === sub && c.args.includes("--dir") && c.native)).toBe(
+        true,
+      );
+    }
+    // A config that prints warnings would print them once per `bindings` read: the producers
+    // and the scribe's parallel check hand it to the TS.
+    for (const sub of [
+      "prepare-parallel",
+      "begin-parallel",
+      "complete-parallel",
+      "finalize-parallel",
+    ]) {
+      expect(
+        cases.find((c) => c.id === `handoff:${sub}-config-con-avisos`)?.native,
+        sub,
+      ).toBeUndefined();
+    }
+    for (const flag of ["--for", "--target", "--cwd"]) {
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    for (const flag of ["--produced-by", "--since", "--parallel"]) {
+      expect(cases.some((c) => c.args[1] === "check" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.find((c) => c.id === "handoff:check-parallel-delegates")?.native).toBeUndefined();
+    expect(cases.find((c) => c.id === "handoff:check-parallel-scribe")?.native).toBe(true);
+    // A native Codex producer attests, as implementer and as scribe over its record.
+    for (const id of ["attest-implementer", "attest-scribe-tras-implementer"]) {
+      expect(cases.find((c) => c.id === `handoff:${id}`)?.native, id).toBe(true);
+    }
+    expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
+    expect(cases.some((c) => c.id === "handoff:group-unknown" && c.native)).toBe(true);
+  });
+
+  // Covers: R73, R74
+  it("plan classify, check, render, update, escalation-reset, acknowledge y resume nativos con sus delegaciones", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("plan-cmd:"));
+    const manifest = JSON.parse(readFileSync(join(root, "crates", "ported.json"), "utf8"));
+    const native = manifest.commands
+      .filter((c: { path: string[] }) => c.path[0] === "plan" && c.path.length === 2)
+      .map((c: { path: string[] }) => c.path[1])
+      .sort();
+    expect(native).toEqual([
+      "acknowledge",
+      "check",
+      "classify",
+      "escalation-reset",
+      "gate",
+      "render",
+      "resume",
+      "update",
+    ]);
+    const help = (c: { args: string[] }) => c.args.includes("--help") || c.args.includes("-h");
+    for (const sub of [
+      "classify",
+      "check",
+      "render",
+      "update",
+      "escalation-reset",
+      "acknowledge",
+    ]) {
+      for (const json of [true, false]) {
+        expect(
+          cases.some((c) => c.args[1] === sub && c.args.includes("--json") === json && c.native),
+        ).toBe(true);
+      }
+      expect(cases.some((c) => c.args[1] === sub && help(c) && c.native)).toBe(true);
+      expect(cases.some((c) => c.args[1] === sub && c.args.includes("--cwd") && c.native)).toBe(
+        true,
+      );
+    }
+    // `acknowledge` covers the acknowledgement, its inspection and a continuation natively; zod's
+    // and citty's own errors stay with the TS.
+    for (const id of [
+      "acknowledge-repeat",
+      "acknowledge-inspect",
+      "acknowledge-continue-unconsumed",
+      "acknowledge-records-the-review",
+      "acknowledge-level-1",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBe(true);
+    }
+    const resume = oracle
+      .loadCases()
+      .filter((c) => c.args[0] === "plan" && c.args[1] === "resume" && c.native);
+    for (const json of [true, false]) {
+      expect(resume.some((c) => c.args.includes("--json") === json)).toBe(true);
+    }
+    expect(resume.some((c) => c.id === "plan-resume:recibo-firmado")).toBe(true);
+    // `classify --diff` is native over git (D42); a base git cannot resolve stays with the TS.
+    const diff = oracle.loadCases().filter((c) => c.id.startsWith("plan-diff:"));
+    for (const json of [true, false]) {
+      expect(diff.some((c) => c.args.includes("--json") === json && c.native)).toBe(true);
+    }
+    expect(diff.find((c) => c.id === "plan-diff:base-inexistente")?.native).toBeUndefined();
+    // Git evidence, audit events, escalation records and acknowledge's zod and citty errors stay
+    // with the TS.
+    for (const id of [
+      "update-evidence-session-delegates",
+      "update-audit-delegates",
+      "reset-escalation-record-delegates",
+      "reset-audit-delegates",
+      "acknowledge-invalid-reference-delegates",
+      "acknowledge-extra-positional-delegates",
+      "acknowledge-missing-opening-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `plan-cmd:${id}`)?.native, id).toBeUndefined();
+    }
+    for (const flag of ["--criticalArea", "--critical-area", "--files", "--dir"]) {
+      expect(cases.some((c) => c.args[1] === "classify" && c.args.includes(flag) && c.native)).toBe(
+        true,
+      );
+    }
+    expect(cases.some((c) => c.args.length === 1 && c.native)).toBe(true);
+  });
+
+  // Covers: R73
+  it("dominio en cada subcomando, sin workspace, con workspace ambiguo y con su salida de clack", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("dominio:"));
+    for (const sub of ["init", "list", "show", "reindex", "doctor"]) {
+      const mine = cases.filter((c) => c.args[1] === sub && c.native);
+      expect(
+        mine.some((c) => c.args.includes("--help")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => c.id.endsWith("-no-workspace")),
+        sub,
+      ).toBe(true);
+      expect(
+        mine.some((c) => !c.args.includes("--help") && (c as { setup?: unknown[] }).setup?.length),
+        sub,
+      ).toBe(true);
+    }
+    expect(cases.some((c) => c.args.some((a) => a.startsWith("--workspace")) && c.native)).toBe(
+      true,
+    );
+    expect(cases.find((c) => c.id === "dominio:list-ambiguous")?.native).toBe(true);
+    // Color, a width clack would wrap and a name the registry rejects stay with the TS.
+    for (const id of [
+      "list-force-color-delegates",
+      "list-long-summary-delegates",
+      "list-invalid-name-delegates",
+    ]) {
+      expect(cases.find((c) => c.id === `dominio:${id}`)?.native, id).toBeUndefined();
+    }
+  });
+
+  // Covers: R73
+  it("spec check mapea las entregas de una etapa en modo deliveries", () => {
+    const cases = oracle.loadCases().filter((c) => c.id.startsWith("spec-deliveries:"));
+    for (const id of ["mapped", "unmapped", "target-mismatch", "invalid-parts", "no-parts-file"]) {
+      expect(cases.find((c) => c.id === `spec-deliveries:${id}`)?.native, id).toBe(true);
+    }
+    expect(
+      cases.find((c) => c.id === "spec-deliveries:bad-json-parts-delegates")?.native,
+    ).toBeUndefined();
+  });
+
+  // Covers: R73
+  it("backup, migrations y preset nativos en cada subcomando", () => {
+    const cases = oracle.loadCases();
+    const groups: Record<string, string[]> = {
+      backup: ["list", "restore", "prune"],
+      migrations: ["list", "restore"],
+      preset: ["init"],
+    };
+    for (const [group, subs] of Object.entries(groups)) {
+      const mine = cases.filter((c) => c.id.startsWith(`${group}:`));
+      expect(mine.some((c) => c.args.length === 2 && c.args[1] === "--help" && c.native)).toBe(
+        true,
+      );
+      for (const sub of subs) {
+        const native = mine.filter((c) => c.args[1] === sub && c.native);
+        expect(
+          native.some((c) => c.args.includes("--help") || c.args.includes("-h")),
+          sub,
+        ).toBe(true);
+        expect(
+          native.some((c) => !c.args.includes("--help") && !c.args.includes("-h")),
+          sub,
+        ).toBe(true);
+      }
+    }
+    // An interactive confirm stays with the TS.
+    for (const id of ["backup:restore-confirm-delegates", "migrations:restore-confirm-delegates"]) {
+      expect(cases.find((c) => c.id === id)?.native, id).toBeUndefined();
+    }
+  });
+
+  // Covers: R7
+  it("selectsNative lee argv como el parser y el manifiesto", () => {
+    const manifest = {
+      commands: [{ path: ["--help"] }, { path: ["spec", "check"], flags: ["json", "help"] }],
+    };
+    expect(oracle.selectsNative(manifest, ["-h"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "x", "--json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--no-json"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["spec", "check", "--cwd=x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["spec", "classify"])).toBe(false);
+  });
+
+  // Covers: R7
+  it("selectsNative respeta requires como Manifest::select, entrada por entrada", () => {
+    const manifest = {
+      commands: [
+        { path: ["sync"], flags: ["cwd", "apply", "json"], requires: [["apply"], ["json"]] },
+        { path: ["remove"], flags: ["cwd", "yes"], requires: [["yes"]] },
+        { path: ["audit"], flags: ["arm", "cwd", "host"], requires: [["arm"]] },
+        { path: ["audit"], flags: ["disarm", "cwd"], requires: [["disarm"]] },
+      ],
+    };
+    expect(oracle.selectsNative(manifest, ["sync"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--cwd", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["sync", "--apply"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["remove", "x"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["remove", "x", "--yes"])).toBe(true);
+    // Two entries of one path: each one is checked on its own, flags and requires together.
+    expect(oracle.selectsNative(manifest, ["audit"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--host", "pi"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm"])).toBe(true);
+    expect(oracle.selectsNative(manifest, ["audit", "--disarm", "--host", "pi"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--arm", "--disarm"])).toBe(false);
+    expect(oracle.selectsNative(manifest, ["audit", "--start", "s"])).toBe(false);
+  });
+});
