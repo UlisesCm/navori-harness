@@ -42,9 +42,11 @@ import { isMain } from "./is-main.mjs";
  * `--declared <json>` (`{ "<hook>|<engine>|<ISO begin>": "<reason>" }`, #1774): a divergence the
  * code declares on purpose (e.g. `pii_egress.rs` answers `Unverified` for an identifier that is not
  * UTF-8, where the shell depends on the Bash version) is reported apart as `declared`, with its
- * instant and reason, and does not turn the row red. Only an output difference can be declared: when
- * the exit codes differ or a lane failed, the row stays red even with a reason, because the verdict
- * itself changed. Without the flag nothing changes.
+ * instant and reason, and does not turn the row red. Only a stderr difference can be declared: when
+ * the exit codes or stdout differ, or a lane failed, the row stays red even with a reason, because
+ * the verdict itself may have changed (Claude carries `ask` in stdout with exit 0). Without the flag
+ * the verdict and the text and Markdown output do not change; `--json` rows always carry
+ * `declared` and `declaredNotes` (additive fields).
  */
 
 const DAY_MS = 86_400_000;
@@ -217,14 +219,14 @@ export function buildReport({
         if (diverged(end.comparison)) {
           const key = `${hook}|${engine}|${new Date(begin.timeMs).toISOString()}`;
           const reason = declared[key];
-          if (reason !== undefined && outputOnly(end.comparison)) {
+          if (reason !== undefined && stderrOnly(end.comparison)) {
             row.declared++;
             row.declaredNotes.push(`${new Date(begin.timeMs).toISOString()}: ${reason}`);
           } else {
             row.divergences++;
             if (reason !== undefined)
               row.problems.push(
-                `declared divergence at ${new Date(begin.timeMs).toISOString()} changes the verdict (codes or a failed lane), not exempt`,
+                `declared divergence at ${new Date(begin.timeMs).toISOString()} may change the verdict (exit codes, stdout or a failed lane), not exempt`,
               );
           }
         } else if (end.comparison.nativeUnobserved === true) row.unobserved++;
@@ -298,9 +300,17 @@ export function buildReport({
   };
 }
 
-/** A divergence only in stdout or stderr: same exit codes and neither lane failed. */
-function outputOnly(comparison) {
-  return !comparison.codeDiffers && !comparison.nativeFailed && !comparison.shellFailed;
+/**
+ * A divergence only in stderr: same exit codes, same stdout and neither lane failed. stdout is never
+ * exempt, since a hook's verdict can travel there with exit 0 (Claude's `permissionDecision`).
+ */
+function stderrOnly(comparison) {
+  return (
+    !comparison.codeDiffers &&
+    !comparison.stdoutDiffers &&
+    !comparison.nativeFailed &&
+    !comparison.shellFailed
+  );
 }
 
 /**
@@ -505,8 +515,8 @@ const USAGE = `usage: node scripts/js/hook-shadow-report.mjs [options]
                       without it no row closes and a lost observation stays amber (exit 3)
   --causes <json>     { "<hook>|<engine>|<ISO begin>": "<cause>" } for lost observations
   --declared <json>   { "<hook>|<engine>|<ISO begin>": "<reason>" } for divergences the code
-                      declares on purpose; only an output difference (same exit codes, no
-                      failed lane) is exempt, and it is listed apart
+                      declares on purpose; only a stderr difference (same exit codes and
+                      stdout, no failed lane) is exempt, and it is listed apart
   --batches <json>    { "<batch>": ["<hook>", ...] } for the per-batch verdict (--markdown)
   --sibling-cancel    report a Pi begin that never completed as cancelled, not lost, when a
                       sibling of the same call completed: compatible with a sibling's block,
@@ -539,10 +549,19 @@ export function parseDeclared(text) {
     declared !== null &&
     typeof declared === "object" &&
     !Array.isArray(declared) &&
-    Object.entries(declared).every(
-      ([key, reason]) =>
-        key.split("|").length === 3 && typeof reason === "string" && reason.trim() !== "",
-    );
+    Object.entries(declared).every(([key, reason]) => {
+      const [hook, engine, begin, ...rest] = key.split("|");
+      const ms = Date.parse(begin ?? "");
+      return (
+        rest.length === 0 &&
+        hook !== "" &&
+        ENGINES.includes(engine ?? "") &&
+        Number.isFinite(ms) &&
+        new Date(ms).toISOString() === begin &&
+        typeof reason === "string" &&
+        reason.trim() !== ""
+      );
+    });
   if (!valid)
     throw new Error(
       '--declared needs a JSON object of "<hook>|<engine>|<ISO begin>" to a non-empty reason',
