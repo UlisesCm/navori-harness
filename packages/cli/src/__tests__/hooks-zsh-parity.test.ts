@@ -26,6 +26,7 @@ interface CorpusCase {
 interface Replay {
   readCorpus: () => CorpusCase[];
   caseKey: (c: CorpusCase) => string;
+  hasPlaceholderCommand: (hook: string) => boolean;
   replayCorpus: (options: {
     corpus: CorpusCase[];
     shell: string;
@@ -84,9 +85,10 @@ const isKnown = (c: CorpusCase): boolean =>
 /**
  * Cases per test. The whole corpus (~3,000 cases × 2 audit modes) in one test took ~150 s idle
  * and crossed its single 300 s limit under load (#1485); a fixed-size chunk keeps the work per
- * test bounded, so the default testTimeout is only a hang detector.
+ * test bounded, so the default testTimeout is only a hang detector. 125 cases took up to 31 s
+ * with a load of ~12 and timed out at ~110-130 (#1830); 25 keeps a chunk well inside the limit.
  */
-const CHUNK_SIZE = 125;
+const CHUNK_SIZE = 25;
 
 /** Splits `cases` into consecutive chunks of at most `size`. */
 function chunk<T>(cases: readonly T[], size: number): T[][] {
@@ -96,7 +98,11 @@ function chunk<T>(cases: readonly T[], size: number): T[][] {
 }
 
 describe.runIf(hasZsh)("hooks under zsh", () => {
-  const capturedUnderBash = replay.readCorpus().filter((c) => c.shell === "bash");
+  // Hooks whose command is an unrendered placeholder are skipped by any cross-shell replay; left
+  // in, a chunk made only of them replays nothing and the replay reports an empty selection.
+  const capturedUnderBash = replay
+    .readCorpus()
+    .filter((c) => c.shell === "bash" && !replay.hasPlaceholderCommand(c.hook));
   const keyed = capturedUnderBash
     .filter((c) => !isKnown(c))
     .map((c) => ({ key: replay.caseKey(c), c }))

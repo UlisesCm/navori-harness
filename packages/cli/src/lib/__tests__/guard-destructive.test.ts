@@ -1948,8 +1948,14 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
        * of margin below it and 3.3x above.
        */
       it("scales LINEARLY with the number of lines, not quadratically", () => {
-        const small = runGuardVerbose(keptLines(LINE_MAX / 8));
-        const large = runGuardVerbose(keptLines(LINE_MAX));
+        // Best of 3 per size: the guard's own cost is the fastest run, and a load spike in a
+        // single run no longer skews the ratio (#1830). The threshold does not change.
+        const fastest = (command: string): ReturnType<typeof runGuardVerbose> =>
+          [runGuardVerbose(command), runGuardVerbose(command), runGuardVerbose(command)].reduce(
+            (best, run) => (run.ms < best.ms ? run : best),
+          );
+        const small = fastest(keptLines(LINE_MAX / 8));
+        const large = fastest(keptLines(LINE_MAX));
         expect(small.status).toBe(0);
         expect(large.status).toBe(0);
         expect(large.ms / Math.max(small.ms, 1)).toBeLessThan(8);
