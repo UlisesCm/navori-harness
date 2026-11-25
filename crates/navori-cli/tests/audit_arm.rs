@@ -52,10 +52,20 @@ struct World {
     root: PathBuf,
 }
 
+impl Drop for World {
+    /// The root lives in the system temp dir, which nothing else cleans.
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
 impl World {
     fn new(name: &str) -> Result<Self, Box<dyn Error>> {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("aa-{name}-{}", std::process::id()));
+        // The system temp dir, not `CARGO_TARGET_TMPDIR`: the audit repo is named after the cwd
+        // path, and under `.claude/worktrees/` it is the parent repo (`repo_from_cwd`,
+        // navori-core audit.rs), so a target inside a Claude worktree would file the audit
+        // under that repo instead of `repo` (follow-up of #1791).
+        let root = std::env::temp_dir().join(format!("aa-{name}-{}", std::process::id()));
         if root.exists() {
             fs::remove_dir_all(&root)?;
         }
