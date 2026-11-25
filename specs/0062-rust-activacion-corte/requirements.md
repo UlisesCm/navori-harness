@@ -122,6 +122,28 @@ Con esto se leen así:
 - **docs/DIRECTION.md, "Rust migration":** las reglas de convivencia ("npm and `dev` stay
   TypeScript-only") se reemplazan por las reglas posteriores al corte.
 
+## Enmienda de R17 (2026-11-24, decisión de Ulises): deuda de latencia declarada
+
+Decisión de Ulises, tomada por S2 por delegación (decisiones-ulises/2026-11-24-r17-deuda). R17
+(`specs/0057-migracion-rust/requirements.md`) pide p95 ≤ 5 ms por hook portado. Sobre H
+(`997128b9f`), R18 queda en verde (run 45532690023, host `ci`, 508 s contra 600 s). R17 no: la
+corrida comparable (run 45535565662, carga inicial 1,50) deja 9 celdas por encima de 5 ms:
+`session-start-context` en `SessionStart`, que corre una vez por sesión y no por herramienta, y
+`guard-destructive` con comandos largos (6k y 40k, con y sin `grep`) en Claude y en Pi, deuda
+conocida de 0059 T8 cuya re-firma de latencia va en 0.13.1 (decisión del 19 nov).
+
+**Qué se decide.** No se suben los umbrales ni se toca el bench. Esas celdas se declaran como deuda
+en `R17_DEBT` de `scripts/js/cutover-check.mjs`, con el mismo patrón que `TRANSITIONAL_DELEGATION`:
+una entrada por celda (engine, escenario y hook exactos), con su motivo y su techo `maxMs` (el p95
+medido × 1,5, redondeado hacia arriba). `cutover:check` las lista aparte como `r17-debt` y no
+bloquea por ellas.
+
+Con esto, en R20 "R17 cumplido" se lee así: ninguna celda supera 5 ms salvo las declaradas en
+`R17_DEBT`, y ninguna declarada supera su techo. Sigue bloqueando todo lo demás de R17: la falta de
+reporte, un reporte no comparable, `navori-rust --version` por encima de 10 ms, una celda no
+declarada y una declarada por encima de su `maxMs`, para que la deuda no crezca sin que se note. La
+spec de 0.13.x suma una rebanada para bajar esas latencias y vaciar la lista.
+
 ## Contexto
 
 Esta spec nace de partir la fase 4 (`specs/0060-rust-cola-larga-corte/`) en dos (decisión del
