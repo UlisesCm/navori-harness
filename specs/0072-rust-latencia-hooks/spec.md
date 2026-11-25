@@ -2,14 +2,14 @@
 
 ## Resultado
 
-Quien usa navori con Claude Code o Pi paga menos latencia al abrir una sesión y al mandar comandos largos. `guard-destructive` con comandos de 6 y 40 KB queda dentro del presupuesto de R17 (5 ms de p95 por invocación nativa). Para `session-start-context`, un perfil decide primero si el mismo presupuesto es alcanzable; si no, Ulises elige el presupuesto con la evidencia, en vez de bajar el listón en silencio. Para quien mantiene el harness, cada celda que sale de la lista de deuda de R17 vuelve a exigir su presupuesto en `cutover:check`. Los veredictos y el contexto de los dos hooks no cambian.
+Quien usa navori con Claude Code o Pi paga menos latencia al abrir una sesión y al mandar comandos largos. La meta es el presupuesto de R17 (5 ms de p95 por invocación nativa) para `guard-destructive` con comandos de 6 y 40 KB y para `session-start-context`. Un perfil dice primero qué tan cerca se puede llegar; si alguna celda no alcanza los 5 ms, Ulises decide su presupuesto con esa evidencia, en vez de bajar el listón en silencio. Para quien mantiene el harness, cada celda que sale de la lista de deuda de R17 vuelve a exigir su presupuesto en `cutover:check`. Los veredictos y el contexto de los dos hooks no cambian.
 
 ## Guion de aceptación
 
 Entorno: un runner Linux de la CI en reposo (carga ≤ min(4, CPU/2) al empezar), binario `navori-rust` en release desde la rama, y una sesión real de Claude Code y otra de Pi sobre un repo de prueba.
 
-1. Leer el perfil de `session-start-context` y del guard con comandos largos. **Esperado:** el tiempo repartido por proceso lanzado, lectura y evaluación, y la decisión de Ulises sobre el presupuesto de `session-start-context`, anotada en esta spec.
-2. Correr `bench:hooks --impl rust` comparable. **Esperado:** el guard en los cuatro escenarios largos, en Claude y en Pi, con p95 ≤ 5 ms; `session-start-context` dentro del presupuesto decidido.
+1. Leer el perfil de `session-start-context` y del guard con comandos largos. **Esperado:** el tiempo repartido por proceso lanzado, lectura y evaluación, y, si alguna celda no alcanza 5 ms, la decisión de Ulises sobre su presupuesto, anotada en esta spec.
+2. Correr `bench:hooks --impl rust` comparable tres veces seguidas. **Esperado:** en las tres, el guard en los cuatro escenarios largos, en Claude y en Pi, y `session-start-context`, dentro de su presupuesto.
 3. Correr `cutover:check` con ese reporte. **Esperado:** `ready`; ninguna de esas celdas aparece como `r17-debt`.
 4. Correr el fuzz de comandos largos de los dos hooks (6 y 40 KB, con el patrón destructivo al principio, en medio y al final) y el replay de veredictos. **Esperado:** cero diferencias frente al shell, también en el motivo de auditoría.
 5. Abrir dos veces seguidas una sesión de Claude Code y, entre una y otra, hacer un commit y editar un archivo de contexto. **Esperado:** cada arranque da el contexto que da hoy para ese estado del repo.
@@ -19,12 +19,12 @@ Entorno: un runner Linux de la CI en reposo (carga ≤ min(4, CPU/2) al empezar)
 
 ## Reglas aplicables
 
-- R1 — El presupuesto de R17 del guard no cambia. El de `session-start-context` solo cambia por decisión explícita de Ulises sobre el perfil del paso 1, anotada aquí.
+- R1 — El presupuesto de R17 es 5 ms para las dos. El de una celda solo cambia por decisión explícita de Ulises sobre el perfil del paso 1, anotada aquí.
 - R2 — Los veredictos, mensajes, salidas y motivos de auditoría de los dos hooks no cambian: replay y fuzz sin diferencias frente al shell, en Claude y en Pi.
 - R3 — Se re-firman solo los hooks cuyo `impl` cambia, cada uno con su línea en el historial del manifiesto.
 - R4 — `session-start-context` no guarda en caché el contexto final ni repite sus efectos (`--ack`, el arm de auditoría, el aviso de worktrees). Solo puede cachear hechos puros, con la caché de hechos que ya existe.
 - R5 — El guard sigue evaluando el comando completo. Un atajo para comandos largos solo entra con una prueba de equivalencia que incluya el motivo de auditoría.
-- R6 — Una celda sale de la lista de deuda de R17 solo cuando una corrida comparable la mide dentro de su presupuesto.
+- R6 — Una celda sale de la lista de deuda de R17 solo cuando tres corridas comparables seguidas la miden dentro de su presupuesto: el p95 sale de 40 corridas por celda y oscila cerca del borde.
 
 ## Estados
 
@@ -52,10 +52,10 @@ Entorno: un runner Linux de la CI en reposo (carga ≤ min(4, CPU/2) al empezar)
 
 ## Tareas
 
-1. El perfil de los dos hooks está escrito y Ulises decidió el presupuesto de `session-start-context`.
+1. El perfil de los dos hooks está escrito y, si hace falta, Ulises decidió el presupuesto de cada celda.
 2. El fuzz cubre comandos largos con el patrón destructivo en distintas posiciones.
-3. `guard-destructive` queda en ≤ 5 ms de p95 con comandos de 6 y 40 KB, en Claude y en Pi.
-4. `session-start-context` queda dentro del presupuesto decidido, con el mismo contexto.
+3. `guard-destructive` queda dentro de su presupuesto con comandos de 6 y 40 KB, en Claude y en Pi.
+4. `session-start-context` queda dentro de su presupuesto, con el mismo contexto.
 5. Replay y fuzz sin diferencias; re-firma con su línea de historial.
 6. Las celdas medidas dentro del presupuesto salen de la lista de deuda y `cutover:check` da `ready`.
 7. El guion pasa en la CI de Linux y en sesiones reales de Claude Code y Pi.

@@ -2,7 +2,7 @@
 
 ## Resultado
 
-Quien usa navori corre `backup restore`, `migrations restore`, `remove` o `sync` sin banderas en su terminal, o `sync --interactive`, y el binario `navori-rust` hace él mismo las preguntas que hoy hace el CLI de TypeScript, sin Node. Ve el mismo texto, las mismas opciones, el mismo valor por omisión y el mismo efecto de cada respuesta. Cancelar nunca escribe nada. Sin terminal interactiva, el binario no se queda esperando: falla nombrando la bandera que responde la pregunta. Las demás rebanadas de 0.13.x reusan esta base.
+Quien usa navori corre `backup restore`, `migrations restore`, `remove` o `sync` sin banderas en su terminal, o `sync --interactive`, y el binario `navori-rust` hace él mismo las preguntas que hoy hace el CLI de TypeScript, sin Node. Ve el mismo texto, las mismas opciones, el mismo valor por omisión y el mismo efecto de cada respuesta. Cancelar nunca escribe nada. Sin terminal interactiva, el binario nunca se queda esperando (Q1 decide cómo responde). Las demás rebanadas de 0.13.x reusan esta base.
 
 ## Guion de aceptación
 
@@ -11,20 +11,20 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` s
 1. `navori backup restore` y pulsar Enter. **Esperado:** la pregunta del TS con "no" por omisión; nada cambia y sale con 0.
 2. Repetirlo y responder "sí". **Esperado:** el mismo árbol que `backup restore --yes`.
 3. `navori migrations restore`, primero Enter y después "sí". **Esperado:** igual que los pasos 1 y 2.
-4. `navori remove` y pulsar Enter. **Esperado:** la pregunta del TS con "sí" por omisión, y el mismo borrado que `remove --yes`; en otra copia, "no" no borra nada.
+4. `navori remove` y pulsar Enter. **Esperado:** la pregunta del TS con su valor por omisión (hoy "sí"; ver Q3) y su efecto; en otra copia, "no" no borra nada.
 5. `navori sync` con los conflictos y elegir en corridas separadas `skip-conflicts`, `abort` e `interactive`. **Esperado:** las opciones y efectos del TS; `interactive` pregunta bloque por bloque.
 6. `navori sync --interactive` y elegir "mantener el mío" en un bloque y "aceptar el nuevo" en el otro. **Esperado:** el diff del TS y cada bloque según lo elegido.
-7. Pulsar Ctrl-C a mitad del paso 6, después de responder el primer bloque. **Esperado:** no escribe ningún bloque y sale como el TS al cancelar.
-8. `echo y | navori backup restore` y `navori remove < /dev/null`. **Esperado:** ninguno se queda esperando; los dos fallan sin escribir y nombran `--yes`.
+7. Pulsar Ctrl-C a mitad del paso 6, después de responder el primer bloque. **Esperado:** no escribe ningún bloque y sale con 0, como el TS al cancelar.
+8. Pendiente de Q1: `echo y | navori backup restore` y `navori remove < /dev/null`. **Esperado:** ninguno se queda esperando, y responden según lo que decida Q1.
 9. Repetir el paso 1 con la config en inglés. **Esperado:** la pregunta en inglés, igual que el TS.
 10. `navori backup restore` sin respaldos. **Esperado:** el mensaje del TS y su código de salida (1), sin pregunta.
 
 ## Reglas aplicables
 
 - R1 — Las preguntas usan `dialoguer` (dependencia nueva, aprobada por Ulises el 24 nov). No entra otra biblioteca de interfaz en el binario.
-- R2 — El texto, las opciones, el orden, el valor por omisión de cada pregunta (`backup` y `migrations`: "no"; `remove`: "sí") y el flujo donde se dibujan son los del TS, en español y en inglés.
-- R3 — Cancelar con Ctrl-C, Esc, EOF o "no" nunca escribe ni borra, y sale con el código del TS. Una tecla que el TS no usa para cancelar tampoco cancela en el binario.
-- R4 — Sin terminal interactiva en la entrada, el binario no pregunta ni espera: sale con error, sin escribir, y nombra la bandera que responde. Difiere del TS a propósito: hoy el TS toma la respuesta de una tubería, sale con 13 en EOF o se queda colgado.
+- R2 — El texto, las opciones, el orden, el valor por omisión de cada pregunta (`backup` y `migrations`: "no"; `remove`: el que decida Q3) y el flujo donde se dibujan son los del TS, en español y en inglés.
+- R3 — Cancelar con Ctrl-C, Esc, EOF o "no" nunca escribe ni borra, y sale con 0, como el TS. Una tecla que el TS no usa para cancelar tampoco cancela en el binario.
+- R4 — Pendiente de Q1. Sin terminal interactiva en la entrada, el binario nunca se queda esperando. Propuesta: sale con error, sin escribir, y nombra la bandera que responde. Hoy el TS toma la respuesta de una tubería, sale con 13 en EOF o se queda colgado.
 - R5 — Con una bandera que responde la pregunta, el comando no pregunta, como hoy.
 - R6 — `backup restore`, `migrations restore`, `remove` y `sync` salen de la delegación permanente a TS, y `sync --interactive`, de la transitoria. Esto revierte la decisión de mantenerlos en TS (18 y 22 nov) por la de Ulises del 24 nov.
 - R7 — Un fallo a mitad de un `restore` deja el repo como lo deja el TS: copia archivo por archivo y lo informa.
@@ -40,9 +40,10 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` s
 
 ## Entorno y datos
 
-- Inventario en H (`997128b9`): las cuatro entradas están en `PERMANENT_DELEGATION` (`scripts/js/rust-areas.mjs:133-138`), y `sync --interactive` en la transitoria. Llamadas de clack: `backup` 1, `migrations` 1, `remove` 1 y `sync` 4, dos de ellas del resolutor de `--interactive` (`packages/cli/src/commands/sync.ts:1053` y `:1097`), al que también se llega desde la opción `interactive` del primer select (`:400-402`).
+- Inventario en H (`997128b9`): las cuatro entradas están en `PERMANENT_DELEGATION` (`scripts/js/rust-areas.mjs:121-144`), y `sync --interactive` en la transitoria. Llamadas de clack: `backup` 1, `migrations` 1, `remove` 1 y `sync` 4, dos de ellas del resolutor de `--interactive` (`packages/cli/src/commands/sync.ts:1053` y `:1097`), al que también se llega desde la opción `interactive` del primer select (`:400-402`).
 - Desafío del auditor (24 nov), incorporado; resumen en el PR de esta spec.
-- Pregunta abierta Q1 para Ulises: ¿se acepta la divergencia de R4 frente al TS?
+- Pregunta abierta Q1 para Ulises: ¿se acepta la propuesta de R4, que diverge del TS sin terminal?
+- Pregunta abierta Q3: `remove` borra con "sí" por omisión. ¿Se mantiene, por paridad con el TS, o pasa a "no" en los dos, por ser destructivo?
 - Pregunta abierta Q2: ¿se aprueba una dependencia de desarrollo para manejar una terminal (PTY) en el oráculo? Sin ella, los pasos 1 a 7 se prueban a mano en cada plataforma.
 - Área crítica: escrituras y borrados de `restore`, `remove` y `sync` en el repo del usuario.
 
