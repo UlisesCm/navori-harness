@@ -6,16 +6,16 @@ Quien ya usa navori agrega un plugin con `navori add <plugin>` o pide una sugere
 
 ## Guion de aceptación
 
-Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` sin el CLI de TypeScript, un repo de prueba ya inicializado y un plugin de prueba cuyo manifiesto instala con un comando local. `update` instala con npm, así que sus pasos llevan `node` y `npm` en `PATH`.
+Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` sin el CLI de TypeScript, un repo de prueba ya inicializado y, al frente del `PATH`, un `brew`, un `curl` y un `npm` de prueba que registran la llamada y terminan con 0 o con 1 a pedido. Los plugins solo se cargan si vienen empaquetados, así que el guion usa uno real (`tgrep`) sin instalar software de verdad. `update` instala con npm, así que sus pasos llevan `node` y `npm` en `PATH`.
 
-1. `navori add <plugin de prueba>` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, su instalación corrida y el render aplicado, igual que el TS.
-2. `navori add <plugin de prueba> --skip-install` en otra copia, y después de nuevo sobre el plugin ya habilitado. **Esperado:** registra y renderiza sin instalar; la segunda vez, el aviso del TS.
-3. `navori add <plugin de prueba>` y rechazar la instalación. **Esperado:** el plugin queda registrado, sin instalar, y sale con 0, como el TS.
-4. `navori add <plugin de prueba> --yes` con un comando de instalación que falla. **Esperado:** el plugin queda registrado y sale con 1, como el TS, que no deshace el registro.
+1. `navori add tgrep` y aceptar. **Esperado:** las preguntas del TS; el plugin en la config, la misma llamada de instalación que el TS y el render aplicado.
+2. `navori add tgrep --skip-install` en otra copia, y después de nuevo sobre el plugin ya habilitado. **Esperado:** registra y renderiza sin llamar al instalador; la segunda vez, el aviso del TS.
+3. `navori add tgrep` y rechazar la instalación. **Esperado:** el plugin queda registrado, sin instalar, y sale con 0, como el TS.
+4. `navori add tgrep --yes` con el instalador de prueba terminando con 1. **Esperado:** el plugin queda registrado y sale con 1, como el TS, que no deshace el registro.
 5. `navori add --suggest`, `navori add no-existe` y un plugin retirado. **Esperado:** la sugerencia del TS sin escribir, y los errores del TS sin escribir.
 6. `navori update` con el CLI al día. **Esperado:** el aviso de "ya actualizado" del TS y el `refresh` que corre el TS.
 7. `navori update` sin red. **Esperado:** el aviso de sin conexión del TS, y `refresh` corre igual.
-8. `navori update` sin terminal y sin `--yes`, con una versión más nueva. **Esperado:** exit 1, como el TS, sin instalar.
+8. Pendiente de Q1: `navori update` sin terminal y sin `--yes`, con una versión más nueva. **Esperado:** exit 1, como el TS, sin instalar.
 
 ## Reglas aplicables
 
@@ -40,8 +40,8 @@ Entorno: macOS y Linux, binario `navori-rust` construido desde la rama, `PATH` s
 
 - Depende de las rebanadas 0067 (preguntas) y 0068 (`refresh`).
 - Inventario en H (`997128b9`): `add` y `update` son entradas por comando en `TRANSITIONAL_DELEGATION` (`scripts/js/rust-areas.mjs:198-205`). Tamaño TS: `commands/add.ts` 514 líneas con 2 preguntas (`:217` y `:410`), `commands/update.ts` 186 con 1. Puntos del TS: render tras escribir (`add.ts:338`), sin deshacer (`:339-350` y `:424-438`), instalación con el comando del manifiesto (`:395-405`), última versión con registro fijo (`lib/primitives/update-notice.ts:22` y `:139`), plan de instalación con npm (`:79-136`), sin red (`update.ts:107-120`) y `refresh` con el binario instalado (`:168-176`).
-- Pregunta abierta Q1 para Ulises: cómo probar `update` con una versión más nueva sin publicar en npm. Las opciones son (a) una variable de entorno que cambie el registro en el TS y en Rust, o (b) probarlo a mano en la siguiente publicación. Mientras no decida, el guion cubre `update` sin versión nueva (pasos 6 a 8).
-- Plugin de prueba con manifiesto propio, para no instalar software real en el guion.
+- Pregunta abierta Q1 para Ulises: cómo probar `update` con una versión más nueva sin publicar en npm. Las opciones son (a) una variable de entorno que cambie el registro en el TS y en Rust, o (b) probarlo a mano en la siguiente publicación. Mientras no decida, el guion cubre `update` sin versión nueva (pasos 6 y 7), y el paso 8 espera a Q1.
+- Instaladores de prueba en `PATH`: el TS (`lib/config/plugins.ts:614-617`) y el render nativo solo cargan plugins empaquetados, así que no hay plugin de prueba propio.
 - Desafío del auditor (24 nov), incorporado; resumen en el PR de esta spec.
 - Área crítica: el render tras `add` y el `refresh` tras `update` en el repo del usuario.
 
