@@ -10,7 +10,7 @@ Entorno: un runner Linux de la CI en reposo (carga ≤ min(4, CPU/2) al empezar)
 
 1. Leer el perfil de `session-start-context` y del guard con comandos largos. **Esperado:** el tiempo repartido por proceso lanzado, lectura y evaluación, y, para cada celda que no alcance 5 ms, su presupuesto propio con techo y motivo, anotado en esta spec.
 2. Correr `bench:hooks --impl rust` comparable tres veces seguidas. **Esperado:** en las tres, el guard en los cuatro escenarios largos, en Claude y en Pi, y `session-start-context`, dentro de su presupuesto.
-3. Correr `cutover:check` con ese reporte. **Esperado:** `ready`; ninguna de esas celdas aparece como `r17-debt`.
+3. Correr `cutover:check` con ese reporte. **Esperado:** `ready`; solo aparecen como `r17-debt` las celdas con presupuesto propio de R1, cada una dentro de su techo.
 4. Correr el fuzz de comandos largos de los dos hooks (6 y 40 KB, con el patrón destructivo al principio, en medio y al final) y el replay de veredictos. **Esperado:** cero diferencias frente al shell, también en el motivo de auditoría.
 5. Abrir dos veces seguidas una sesión de Claude Code y, entre una y otra, hacer un commit y editar un archivo de contexto. **Esperado:** cada arranque da el contexto que da hoy para ese estado del repo.
 6. Mandar en Claude y en Pi un comando de 40 KB con `rm -rf /` al final, y el mismo sin nada destructivo. **Esperado:** bloquea el primero con el mensaje de hoy y deja pasar el segundo.
