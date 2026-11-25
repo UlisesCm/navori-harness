@@ -35,7 +35,7 @@ export interface ReleaseEntry {
 export const RELEASES: readonly ReleaseEntry[] = [
   {
     minor: "0.13",
-    date: "2026-11-24",
+    date: "2026-11-26",
     headline: {
       es: "navori es un binario nativo",
       en: "navori is a native binary",
