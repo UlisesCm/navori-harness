@@ -184,8 +184,6 @@ export const PERMANENT_SHELL_HOOKS = [
 
 /** Reason shared by the commands the 0.13.0 cutover leaves on the frozen TS until they are ported. */
 const NOT_PORTED = "sin portar en 0.13.0; se porta por demanda (inventario post-0.13)";
-/** Reason shared by the hooks that leave 0.13.0 in shadow. */
-const NO_CLAUDE_TRAFFIC = "sin tráfico de Claude en la ventana R81; se activan en 0.13.x";
 
 /**
  * Amendment of R20 and T10 (0062; decision of 23 Nov 2026, 16:30): what the 0.13.0 cutover leaves
@@ -250,8 +248,9 @@ export const TRANSITIONAL_DELEGATION = {
     { path: ["sync"], flags: ["interactive", "workspace"], reason: NOT_PORTED },
   ],
   // Batch C (plan-gate, general-purpose-confirm, session-start-context, model-advisor and
-  // pii-egress-guard) left this list when #1811 activated it (Ulises, 24 Nov).
-  hooks: [{ hook: "subagent-stop-handoff", reason: NO_CLAUDE_TRAFFIC }],
+  // pii-egress-guard) left this list when #1811 activated it; subagent-stop-handoff, the last
+  // one, left with its activation (Ulises, 24 Nov), so no hook is in shadow any more.
+  hooks: [],
 };
 validateTransitional(TRANSITIONAL_DELEGATION);
 

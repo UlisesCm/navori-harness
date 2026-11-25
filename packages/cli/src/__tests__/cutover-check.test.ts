@@ -507,7 +507,7 @@ describe("cutover-check (spec 0062 T8)", () => {
   it("la lista transitoria real lleva motivo en cada entrada, no repite la permanente y deja en sombra solo hooks de Claude", () => {
     const list = areas.TRANSITIONAL_DELEGATION;
     for (const entry of [...list.commands, ...list.hooks]) expect(entry.reason.trim()).not.toBe("");
-    expect(list.hooks.map((h) => h.hook).sort()).toEqual(["subagent-stop-handoff"]);
+    expect(list.hooks).toEqual([]);
     expect(() =>
       areas.validateTransitional({ commands: [{ path: ["master"], reason: "r" }], hooks: [] }),
     ).toThrow(/repeats PERMANENT_DELEGATION/);

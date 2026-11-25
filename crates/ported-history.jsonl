@@ -45,3 +45,4 @@
 {"date":"2026-11-26","op":"activate","id":"implementer-no-markdown","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"comment-draft-confirm","reason":"lote D de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
 {"date":"2026-11-26","op":"activate","id":"pr-publisher-confirm","reason":"lote D de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-24","op":"activate","id":"subagent-stop-handoff","reason":"activación ordenada por Ulises el 24 nov; cierra el lote 2","pr":1527}

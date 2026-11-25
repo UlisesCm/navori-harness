@@ -153,7 +153,7 @@
       "impl": "sha256:99ccc7f103b2f1560012093731eac0f6fdbe33127218d851f6c4bb3e44b9ebc2"
     },
     "subagent-stop-handoff": {
-      "mode": "shadow",
+      "mode": "active",
       "gating": false,
       "blocks": {
         "subagent-stop-handoff-base": "sha256:76644a2563e07c75229dd738f66acffe0a9311c94070b0caa49267be054310b0"
