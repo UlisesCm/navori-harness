@@ -24,10 +24,10 @@ use navori_core::render::collect::DiskView;
 use navori_core::render::command::{Apply, RenderOptions, plan_render, run_render};
 use navori_core::render::report::Clack;
 
+use crate::render::refuse_conflicts;
 use crate::render::{
     colorless, config_name, configured_engines, home, registry_needs_refresh, resolve,
 };
-use crate::sync::refuse_conflicts;
 use crate::{NativeCall, Outcome};
 
 /// The arguments of a native `remove`.

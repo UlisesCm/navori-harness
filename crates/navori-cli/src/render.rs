@@ -311,10 +311,16 @@ pub(crate) fn apply_render(
     }
 }
 
-/// The refusal of #1660: exit 1 with the files, before any write, backup or registry touch.
-fn refuse_conflicts(admitted: &Admitted, conflicts: &[conflict_markers::ConflictFile]) -> Outcome {
-    let detail = i18n::render_conflict_markers(admitted.config.lang());
-    let stdout = if admitted.args.json {
+/// The refusal of #1660 for `command` (`render`/`sync`/`remove`): exit 1 with the files, before
+/// any write, backup or registry touch. Shared by `sync` and `remove`.
+pub(crate) fn refuse_conflicts(
+    command: &str,
+    config: &Config,
+    json: bool,
+    conflicts: &[conflict_markers::ConflictFile],
+) -> Outcome {
+    let detail = i18n::conflict_markers_refusal(config.lang(), command);
+    let stdout = if json {
         let files = conflicts
             .iter()
             .map(|c| {
@@ -325,10 +331,10 @@ fn refuse_conflicts(admitted: &Admitted, conflicts: &[conflict_markers::Conflict
             })
             .collect();
         let mut root = js_json::JsObject::new();
-        root.insert("command", JsValue::string("render"));
+        root.insert("command", JsValue::string(command));
         root.insert("ok", JsValue::Bool(false));
         root.insert("reason", JsValue::string("conflict-markers"));
-        root.insert("detail", JsValue::string(detail));
+        root.insert("detail", JsValue::string(&detail));
         root.insert("files", JsValue::Array(files));
         match JsValue::Object(root).stringify(None) {
             Some(text) => format!("{text}\n"),
@@ -363,7 +369,7 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
         &configured_engines(&admitted.config.data),
     );
     if !conflicts.is_empty() {
-        return refuse_conflicts(&admitted, &conflicts);
+        return refuse_conflicts("render", &admitted.config, admitted.args.json, &conflicts);
     }
     if !json
         && !colorless(
