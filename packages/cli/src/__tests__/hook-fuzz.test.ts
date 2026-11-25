@@ -506,6 +506,32 @@ process.stdout.write(JSON.stringify(value));`;
   });
 
   // Covers: R11, R12
+  it("a slow fixture times out under --timeout-ms and passes once the fixture deadline is off, through the shard workers", async () => {
+    // Deterministic both ways: the native fixture always sleeps longer than the 1000 ms deadline,
+    // and load can only make it slower. Through fuzzParallel, so the seam reaches the workers.
+    const slow = `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);\n${echo}`;
+    const { run: _run, ...plain } = fuzzer.parseFuzzArgs([
+      "--seed",
+      "7",
+      "--cases",
+      "3",
+      "--hook",
+      "fixture",
+      "--timeout-ms",
+      "1000",
+    ]) as Options & { run: unknown };
+    const run = { jobs: 2, cache: "off", priority: "normal" } as const;
+    const bounded = await fuzzer.fuzzParallel(plain, run, { fixtures: fixtures(slow) });
+    expect(bounded).toMatchObject({ ok: false });
+    expect(bounded.failure).toMatch(/ETIMEDOUT/);
+    expect(bounded.difference).toBeUndefined();
+    const unbounded = await fuzzer.fuzzParallel(plain, run, {
+      fixtures: { ...fixtures(slow), timeoutMs: 0 },
+    });
+    expect(unbounded).toMatchObject({ ok: true, completed: 3, jobs: 2 });
+  });
+
+  // Covers: R11, R12
   it("rejects inactive audit/runtime preconditions before starting the requested batch", async () => {
     const transport = fixtures(echo);
     const active = await fuzzer.fuzzHooks({ ...options, cases: 1000, audit: "active" }, transport);
