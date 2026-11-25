@@ -41,9 +41,11 @@ interface ReportInput {
   perRowClose?: boolean;
   causes?: Record<string, string>;
   siblingCancel?: boolean;
+  declared?: Record<string, string>;
 }
 interface Module {
   parseBatches: (text: string) => Record<string, string[]>;
+  parseDeclared: (text: string) => Record<string, string>;
   buildReport: (input: ReportInput) => Report;
   approvedWithoutTraffic: (history: string, hook: string) => string[];
   collect: (root: string, windowDays: number, now: number, journalRoots?: string[]) => Report;
@@ -752,4 +754,107 @@ it("por línea de comandos un reporte todo activo sale con 0 y ACT", () => {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+/** A journal of one hook and engine whose calls carry explicit comparisons, `ageDays` before NOW. */
+function comparedJournal(
+  calls: { ageDays: number; comparison: Record<string, boolean | number> }[],
+): Uint8Array {
+  const lines: string[] = [];
+  for (const call of calls) {
+    const common = {
+      schema: 1,
+      id: randomUUID(),
+      hook: "example",
+      engine: "claude",
+      implementation: IMPL,
+    };
+    const timeMs = NOW - call.ageDays * DAY;
+    lines.push(JSON.stringify({ ...common, timeMs, kind: "begin" }));
+    lines.push(
+      JSON.stringify({
+        ...common,
+        timeMs: timeMs + 5,
+        kind: "complete",
+        comparison: call.comparison,
+      }),
+    );
+  }
+  return Buffer.from(`${lines.join("\n")}\n`);
+}
+
+// Covers: R81 (#1774)
+it("una divergencia declarada solo en la salida queda aparte y no pinta la fila", () => {
+  const same = {
+    nativeFailed: false,
+    shellFailed: false,
+    codeDiffers: false,
+    stdoutDiffers: false,
+    stderrDiffers: false,
+  };
+  const stderrOnly = { ...same, stderrDiffers: true, shellCode: 2, nativeCode: 2 };
+  const verdict = { ...same, codeDiffers: true, stderrDiffers: true, shellCode: 0, nativeCode: 2 };
+  const calls = [
+    { ageDays: 8, comparison: { ...same, stderrDiffers: false } },
+    { ageDays: 3, comparison: stderrOnly },
+    { ageDays: 1, comparison: { ...same, stderrDiffers: false } },
+  ];
+  const key = (ageDays: number): string =>
+    `example|claude|${new Date(NOW - ageDays * DAY).toISOString()}`;
+  const report = (
+    journal: Uint8Array,
+    declared?: Record<string, string>,
+  ): Report & { declared?: boolean } =>
+    shadow.buildReport({
+      hooks: { example: { gating: true, impl: IMPL } },
+      journals: { example: journal },
+      engines: { example: ["claude"] },
+      approved: { example: [] },
+      now: NOW,
+      windowDays: 7,
+      ...(declared === undefined ? {} : { declared }),
+    });
+
+  // Without --declared nothing changes: the stderr difference is a divergence.
+  expect(report(comparedJournal(calls)).rows[0]).toMatchObject({ status: "red", divergences: 1 });
+
+  const reason = "pii_egress.rs:353-366 Unverified for a non-UTF-8 identifier";
+  const exempt = report(comparedJournal(calls), { [key(3)]: reason });
+  expect(exempt.rows[0]).toMatchObject({ status: "green", divergences: 0, declared: 1 });
+  expect((exempt.rows[0] as unknown as { declaredNotes: string[] }).declaredNotes).toEqual([
+    `${new Date(NOW - 3 * DAY).toISOString()}: ${reason}`,
+  ]);
+  const table = shadow.formatMarkdown(exempt);
+  expect(table).toContain("| Declared |");
+  expect(table).toContain(reason);
+  // The default table keeps its columns.
+  expect(shadow.formatMarkdown(report(comparedJournal(calls)))).not.toContain("Declared");
+
+  // A reason for another instant exempts nothing.
+  expect(report(comparedJournal(calls), { [key(2)]: reason }).rows[0]).toMatchObject({
+    status: "red",
+    divergences: 1,
+  });
+
+  // A changed verdict (exit codes) or a failed lane is never exempt, even with a reason.
+  for (const comparison of [verdict, { ...stderrOnly, nativeFailed: true }]) {
+    const changed = [
+      { ageDays: 8, comparison: same },
+      { ageDays: 3, comparison },
+    ];
+    const row = report(comparedJournal(changed), { [key(3)]: reason }).rows[0];
+    expect(row).toMatchObject({ status: "red", divergences: 1, declared: 0 });
+    expect(row?.problems.join()).toContain("changes the verdict");
+  }
+
+  // --declared rejects anything but "<hook>|<engine>|<ISO begin>" to a non-empty reason.
+  expect(shadow.parseDeclared(JSON.stringify({ [key(3)]: reason }))).toEqual({ [key(3)]: reason });
+  for (const bad of [
+    "[]",
+    "null",
+    '{"example|claude": "x"}',
+    `{"${key(3)}": ""}`,
+    `{"${key(3)}": 1}`,
+  ])
+    expect(() => shadow.parseDeclared(bad)).toThrow("--declared needs a JSON object");
 });

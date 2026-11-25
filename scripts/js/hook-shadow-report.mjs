@@ -38,6 +38,13 @@ import { isMain } from "./is-main.mjs";
  * exempt one); cancelled ones still count as calls in the share's denominator. Known limits: a hook
  * killed by its own bridge timeout in a call whose siblings completed is classified the same way, and so is
  * an isolated loss that coincides with another Pi session's call.
+ *
+ * `--declared <json>` (`{ "<hook>|<engine>|<ISO begin>": "<reason>" }`, #1774): a divergence the
+ * code declares on purpose (e.g. `pii_egress.rs` answers `Unverified` for an identifier that is not
+ * UTF-8, where the shell depends on the Bash version) is reported apart as `declared`, with its
+ * instant and reason, and does not turn the row red. Only an output difference can be declared: when
+ * the exit codes differ or a lane failed, the row stays red even with a reason, because the verdict
+ * itself changed. Without the flag nothing changes.
  */
 
 const DAY_MS = 86_400_000;
@@ -98,6 +105,7 @@ export function approvedWithoutTraffic(historyText, hook) {
  *   perRowClose?: boolean,
  *   causes?: Record<string, string>,
  *   siblingCancel?: boolean,
+ *   declared?: Record<string, string>,
  * }} input
  */
 export function buildReport({
@@ -110,6 +118,7 @@ export function buildReport({
   perRowClose = false,
   causes = {},
   siblingCancel = false,
+  declared = {},
 }) {
   const windowMs = windowDays * DAY_MS;
   const rows = [];
@@ -149,6 +158,8 @@ export function buildReport({
         pendingMs: [],
         cancelled: 0,
         cancelledMs: [],
+        declared: 0,
+        declaredNotes: [],
         unobserved: 0,
         nativeFailed: 0,
         shellFailed: 0,
@@ -203,8 +214,20 @@ export function buildReport({
         row.invocations++;
         if (end.comparison.nativeFailed) row.nativeFailed++;
         if (end.comparison.shellFailed) row.shellFailed++;
-        if (diverged(end.comparison)) row.divergences++;
-        else if (end.comparison.nativeUnobserved === true) row.unobserved++;
+        if (diverged(end.comparison)) {
+          const key = `${hook}|${engine}|${new Date(begin.timeMs).toISOString()}`;
+          const reason = declared[key];
+          if (reason !== undefined && outputOnly(end.comparison)) {
+            row.declared++;
+            row.declaredNotes.push(`${new Date(begin.timeMs).toISOString()}: ${reason}`);
+          } else {
+            row.divergences++;
+            if (reason !== undefined)
+              row.problems.push(
+                `declared divergence at ${new Date(begin.timeMs).toISOString()} changes the verdict (codes or a failed lane), not exempt`,
+              );
+          }
+        } else if (end.comparison.nativeUnobserved === true) row.unobserved++;
       }
       row.spanDays = first === Infinity ? 0 : (closeAt - first) / DAY_MS;
       if (row.divergences > 0) row.problems.push(`${row.divergences} divergence(s)`);
@@ -249,6 +272,8 @@ export function buildReport({
         pendingMs: [],
         cancelled: 0,
         cancelledMs: [],
+        declared: 0,
+        declaredNotes: [],
         unobserved: 0,
         nativeFailed: 0,
         shellFailed: 0,
@@ -268,8 +293,14 @@ export function buildReport({
     status: worst(rows),
     windowDays,
     siblingCancel,
+    declared: Object.keys(declared).length > 0,
     rows,
   };
+}
+
+/** A divergence only in stdout or stderr: same exit codes and neither lane failed. */
+function outputOnly(comparison) {
+  return !comparison.codeDiffers && !comparison.nativeFailed && !comparison.shellFailed;
 }
 
 /**
@@ -334,6 +365,7 @@ export function collect(
   perRowClose = false,
   causes = {},
   siblingCancel = false,
+  declared = {},
 ) {
   const manifest = JSON.parse(readFileSync(join(root, MANIFEST), "utf8"));
   const historyPath = join(root, HISTORY);
@@ -359,6 +391,7 @@ export function collect(
     perRowClose,
     causes,
     siblingCancel,
+    declared,
   });
 }
 
@@ -366,6 +399,12 @@ export function collect(
 function cancelledCell(row) {
   if (row.cancelled === 0) return "0";
   return `${row.cancelled} (${row.cancelledMs.map((ms) => new Date(ms).toISOString()).join(", ")})`;
+}
+
+/** The declared count of a row with the instant and reason of each one. */
+function declaredCell(row) {
+  if (row.declared === 0) return "0";
+  return `${row.declared} (${row.declaredNotes.join("; ")})`;
 }
 
 function format(report) {
@@ -378,6 +417,7 @@ function format(report) {
       `${status} ${row.hook} [${row.engine}] ${row.gating ? "gating" : "advisory"} ` +
         `calls=${row.invocations} divergences=${row.divergences} pending=${row.pending} ` +
         (report.siblingCancel ? `cancelled=${cancelledCell(row)} ` : "") +
+        (report.declared ? `declared=${declaredCell(row)} ` : "") +
         `unobserved=${row.unobserved} span=${row.spanDays.toFixed(1)}d` +
         (row.legacyPayloadRows > 0
           ? ` legacyPayloadRows=${row.legacyPayloadRows} (delete this journal)`
@@ -406,6 +446,7 @@ export function formatMarkdown(report, batches = {}) {
     "shellFailed",
     "Pending",
     ...(cancelled ? [`Cancelled (${CANCELLED_MEANING})`] : []),
+    ...(report.declared === true ? ["Declared"] : []),
     "Unobserved",
     "First row",
     "Last row",
@@ -423,6 +464,7 @@ export function formatMarkdown(report, batches = {}) {
       `| ${row.hook} | ${row.engine} | ${row.gating ? "yes" : "no"} | ${row.invocations} | ` +
         `${row.divergences} | ${row.nativeFailed} | ${row.shellFailed} | ${row.pending} | ` +
         (cancelled ? `${cancelledCell(row)} | ` : "") +
+        (report.declared === true ? `${declaredCell(row)} | ` : "") +
         `${row.unobserved} | ${iso(row.firstMs)} | ${iso(row.lastMs)} | ${iso(row.closesMs)} | ` +
         `${row.status === "green" || row.status === "active" ? row.status : `${row.status}: ${[...row.problems, ...row.warnings].join("; ")}`} |`,
     );
@@ -462,6 +504,9 @@ const USAGE = `usage: node scripts/js/hook-shadow-report.mjs [options]
   --close-per-row     judge each hook and engine at its own first row + the window (R81 close);
                       without it no row closes and a lost observation stays amber (exit 3)
   --causes <json>     { "<hook>|<engine>|<ISO begin>": "<cause>" } for lost observations
+  --declared <json>   { "<hook>|<engine>|<ISO begin>": "<reason>" } for divergences the code
+                      declares on purpose; only an output difference (same exit codes, no
+                      failed lane) is exempt, and it is listed apart
   --batches <json>    { "<batch>": ["<hook>", ...] } for the per-batch verdict (--markdown)
   --sibling-cancel    report a Pi begin that never completed as cancelled, not lost, when a
                       sibling of the same call completed: compatible with a sibling's block,
@@ -485,6 +530,24 @@ export function parseBatches(text) {
       '--batches needs a JSON object of batch to hook names: { "<batch>": ["<hook>"] }',
     );
   return batches;
+}
+
+/** Parse `--declared`: an object of `<hook>|<engine>|<ISO begin>` to a non-empty reason, or an error. */
+export function parseDeclared(text) {
+  const declared = JSON.parse(text);
+  const valid =
+    declared !== null &&
+    typeof declared === "object" &&
+    !Array.isArray(declared) &&
+    Object.entries(declared).every(
+      ([key, reason]) =>
+        key.split("|").length === 3 && typeof reason === "string" && reason.trim() !== "",
+    );
+  if (!valid)
+    throw new Error(
+      '--declared needs a JSON object of "<hook>|<engine>|<ISO begin>" to a non-empty reason',
+    );
+  return declared;
 }
 
 if (isMain(import.meta.url)) {
@@ -519,6 +582,9 @@ if (isMain(import.meta.url)) {
       batchesPath === undefined ? {} : parseBatches(readFileSync(batchesPath, "utf8"));
     const causesPath = value("--causes", undefined);
     const causes = causesPath === undefined ? {} : JSON.parse(readFileSync(causesPath, "utf8"));
+    const declaredPath = value("--declared", undefined);
+    const declared =
+      declaredPath === undefined ? {} : parseDeclared(readFileSync(declaredPath, "utf8"));
     const report = collect(
       root,
       windowDays,
@@ -527,6 +593,7 @@ if (isMain(import.meta.url)) {
       args.includes("--close-per-row"),
       causes,
       args.includes("--sibling-cancel"),
+      declared,
     );
     console.log(
       args.includes("--json")
