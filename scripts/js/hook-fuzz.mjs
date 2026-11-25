@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createScratch, firstDifference, runMode, signedAssets } from "./hook-verdict-replay.mjs";
 import { prepareRustReplay } from "./rust-hook-adapter.mjs";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MAX_CASES = 100_000;
@@ -836,7 +837,7 @@ const USAGE = `usage: node scripts/js/hook-fuzz.mjs --seed <n> --cases <n> [--ho
   Deterministic differential fuzz of a ported hook (shell oracle vs native).
   -h, --help  print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   try {
     process.exit(await main(process.argv.slice(2)));

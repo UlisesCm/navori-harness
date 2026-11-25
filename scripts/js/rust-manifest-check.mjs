@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative } from "node:path";
 import { expandHookIncludes } from "../../packages/cli/src/lib/render/hook-includes.ts";
 import { permanentShellHook, permanentlyDelegated } from "./rust-areas.mjs";
+import { isMain } from "./is-main.mjs";
 
 const MANIFEST = "crates/ported.json";
 const HISTORY = "crates/ported-history.jsonl";
@@ -302,7 +302,7 @@ export function checkManifest(root, base = "origin/migration/rust") {
   return warnings;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     for (const warning of checkManifest(process.cwd(), process.argv[2]))
       console.warn(`::warning::${warning}`);

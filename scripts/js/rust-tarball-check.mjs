@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 /** Spec 0057 R4: npm stays TS-only throughout the migration. */
 export function checkTarball(packs, pkg, root) {
@@ -46,7 +46,7 @@ export function checkTarball(packs, pkg, root) {
   return packs[0].files.length;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     const cwd = resolve("packages/cli");
     // prepack builds dist; CI explicitly runs ensure-dist before this check.

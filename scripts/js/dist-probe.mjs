@@ -8,6 +8,7 @@ import { readCorpus } from "./hook-verdict-replay.mjs";
 import { runRustHook } from "./rust-hook-adapter.mjs";
 import { writeSignedAssets } from "./rust-replay-assets.mjs";
 import { PERMANENT_DELEGATION } from "./rust-areas.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0062 T7 (R84, R22; F43, F45): installs the assembled packages the way users will, on this
@@ -396,7 +397,7 @@ function main(argv) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (error) {

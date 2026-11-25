@@ -14,6 +14,7 @@ import {
   releaseOnProcessExit,
   type DistLockHandle,
 } from "../vitest.distLock.ts";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0054 D2 — build `dist/` only when its inputs changed.
@@ -206,7 +207,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);

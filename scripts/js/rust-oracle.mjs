@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0057 R8-R10 / D5 - differential oracle: `navori` (TS `dist/`) vs `navori-rust`.
@@ -1065,7 +1066,7 @@ const USAGE = `usage: node scripts/js/rust-oracle.mjs [--only <a>[,<b>...]] [--r
   --self-check       TS against itself
   -h, --help         print this text and exit`;
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   exitOnHelp(process.argv.slice(2), USAGE);
   process.exitCode = main(process.argv.slice(2));
 }

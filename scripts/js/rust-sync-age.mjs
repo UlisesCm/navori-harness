@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 /** Spec 0057 R23 / D10: age of the oldest unmerged first-parent commit on dev. */
 export function syncAge(cwd, { dev = "origin/dev", head = "HEAD", now = Date.now() } = {}) {
@@ -21,7 +20,7 @@ export function syncAge(cwd, { dev = "origin/dev", head = "HEAD", now = Date.now
   return { pending: pending.length, oldest: oldest?.sha ?? null, ageDays, ok: ageDays <= 7 };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     const result = syncAge(process.cwd());
     console.log(

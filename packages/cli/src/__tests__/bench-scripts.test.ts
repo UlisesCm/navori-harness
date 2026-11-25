@@ -196,6 +196,7 @@ function nativeBenchFixture(event = "SessionStart"): {
     "bench-hooks.mjs",
     "bench-provenance.mjs",
     "git-env.mjs",
+    "is-main.mjs",
     "rust-hook-adapter.mjs",
     "script-help.mjs",
   ]) {

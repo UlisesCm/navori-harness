@@ -83,8 +83,8 @@ function snapshot(dir: string, prefix = ""): string[] {
 }
 
 beforeAll(() => {
-  // Real path: on macOS tmpdir() is a symlink (/var -> /private/var) and the scripts' entry guard
-  // compares argv[1] with the resolved import.meta.url, so a symlinked path skips main (#1816).
+  // Real path: on macOS tmpdir() is a symlink (/var -> /private/var). The scripts' entry guard
+  // resolves both sides now (#1816); the symlinked case is covered on purpose further down.
   base = realpathSync(mkdtempSync(join(tmpdir(), "navori-scripts-help-")));
   root = join(base, "root");
   home = join(base, "home");
@@ -167,6 +167,54 @@ describe("scripts/js --help / -h", () => {
     expect(snapshot(root)).toEqual(before);
     expect(readFileSync(callsFile, "utf8")).toBe("");
   });
+});
+
+describe("a script invoked through a symlinked path still runs its main (#1816)", () => {
+  // `isMain` compares real paths: `import.meta.url` is resolved, argv[1] keeps the link. The old
+  // guard compared `path.resolve(argv[1])`, so through a link a script exited 0 without output.
+  const run = (scriptRoot: string, name: string, args: string[]) =>
+    spawnSync(process.execPath, [join(scriptRoot, "scripts", "js", `${name}.mjs`), ...args], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { PATH: binDir, HOME: home, TMPDIR: join(base, "home") },
+    });
+  let link: string;
+  beforeAll(() => {
+    link = join(base, "link");
+    symlinkSync(root, link);
+  });
+
+  // packages/cli/scripts keeps its own copy (tsc rootDir is packages/cli, TS6059 otherwise).
+  it("the packages/cli/scripts twin of is-main.mjs keeps the same code", () => {
+    const original = readFileSync(join(REAL_SCRIPTS, "is-main.mjs"), "utf8");
+    const twin = readFileSync(join(REAL_ROOT, "packages", "cli", "scripts", "is-main.mjs"), "utf8");
+    // The twin only prepends a comment block naming the original.
+    expect(twin.replace(/^(\/\/.*\n)+/, "")).toBe(original);
+  });
+
+  it("bench-context --help prints its usage through the link", () => {
+    const result = run(link, "bench-context", ["--help"]);
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("usage: node scripts/js/bench-context.mjs");
+  });
+
+  // A gate check must not read green through a link: same exit code and output as the real path.
+  it.each(["cutover-check", "rust-manifest-check"])(
+    "%s through the link answers as through the real path",
+    (name) => {
+      const real = run(root, name, []);
+      const linked = run(link, name, []);
+      writeFileSync(callsFile, "");
+      expect(`${real.stdout}${real.stderr}`, "the real path runs main").not.toBe("");
+      expect(real.status, "the check fails in the scratch root").not.toBe(0);
+      expect({ status: linked.status, stdout: linked.stdout, stderr: linked.stderr }).toEqual({
+        status: real.status,
+        stdout: real.stdout,
+        stderr: real.stderr,
+      });
+    },
+  );
 });
 
 describe("gen-pi-extension-asset.mjs rejects unknown arguments (#1789)", () => {

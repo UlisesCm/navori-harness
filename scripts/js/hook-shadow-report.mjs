@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { decodeJournal } from "../../packages/cli/src/lib/rust-shadow/report.ts";
 import { diverged } from "../../packages/cli/src/lib/rust-shadow/journal.schema.ts";
+import { isMain } from "./is-main.mjs";
 
 /**
  * R81/R82 evidence: per hook and engine, shadow invocations and divergences inside a window.
@@ -487,7 +487,7 @@ export function parseBatches(text) {
   return batches;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     console.log(USAGE);

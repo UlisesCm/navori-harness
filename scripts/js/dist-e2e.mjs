@@ -42,6 +42,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFERRED, FAILED, decisionOf } from "./activation-verify.mjs";
 import { platformPackage } from "./dist-assemble.mjs";
+import { isMain } from "./is-main.mjs";
 
 /** @typedef {{ name: string, ok: boolean, gate: boolean, detail: string }} Check */
 /** @typedef {{ scenario: string, alias: boolean, facts: Record<string, unknown>, checks: Check[] }} ScenarioResult */
@@ -511,7 +512,7 @@ async function host(options) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
