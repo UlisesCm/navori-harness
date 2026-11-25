@@ -30,6 +30,7 @@ interface Fixtures {
   binary: string;
   scriptsRoot: string;
   shellScript: string;
+  timeoutMs?: number;
 }
 interface Result {
   ok: boolean;
@@ -483,6 +484,28 @@ process.stdout.write(JSON.stringify(value));`;
   });
 
   // Covers: R11, R12
+  it("a deadline injected through the fixtures replaces --timeout-ms and still reports the timeout", async () => {
+    const hang = "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);";
+    const native = await fuzzer.fuzzHooks(
+      { ...options, timeoutMs: 60_000 },
+      { ...fixtures(hang), timeoutMs: 250 },
+    );
+    expect(native).toMatchObject({ ok: false, completed: 0, index: 1 });
+    expect(native.failure).toMatch(/ETIMEDOUT/);
+    const shell = await fuzzer.fuzzHooks(
+      { ...options, timeoutMs: 60_000 },
+      { ...fixtures(echo, "while :; do :; done\n"), timeoutMs: 1000 },
+    );
+    expect(shell).toMatchObject({ ok: false, completed: 0, index: 1 });
+    expect(shell.failure).toBe("shell unavailable: ETIMEDOUT");
+    for (const timeoutMs of [-1, 1.5, 60_001]) {
+      await expect(fuzzer.fuzzHooks(options, { ...fixtures(echo), timeoutMs })).rejects.toThrow(
+        "fixture timeoutMs must be an integer between 0 and 60000",
+      );
+    }
+  });
+
+  // Covers: R11, R12
   it("rejects inactive audit/runtime preconditions before starting the requested batch", async () => {
     const transport = fixtures(echo);
     const active = await fuzzer.fuzzHooks({ ...options, cases: 1000, audit: "active" }, transport);
@@ -640,7 +663,9 @@ ${echo}`);
       "--timeout-ms",
       "1000",
     ]) as Options & { run: unknown };
-    const transport = fixtures(echo);
+    // No wall-clock deadline (#1830): the trivial fixtures must agree, and a load spike that
+    // outlasted --timeout-ms would otherwise turn ok:true into a timeout failure.
+    const transport = { ...fixtures(echo), timeoutMs: 0 };
     const single = await fuzzer.fuzzHooks(plain, transport);
     const parallel = await fuzzer.fuzzParallel(
       plain,
@@ -648,9 +673,10 @@ ${echo}`);
       { fixtures: transport },
     );
     expect(parallel).toMatchObject({ ok: true, completed: 6, compared: single.compared, jobs: 2 });
-    const diverging = fixtures(
-      "process.stdout.write('native:' + require('node:fs').readFileSync(0, 'utf8'));",
-    );
+    const diverging = {
+      ...fixtures("process.stdout.write('native:' + require('node:fs').readFileSync(0, 'utf8'));"),
+      timeoutMs: 0,
+    };
     const failed = await fuzzer.fuzzParallel(
       plain,
       { jobs: 2, cache: "off", priority: "normal" },

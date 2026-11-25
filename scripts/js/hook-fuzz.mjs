@@ -21,13 +21,27 @@ const MAX_CASES = 100_000;
  * Native active audit and productive shadow logging remain unavailable until their runtime lands.
  *
  * @typedef {{ seed: number, cases: number, hook: string, engine: "claude" | "codex" | "pi", shell: "bash" | "zsh", audit: "off" | "active", timeoutMs: number }} FuzzOptions
- * @typedef {{ manifestPath?: string, binary?: string, scriptsRoot?: string, shellScript?: string }} ProcessFixtures
+ * @typedef {{ manifestPath?: string, binary?: string, scriptsRoot?: string, shellScript?: string, timeoutMs?: number }} ProcessFixtures
  * @typedef {{ everyMs?: number, now?: () => number, report?: (compared: number, total: number, elapsedMs: number) => void }} ProgressOptions
  * @typedef {{ shard?: { index: number, count: number }, cacheDir?: string, verifyEvery?: number }} RunOptions
  * @typedef {{ jobs: number, cache: "on" | "off", priority: "low" | "normal", shard?: { index: number, count: number }, fixtures?: ProcessFixtures }} CliRun
  */
 
 const PROGRESS_EVERY_MS = 10 * 60_000;
+
+/** Per-run deadline a protocol test injects through its fixtures (test-only seam, #1830). It
+ * replaces `--timeout-ms` for both runtimes, and `0` removes the wall-clock deadline, so a test
+ * that expects `ok: true` from trivial fixtures cannot fail because the host is loaded; the test
+ * runner's own timeout stays the hang detector. The CLI never sets fixtures (they are internal to a
+ * shard worker), so real runs keep their bounded deadline.
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function fixtureTimeout(value) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 60_000) throw new Error("fixture timeoutMs must be an integer between 0 and 60000");
+  return value;
+}
 
 /** One progress line: done/total, percent, elapsed and a linear estimate of what is left.
  * @param {number} completed
@@ -609,6 +623,7 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
   let compared = 0;
   let cached = 0;
   if (options.audit === "active") return { ok: false, seed: options.seed, completed, compared, cached, failure: "native unavailable: audit active requires CLI-writer fixtures and log replay support" };
+  const timeoutMs = fixtureTimeout(fixtures.timeoutMs) ?? options.timeoutMs;
   let payload;
   let index = 0;
   let scratch;
@@ -653,7 +668,7 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
     const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, 0) };
     for (let attempt = 1; ; attempt += 1) {
       try {
-        runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs });
+        runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs });
         break;
       } catch (error) {
         if (attempt === 3) throw error;
@@ -671,7 +686,7 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
       : openShellCache(join(cacheDir, shellFingerprint({ shellScript, shell: options.shell, engine: options.engine, hook: options.hook })), `shard${shard.index}`);
     const runShellCase = (c) => {
       restore();
-      return runMode([c], "off", { resolveHook: () => shellScript, runHookBatch: (script, shell, calls) => calls.map((call) => runShell(script, shell, call, options.timeoutMs)), scratch })[0];
+      return runMode([c], "off", { resolveHook: () => shellScript, runHookBatch: (script, shell, calls) => calls.map((call) => runShell(script, shell, call, timeoutMs)), scratch })[0];
     };
     const payloads = generatePayloads(options.seed, options.cases, options.hook);
     const mine = uniqueCases(payloads).filter((_, position) => position % shard.count === shard.index);
@@ -681,7 +696,7 @@ export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
       const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, at) };
       restore();
       // Native first: a compiled-registry/integrity deferral aborts before a shell batch/later cases.
-      const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs: options.timeoutMs })[0];
+      const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs })[0];
       // The mode is part of the case: the same payload under another mode is another verdict.
       const key = createHash("sha256").update(`${JSON.stringify(c.args)}\0${caseKey(payload)}`).digest("hex");
       let expected = cache?.get(key);
