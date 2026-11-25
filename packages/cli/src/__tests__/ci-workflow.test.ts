@@ -107,6 +107,17 @@ describe("ci workflow", () => {
     expect(job("plan")).toContain("fetch-depth: 0");
   });
 
+  // Covers: R22
+  it("todo PR a main corre check-pin con el historial completo (D53)", () => {
+    const pin = job("legacy-pin");
+    expect(pin).toContain("github.base_ref == 'main'");
+    expect(pin).toContain(LABEL_FILTER);
+    expect(pin).toContain("fetch-depth: 0");
+    expect(pin).toContain("node scripts/js/dist-assemble.mjs check-pin");
+    // ci.yml has no `paths:` filter, so a dev → main PR that touches no release file still runs it.
+    expect(workflow).not.toMatch(/^\s+paths:/m);
+  });
+
   it("a full label added after opening starts the suite and other labels only repeat checks (#1551, #1562)", () => {
     // Listing `types` replaces the defaults, so all three must stay next to `labeled`.
     expect(workflow).toContain("types: [opened, synchronize, reopened, labeled]");
