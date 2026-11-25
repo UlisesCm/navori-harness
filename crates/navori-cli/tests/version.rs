@@ -24,13 +24,25 @@ fn version_reports_the_workspace_version() -> Result<(), Box<dyn Error>> {
 
 // Covers: R25
 #[test]
-fn version_has_the_form_0_13_0_rust_n() {
-    let rest = env!("CARGO_PKG_VERSION").strip_prefix("0.13.0-rust.");
+fn version_is_the_plain_release_semver_of_packages_cli() -> Result<(), Box<dyn Error>> {
+    let version = env!("CARGO_PKG_VERSION");
+    let parts: Vec<&str> = version.split('.').collect();
     assert!(
-        rest.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
-        "unexpected version {}",
-        env!("CARGO_PKG_VERSION")
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
+        "not a plain release semver: {version}"
     );
+    let manifest = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/cli/package.json"
+    ))?;
+    assert!(
+        manifest.contains(&format!("\"version\": \"{version}\"")),
+        "packages/cli version differs from {version}"
+    );
+    Ok(())
 }
 
 // Covers: R17
