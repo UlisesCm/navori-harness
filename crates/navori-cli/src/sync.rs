@@ -15,6 +15,7 @@ use std::process::ExitCode;
 use lexopt::Arg;
 use navori_core::backup::{BackupStore, backup_root, local_now};
 use navori_core::config::{self, Config};
+use navori_core::conflict_markers;
 use navori_core::fs::RealFs;
 use navori_core::manifest::Command;
 use navori_core::render::claude_md::has_monorepo_workspaces;
@@ -23,7 +24,7 @@ use navori_core::render::command::{Apply, RenderError};
 use navori_core::render::report::Clack;
 use navori_core::sync::{SyncFlags, SyncRun, run_sync};
 
-use crate::render::{colorless, configured_engines, resolve};
+use crate::render::{colorless, configured_engines, refuse_conflicts, resolve};
 use crate::{NativeCall, Outcome};
 
 /// The arguments of a native `sync`.
@@ -111,6 +112,14 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     let Some(args) = parse_args(call.args, call.entry, &base) else {
         return Outcome::Delegate;
     };
+    // Only after admission: a root that delegates earlier (monorepo workspaces) is the TS's.
+    let Some(config) = admit(&args.cwd, call.entry) else {
+        return Outcome::Delegate;
+    };
+    let conflicts = conflict_markers::scan(&args.cwd, &configured_engines(&config.data));
+    if !conflicts.is_empty() {
+        return refuse_conflicts("sync", &config, args.flags.json, &conflicts);
+    }
     if !args.flags.json
         && !colorless(
             |name| std::env::var_os(name),
@@ -119,9 +128,6 @@ pub fn run(call: &NativeCall<'_>) -> Outcome {
     {
         return Outcome::Delegate;
     }
-    let Some(config) = admit(&args.cwd, call.entry) else {
-        return Outcome::Delegate;
-    };
     let root = backup_root();
     if (args.flags.apply || args.flags.yes) && root.is_err() {
         return Outcome::Delegate;

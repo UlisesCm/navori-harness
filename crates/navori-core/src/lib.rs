@@ -18,6 +18,7 @@ pub mod backup;
 pub mod collate;
 pub mod commit;
 pub mod config;
+pub mod conflict_markers;
 pub mod content_identity;
 pub mod diagnose;
 pub mod fs;
