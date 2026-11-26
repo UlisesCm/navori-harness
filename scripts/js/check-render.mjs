@@ -73,17 +73,33 @@ const MAX_TREE_DEPTH = 8;
 /**
  * The 1-based line of the first complete conflict in `text`: `<<<<<<<` (then a space or the end),
  * `=======` alone, `>>>>>>>` (then a space or the end), all in column 0, `\r` ignored. Eight or
- * more signs, indented or out-of-order markers and a lone `=======` do not count.
+ * more signs, indented or out-of-order markers and a lone `=======` do not count. For `.md`/`.mdc`
+ * (`markdown`) a `<<<<<<<` inside a fenced code block (3+ backticks or tildes, 0-3 spaces of
+ * indent, closed by the same character at least as long, unclosed runs to the end) is ignored;
+ * same rule as `find_conflict_in` in the Rust crate.
  * @param {string} text
+ * @param {boolean} [markdown]
  * @returns {number | null}
  */
-function findConflict(text) {
+function findConflict(text, markdown = false) {
   let start = null;
   let mid = false;
+  /** @type {{ ch: string, len: number } | null} */
+  let fence = null;
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].replace(/\r$/, "");
+    const fenced = fence !== null;
+    if (markdown) {
+      const run = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fence === null) {
+        if (run) fence = { ch: run[1][0], len: run[1].length };
+      } else if (run && run[1][0] === fence.ch && run[1].length >= fence.len && /^[ \t]*$/.test(run[2])) {
+        fence = null;
+      }
+    }
     if (/^<{7}( |$)/.test(line)) {
+      if (fenced) continue;
       start = i + 1;
       mid = false;
     } else if (start !== null && !mid) {
@@ -141,7 +157,7 @@ function scanConflicts(root, label) {
     } catch {
       continue;
     }
-    const line = findConflict(text);
+    const line = findConflict(text, rel.endsWith(".md") || rel.endsWith(".mdc"));
     if (line !== null) found.push(`${label ? `${label}/` : ""}${rel}:${line}`);
   }
   return found;
@@ -344,7 +360,7 @@ if (conflicts.length > 0) {
     `  conflict markers (${conflicts.length}) — resolve, then re-render`,
   );
   for (const entry of conflicts) lines.push(`    ${entry}`);
-  lines.push(``, `  see the 'rebase-rerender' skill (.agents/skills/rebase-rerender/SKILL.md).`);
+  lines.push(``, `  resolve the conflict with git and run 'navori render --apply' again.`);
 }
 
 console.error(lines.join("\n"));

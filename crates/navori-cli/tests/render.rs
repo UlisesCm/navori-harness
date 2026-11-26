@@ -629,7 +629,9 @@ fn conflict_markers_refuse_render_before_any_write() -> TestResult {
     };
     assert_eq!(text("command").as_deref(), Some("render"));
     assert_eq!(text("reason").as_deref(), Some("conflict-markers"));
-    assert!(text("detail").is_some_and(|d| d.contains("rebase-rerender")));
+    assert!(
+        text("detail").is_some_and(|d| d.contains("with git") && !d.contains("rebase-rerender"))
+    );
     assert!(stdout.contains(r#""ok":false"#), "{stdout}");
     assert!(
         stdout.contains(&format!(r#""files":[{{"path":"{rel}","line":1}}]"#)),
@@ -643,7 +645,8 @@ fn conflict_markers_refuse_render_before_any_write() -> TestResult {
     ] {
         let stdout = fixture.assert_refused(args, &[("NO_COLOR", "1")])?;
         assert!(stdout.contains(&format!("{rel}:1")), "{args:?}: {stdout}");
-        assert!(stdout.contains("rebase-rerender"), "{stdout}");
+        assert!(stdout.contains("with git"), "{stdout}");
+        assert!(!stdout.contains("rebase-rerender"), "{stdout}");
     }
     // A terminal or FORCE_COLOR used to delegate to the TS: now it is refused first.
     fixture.assert_refused(&["render", "--apply"], &[("FORCE_COLOR", "1")])?;
@@ -666,6 +669,34 @@ fn conflict_markers_in_user_text_and_ignore_files_are_refused() -> TestResult {
         let stdout = fixture.assert_refused(&["render", "--apply"], &[("NO_COLOR", "1")])?;
         assert!(stdout.contains(&format!("{rel}:1")), "{label}: {stdout}");
     }
+    Ok(())
+}
+
+/// A user skill documenting a conflict inside a fenced block is not refused; the same triple
+/// outside a fence is.
+#[test]
+fn conflict_markers_inside_a_fenced_block_of_a_user_skill_are_not_refused() -> TestResult {
+    let triple = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch";
+    let rel = ".claude/skills/x/SKILL.md";
+
+    let fenced = Fixture::rendered("conflict-fenced")?;
+    let path = fenced.repo.join(rel);
+    fs::create_dir_all(path.parent().ok_or("no parent")?)?;
+    fs::write(&path, format!("# x\n\n```\n{triple}\n```\n"))?;
+    let out = fenced.run(&["render", "--json"], &[("NO_COLOR", "1")])?;
+    let stdout = String::from_utf8(out.stdout)?;
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+    assert!(!stdout.contains("conflict-markers"), "{stdout}");
+
+    let bare = Fixture::rendered("conflict-unfenced")?;
+    let path = bare.repo.join(rel);
+    fs::create_dir_all(path.parent().ok_or("no parent")?)?;
+    fs::write(&path, format!("# x\n\n{triple}\n"))?;
+    let stdout = bare.assert_refused(&["render", "--json"], &[("NO_COLOR", "1")])?;
+    assert!(
+        stdout.contains(rel) && stdout.contains(r#""line":3"#),
+        "{stdout}"
+    );
     Ok(())
 }
 

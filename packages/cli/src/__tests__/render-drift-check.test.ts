@@ -279,7 +279,26 @@ describe("check-render — harness mirror drift guard (#421)", () => {
       expect(check.status).toBe(1);
       expect(check.combined).toContain("conflict markers (1)");
       expect(check.combined).toContain(`${HOOK}:1`);
-      expect(check.combined).toContain("rebase-rerender");
+      expect(check.combined).not.toContain("rebase-rerender");
+    });
+
+    it("ignores a conflict example inside a fenced block of a user skill", () => {
+      const repo = seedRenderedRepo();
+      const skill = join(repo, ".claude/skills/x/SKILL.md");
+      mkdirSync(join(repo, ".claude/skills/x"), { recursive: true });
+      writeFileSync(skill, `# x\n\n\`\`\`\n${TRIPLE}\`\`\`\n`, "utf-8");
+      const check = runCheck(repo);
+      expect(check.status, check.combined).toBe(0);
+    });
+
+    it("still flags the same triple outside a fence in a user skill", () => {
+      const repo = seedRenderedRepo();
+      const skill = join(repo, ".claude/skills/x/SKILL.md");
+      mkdirSync(join(repo, ".claude/skills/x"), { recursive: true });
+      writeFileSync(skill, `# x\n\n${TRIPLE}`, "utf-8");
+      const check = runCheck(repo);
+      expect(check.status).toBe(1);
+      expect(check.combined).toContain(".claude/skills/x/SKILL.md:3");
     });
 
     it("stays green on a clean mirror, and ignores a lone ======= underline", () => {

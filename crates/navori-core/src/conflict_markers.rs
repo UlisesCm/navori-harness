@@ -91,12 +91,59 @@ fn is_marker(line: &[u8], sign: u8) -> bool {
 /// size of 7.
 #[must_use]
 pub fn find_conflict(bytes: &[u8]) -> Option<usize> {
+    detect(bytes, false)
+}
+
+/// [`find_conflict`] for the file at `path`. For `.md` and `.mdc` files a triple whose `<<<<<<<`
+/// line sits inside a fenced code block (three or more backticks or tildes, up to three spaces of
+/// indentation; closed by a fence of the same character at least as long; unclosed runs to the
+/// end of the file) is documentation, not a conflict. Accepted cost: a real conflict whose hunk
+/// lies entirely inside a fence of a Markdown file is not detected. Other files are unchanged.
+#[must_use]
+pub fn find_conflict_in(path: &str, bytes: &[u8]) -> Option<usize> {
+    detect(bytes, path.ends_with(".md") || path.ends_with(".mdc"))
+}
+
+/// Length of the fence run (`` ` `` or `~`, 3+) after 0-3 spaces of indentation, with the rest.
+fn fence_run(line: &[u8]) -> Option<(u8, usize, &[u8])> {
+    let indent = line.iter().take_while(|&&b| b == b' ').count();
+    let rest = &line[indent..];
+    let ch = *rest.first()?;
+    if indent > 3 || (ch != b'`' && ch != b'~') {
+        return None;
+    }
+    let len = rest.iter().take_while(|&&b| b == ch).count();
+    (len >= 3).then(|| (ch, len, &rest[len..]))
+}
+
+/// Advances the open-fence state (`(char, length)`) past one line.
+fn step_fence(line: &[u8], fence: &mut Option<(u8, usize)>) {
+    match (*fence, fence_run(line)) {
+        (Some((ch, len)), Some((c, l, rest)))
+            if c == ch && l >= len && rest.iter().all(|&b| b == b' ' || b == b'\t') =>
+        {
+            *fence = None;
+        }
+        (None, Some((c, l, _))) => *fence = Some((c, l)),
+        _ => {}
+    }
+}
+
+fn detect(bytes: &[u8], markdown: bool) -> Option<usize> {
     let mut start: Option<usize> = None;
     let mut mid = false;
+    let mut fence: Option<(u8, usize)> = None;
     for (index, raw) in bytes.split(|&b| b == b'\n').enumerate() {
         let line = raw.strip_suffix(b"\r").unwrap_or(raw);
         let boundary = |rest: &[u8]| rest.is_empty() || rest[0] == b' ';
+        let fenced = fence.is_some();
+        if markdown {
+            step_fence(line, &mut fence);
+        }
         if is_marker(line, b'<') && boundary(&line[7..]) {
+            if fenced {
+                continue;
+            }
             start = Some(index + 1);
             mid = false;
         } else if start.is_some() && !mid {
@@ -171,7 +218,7 @@ pub fn scan(root: &Path, engines: &[String]) -> Vec<ConflictFile> {
         .into_iter()
         .filter_map(|path| {
             let bytes = std::fs::read(root.join(&path)).ok()?;
-            find_conflict(&bytes).map(|line| ConflictFile { path, line })
+            find_conflict_in(&path, &bytes).map(|line| ConflictFile { path, line })
         })
         .collect()
 }
@@ -237,6 +284,54 @@ mod tests {
         assert_eq!(conflict(&[OPEN, "a", "<<<<<<< two", MID, CLOSE]), Some(3));
     }
 
+    fn md(parts: &[&str]) -> Option<usize> {
+        find_conflict_in("SKILL.md", parts.join("\n").as_bytes())
+    }
+
+    #[test]
+    fn conflict_markers_inside_a_markdown_fence_do_not_count() {
+        assert_eq!(md(&["```", OPEN, MID, CLOSE, "```"]), None);
+        assert_eq!(md(&["~~~", OPEN, MID, CLOSE, "~~~"]), None);
+        assert_eq!(md(&["  ```diff", OPEN, MID, CLOSE, "  ```  "]), None);
+        // Unclosed fence runs to the end.
+        assert_eq!(md(&["```", OPEN, MID, CLOSE]), None);
+        assert_eq!(
+            find_conflict_in(
+                "r.mdc",
+                format!("```\n{OPEN}\n{MID}\n{CLOSE}\n```").as_bytes()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn conflict_markers_outside_a_markdown_fence_still_match() {
+        assert_eq!(md(&[OPEN, MID, CLOSE, "```", "x", "```"]), Some(1));
+        assert_eq!(md(&["```", "x", "```", OPEN, MID, CLOSE]), Some(4));
+        assert_eq!(
+            md(&["~~~", "x", "~~~", "```", "y", "```", OPEN, MID, CLOSE]),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn conflict_markers_a_fence_is_not_closed_by_a_shorter_or_other_fence() {
+        assert_eq!(md(&["````", "```", OPEN, MID, CLOSE, "```"]), None);
+        assert_eq!(md(&["```", "~~~", OPEN, MID, CLOSE, "~~~"]), None);
+        // Four spaces of indentation or trailing text do not close it either.
+        assert_eq!(md(&["```", "    ```", OPEN, MID, CLOSE]), None);
+        assert_eq!(md(&["```", "``` x", OPEN, MID, CLOSE]), None);
+        // A longer fence of the same character does close it.
+        assert_eq!(md(&["```", "````", OPEN, MID, CLOSE]), Some(3));
+    }
+
+    #[test]
+    fn conflict_markers_fences_only_apply_to_markdown_files() {
+        let text = format!("```\n{OPEN}\n{MID}\n{CLOSE}\n```");
+        assert_eq!(find_conflict_in("a.sh", text.as_bytes()), Some(2));
+        assert_eq!(find_conflict(text.as_bytes()), Some(2));
+    }
+
     #[test]
     fn conflict_markers_bytes_that_are_not_utf8_are_scanned() {
         let mut bytes = b"\xff\xfe\n".to_vec();
@@ -249,7 +344,7 @@ mod tests {
         // A shipped asset with the triple in column 0 would make every render refuse.
         let offenders: Vec<&str> = crate::assets::ASSETS
             .iter()
-            .filter(|(_, bytes)| find_conflict(bytes).is_some())
+            .filter(|(path, bytes)| find_conflict_in(path, bytes).is_some())
             .map(|(path, _)| *path)
             .collect();
         assert!(offenders.is_empty(), "{offenders:?}");

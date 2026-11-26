@@ -663,10 +663,10 @@ pub fn render_skipped_outro(lang: Lang, count: usize) -> String {
 pub fn conflict_markers_refusal(lang: Lang, command: &str) -> String {
     match lang {
         Lang::Es => format!(
-            "{command} se neg\u{f3}: hay marcadores de conflicto de git sin resolver en archivos gestionados. Resu\u{e9}lvelos (skill 'rebase-rerender') y vuelve a correr 'navori {command}' (con tus mismos flags); --force no lo omite"
+            "{command} se neg\u{f3}: hay marcadores de conflicto de git sin resolver en archivos gestionados. Resu\u{e9}lvelos con git y vuelve a correr 'navori {command}' (con tus mismos flags); --force no lo omite"
         ),
         Lang::En => format!(
-            "{command} refused: unresolved git conflict markers in managed files. Resolve them (skill 'rebase-rerender') and run 'navori {command}' again with the same flags; --force does not bypass it"
+            "{command} refused: unresolved git conflict markers in managed files. Resolve them with git and run 'navori {command}' again with the same flags; --force does not bypass it"
         ),
     }
 }
