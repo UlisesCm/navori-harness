@@ -208,7 +208,7 @@ function replaceProvenance(text, tsCli) {
 
 function replaceVersion(text, version) {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(new RegExp(`(?<![\\d.+-])${escaped}(?![\\w.+-])`, "g"), "@VERSION@");
+  return text.replace(new RegExp(`(?<![\\d.+-])${escaped}(?![\\w.+-])`, "g"), "@VERSION@"); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- version of the repo's own CLI or Cargo manifest, every metachar escaped, fixed lookarounds
 }
 
 /**
