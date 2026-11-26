@@ -119,6 +119,8 @@ Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中�
   - 永久委托：`master`、`codex`、`workspace`、`ticket` 和 `registry`，以及部分交互形式（不带非交互标志的 `sync`、不带 `--yes` 的 `remove` 和 `restore` 命令、`doctor --json`）；
   - 暂时委托，直到完成移植：`init`、`add`、`configure`、`update`、`refresh`、`receipt`、`gate` 与 `tools` 的大部分功能、除 `--arm`/`--disarm` 之外的 `audit`，以及 `render` 和 `sync` 的部分标志（见 `scripts/js/rust-areas.mjs` 中的 `TRANSITIONAL_DELEGATION`）。
 - 安装了平台二进制时，`crates/ported.json` 标记为 `active` 的钩子在 Claude Code 和 Pi 中以原生方式裁决；否则运行渲染出的 shell 主体，裁决相同。其余钩子继续运行其 shell 主体。
+- 当受管理的文件含有 git 冲突标记时，`render`、`sync` 和 `remove` 会拒绝写入并列出这些文件；`--force` 也无法绕过（#1660）。
+- `navori.config.json` 中的 `claudePlugins` 用于声明 Claude Code 插件，`render` 会将 `enabledPlugins` 写入 `.claude/settings.json`（#1747）。
 
 ## 迁移到 0.12
 
@@ -222,9 +224,18 @@ Rust 工具链固定在 `rust-toolchain.toml` 中（1.99.1，含发布所需的�
    之所以自动化，是因为 **0.8.4 和 0.8.5** 都漏掉了这一步，而且第二次漏掉时，准确命令已经写在这里。影响会延迟出现且不易察觉：`check-asset-commands.mjs` 会与最新 tag 比较，因此没有 tag 的发布会拿前一个版本做校验。仓库已经是 0.8.4，它却仍会报告“存在于 v0.8.3”，而检查不会失败。
 
    如需手动执行：`git tag -a vX.Y.Z <第 6 步之后 main 的 HEAD> && git push origin vX.Y.Z`。在 `dev` → `main` 流程启用前发布的 tag 直接指向 `chore(release)` 提交，例如 `v0.8.2` → `285fa51` 和 `v0.8.3` → `6f32a00`。
-8. 合并后在 `main` 上，发布 `scripts/js/dist-assemble.mjs` 根据 `rust-release.yml` 的产物（`npm-packages/*.tgz`）组装的包，而不是 `packages/cli`：先发布四个平台包（`navori-darwin-arm64`、`navori-darwin-x64`、`navori-linux-arm64`、`navori-linux-x64`），再发布 `navori`（先执行 `npm login`）。用 `npm view navori version` 确认。
+8. 合并后在 `main` 上，从发布提交对应的 `rust-release.yml` 运行产物（`navori-<platform>`、`navori-legacy`、`npm-packages`）发布，而不是从 `packages/cli` 发布（先执行 `npm login`）。每个包都以 `--tag next` 发布，因此 `npm i -g navori` 不会拿到发布到一半的版本；`latest` 只在最后移动，顺序如下：
+   1. `node scripts/js/dist-assemble.mjs check-pin` 输出 `packaging/legacy.json is complete`。
+   2. `navori-legacy`：用 `node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir>` 重新构建（integrity 与固定值不一致时会失败）并发布。`npm view navori-legacy@X.Y.Z dist.integrity` 必须等于固定文件中的 `integrity`。
+   3. 从 `npm-packages/` 发布四个平台包（`navori-darwin-arm64`、`navori-darwin-x64`、`navori-linux-arm64`、`navori-linux-x64`）。
+   4. 对这五个包执行 `npm view <package>@X.Y.Z version`。缺少任何一个都不要发布 `navori`。
+   5. `navori`：`dist-assemble.mjs --out <dir> --pack` 加上每个平台一个 `--binary <platform>=<path>`，会从 npm 下载 `navori-legacy` 并对照固定值校验；然后发布该 tarball。
+   6. 在临时目录中做冒烟测试：`npm i navori@next`；`npx navori --version` 输出 `X.Y.Z`，`npx navori workspace ls` 由内嵌的 TypeScript CLI 响应，`scripts/js/dist-legacy-smoke.mjs` 使用已安装的二进制和从 registry 下载的 legacy tarball 通过。
+   7. 按相同顺序（legacy、平台包、最后 `navori`）执行 `npm dist-tag add <package>@X.Y.Z latest`，再执行 `npm view navori version`。
 
-   `packaging/legacy.json` 固定了冻结的 TypeScript CLI（`navori-legacy`），该包会在永久委托和无二进制的平台上运行它。它通过 `dist-assemble.mjs legacy ... --write-pin` 构建，并在正式发布之前先行发布到 npm；组装时会校验其 `integrity`。只有在明确决定后才修改它。
+   绝不使用 `npm unpublish`。第 7 步之前出错：修复后发布下一个补丁版本。第 7 步之后出错：`npm dist-tag add navori@<previous> latest` 让用户回到上一版本，并用 `npm deprecate` 标记出错的版本。npm 不允许重新发布同一版本：`navori` 固定了平台包和 legacy 的确切版本，因此其中任何一个出错，都需要发布整套包的下一个版本。
+
+   `packaging/legacy.json` 固定了冻结的 TypeScript CLI（`navori-legacy`），该包会在永久委托和无二进制的平台上运行它。它在切换之前通过 `dist-assemble.mjs legacy ... --write-pin` 构建，并在第 8 步中最先发布；组装时会校验其 `integrity`。只有在明确决定后才修改它。
 
 Website 页脚通过导入 CLI 的 `package.json` 显示版本（`apps/website/src/components/Footer.astro`）；`deploy-website.yml` 的 `paths` 过滤器也会监视该文件，所以第 2 步的版本更新会触发网站重新部署。**如果网站显示旧版本，首先检查这个过滤器**：在 0.8.4 之前，它没有包含 CLI manifest，导致网站落后两个版本；npm 已发布 0.8.4 时，网站仍显示 `v0.8.2`。
 

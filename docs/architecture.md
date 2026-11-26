@@ -1,6 +1,6 @@
 > [English](architecture.md) | [Español](architecture.es.md) | [简体中文](architecture.zh-CN.md)
 
-# navori architecture — how it works (v0.12.0)
+# navori architecture — how it works (v0.13.0)
 
 > Navigable diagrams: on GitHub, **click nodes** to jump to the source file. navori rebuilds
 > engine-specific resources idempotently from a single source of truth (`navori.config.json`),

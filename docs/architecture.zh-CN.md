@@ -1,6 +1,6 @@
 > [English](architecture.md) | [Español](architecture.es.md) | [简体中文](architecture.zh-CN.md)
 
-# navori 架构 — 工作原理 (v0.12.0)
+# navori 架构 — 工作原理 (v0.13.0)
 
 > 可导航图表：在 GitHub 上，**点击节点**即可跳转到源文件。navori 从唯一事实来源（`navori.config.json`）幂等地重建所选 engine 的资源，不会覆盖你的手动修改。
 
