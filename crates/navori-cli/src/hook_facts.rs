@@ -1,0 +1,640 @@
+//! Bounded collection for the pure, implementation-hashed eligibility planner.
+//! This module never reads process stdin, chooses a semantic profile, mutates env or activates hooks.
+//! Unix sockets avoid pipe-reader threads that can hang when descendants retain output handles.
+
+use std::ffi::OsString;
+use std::fs;
+use std::io::{self, Read};
+use std::os::fd::OwnedFd;
+use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use navori_hooks::hooks::general_purpose_confirm;
+use navori_hooks::hooks::subagent_no_background;
+use navori_hooks::hooks::subagent_no_background::prepare::{
+    self, Facts, Ineligible, Limits, Output, Prepared, Request, Tool,
+};
+
+use navori_hooks::hooks::guard_destructive::Rendered;
+use navori_hooks::hooks::guard_destructive::entry::{self, Context, Deadline, Pii};
+use navori_hooks::hooks::guard_destructive::pii_bash;
+use navori_hooks::runner::{self, Failure};
+use navori_hooks::shell::hook_input::Host;
+use navori_hooks::shell::repo::{Repo, System};
+
+use crate::facts_cache::{self, FactsCache};
+use crate::hook::{Evaluator, Invocation, Recorder, Snapshot};
+use crate::journal;
+
+/// Registry adapter: collect host facts before stdin and keep the evaluation pure.
+/// The script path is the one the shadow shell lane runs, so diagnostics compare equal bytes.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_subagent_no_background<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        engines: subagent_no_background::ENGINES,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.requested,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
+        subagent_no_background::evaluate_prepared(&prepared, payload)
+    }))
+}
+
+/// Registry adapter for general-purpose-confirm: the same accredited extraction profile as
+/// subagent-no-background, over the hook's own engines.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_general_purpose_confirm<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        engines: general_purpose_confirm::ENGINES,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.requested,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(Box::new(move |payload: &[u8], _: &dyn Recorder| {
+        general_purpose_confirm::evaluate_prepared(&prepared, payload)
+    }))
+}
+
+/// Registry adapter for guard-destructive: the same accredited extraction profile, plus the
+/// rendered values and the environment facts the script reads before its rules run. Repository
+/// facts are read after stdin, as the script reads them, through [`System`].
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn prepare_guard_destructive<'a>(
+    invocation: &'a Invocation,
+    snapshot: Snapshot<'a>,
+) -> Result<Evaluator<'a>, String> {
+    let request = Request {
+        engine: invocation.engine,
+        engines: entry::ENGINES,
+        event: invocation.event.as_deref(),
+        args: &invocation.args,
+        script: &invocation.requested,
+        source: snapshot.source,
+        env: snapshot.env,
+    };
+    let cache = journal::project_root(invocation.engine, &invocation.engine_root)
+        .map(FactsCache::in_project);
+    let prepared = collect_cached(request, snapshot.cwd, Limits::default(), cache.as_ref())
+        .map_err(|e| e.to_string())?;
+    let source = std::str::from_utf8(snapshot.source).map_err(|_| "script is not UTF-8")?;
+    let rendered = Rendered::from_script(source).ok_or("rendered values are not plain words")?;
+    let text = |name: &str| -> Result<Option<String>, String> {
+        prepare::env_value(snapshot.env, name)
+            .map(|value| {
+                value
+                    .to_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("{name} is not UTF-8"))
+            })
+            .transpose()
+    };
+    let pwd = shell_pwd(text("PWD")?, snapshot.cwd)?;
+    let requested = invocation
+        .requested
+        .to_str()
+        .ok_or("hook path is not UTF-8")?;
+    let hook_path = if requested.starts_with('/') {
+        requested.to_owned()
+    } else {
+        format!("{pwd}/{requested}")
+    };
+    let context = Context {
+        engine: prepared.engine(),
+        profile: prepared.profile(),
+        capture: prepared.capture(),
+        rendered,
+        host: Host {
+            pwd,
+            home: text("HOME")?,
+            claude_project_dir: text("CLAUDE_PROJECT_DIR")?,
+            // The planner rejects a CDPATH environment.
+            cdpath: None,
+            hook_path,
+            path: text("PATH")?,
+            ..Host::default()
+        },
+        // `command -v` of the two programs the PII lane runs: stats along `PATH`, no fork.
+        pii: Pii::from_env(
+            snapshot.env,
+            command_v("grep", snapshot.env, snapshot.cwd),
+            command_v("git", snapshot.env, snapshot.cwd),
+        ),
+    };
+    // A value that is not UTF-8 is ignored, as the script's `case` ignores anything but 1..8.
+    let configured = prepare::env_value(snapshot.env, "NAVORI_GUARD_DEADLINE")
+        .and_then(|value| value.to_str())
+        .map(str::to_owned);
+    let started = snapshot.started;
+    Ok(Box::new(move |payload: &[u8], recorder: &dyn Recorder| {
+        let shadow = recorder.shadow();
+        let deadline = native_deadline(configured.as_deref(), started, shadow);
+        evaluate_native(payload, &context, System, deadline, shadow)
+            .map_err(|failure| shadow_failure(failure, shadow))
+    }))
+}
+
+/// Seconds the native guard may use in shadow: the shell lane runs after it, inside the 8.5 s
+/// of [`crate::shadow::SHADOW_DEADLINES`], and needs the rest (as pii-egress-guard's budget).
+const SHADOW_NATIVE_SECONDS: u64 = 3;
+
+/// The guard's deadline for the native lane. Active: the script's own (#1671). Shadow: capped
+/// at [`SHADOW_NATIVE_SECONDS`], so a hung native lane leaves the shell time to answer.
+#[must_use]
+pub fn native_deadline(value: Option<&str>, started: Instant, shadow: bool) -> Deadline {
+    if !shadow {
+        return Deadline::from_env(value, started);
+    }
+    let lowered = value
+        .filter(|value| value.len() == 1)
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| (1..SHADOW_NATIVE_SECONDS).contains(seconds))
+        .unwrap_or(SHADOW_NATIVE_SECONDS);
+    Deadline::from_env(Some(&lowered.to_string()), started)
+}
+
+/// The native guard under `deadline`. In shadow a lane that ran out of time is not observed (its
+/// block is not a verdict to compare; the shell answers alone); in active mode it stands.
+///
+/// # Errors
+/// The errors of [`entry::evaluate_until`]; [`runner::unobserved`] for a shadow timeout.
+pub fn evaluate_native<R: Repo + Send + 'static>(
+    payload: &[u8],
+    context: &Context<'_>,
+    repo: R,
+    deadline: Deadline,
+    shadow: bool,
+) -> Result<runner::Evaluation, Failure> {
+    let result = entry::evaluate_until(payload, context, repo, deadline);
+    if shadow && Instant::now() >= deadline.at() {
+        return Err(runner::unobserved());
+    }
+    result
+}
+
+/// A lane the BSD locale leaves unmeasured is not a divergence in shadow: it is not observed.
+/// Outside shadow, and for any other failure, `failure` stands.
+#[must_use]
+pub fn shadow_failure(failure: Failure, shadow: bool) -> Failure {
+    if shadow && pii_bash::is_unmeasured(&failure) {
+        runner::unobserved()
+    } else {
+        failure
+    }
+}
+
+/// `command -v name`: the first executable file along `PATH`, a relative entry resolved from
+/// `cwd`. `None` when `PATH` is unset or resolves nothing.
+#[must_use]
+pub fn command_v(name: &str, env: &[(OsString, OsString)], cwd: &Path) -> Option<PathBuf> {
+    let path = prepare::env_value(env, "PATH")?;
+    std::env::split_paths(path).find_map(|directory| {
+        let directory = if directory.is_absolute() {
+            directory
+        } else {
+            cwd.join(directory)
+        };
+        facts_cache::lookup(directory.as_os_str(), name)
+    })
+}
+
+/// Wall time allowed for `navori --version` (a cold TS CLI start is ~120 ms).
+const NAVORI_CLI_PROBE: Duration = Duration::from_secs(5);
+
+/// Host fact `navori_cli` (spec 0059 D30, R53): the `navori` that `PATH` resolves and the
+/// version it prints. A ported subcommand runs in process only when that version is the TS CLI
+/// this binary was built from; otherwise the hook runs that `navori`, as the shell does.
+///
+/// The version depends on the `node` the hook's `PATH` resolves, not only on the binary: the TS
+/// CLI starts with `#!/usr/bin/env node`, so an `nvm use` changes the answer (or breaks it on
+/// Node < 22.12) with the same `navori` file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavoriCli {
+    /// `command -v navori` (a relative `PATH` entry joined to the hook's working directory),
+    /// not canonicalized: the path the shell runs and exports as `_`. `None` when `PATH`
+    /// resolves no `navori`.
+    pub path: Option<PathBuf>,
+    /// First line of `navori --version` on a zero exit, trimmed; `None` when it printed none.
+    pub version: Option<String>,
+}
+
+impl NavoriCli {
+    /// Whether a ported subcommand may run in process instead of through this `navori`.
+    #[must_use]
+    pub fn in_process(&self) -> bool {
+        self.version.as_deref() == Some(navori_core::STAMP_VERSION)
+    }
+}
+
+/// Collect [`NavoriCli`] before stdin. The probe runs once per binary and node: its answer is
+/// cached by the canonical path with the binary's stamp (device, inode, size and both
+/// timestamps) plus the identity of the `node` the `PATH` resolves (`|node=<canonical
+/// path>:<stamp>`, or `|node=none`). Replacing or touching either probes again; otherwise an
+/// `nvm use` within the cache lifetime replayed a version the shell would no longer get, and
+/// `quality-gate-pre-commit` (which decides on it) diverged in shadow. Without an absolute
+/// `PATH` nothing is cached.
+///
+/// # Errors
+/// A probe that cannot be spawned, outlives its deadline or overflows its output bound: the
+/// caller defers the call to the shell.
+pub fn navori_cli(
+    env: &[(OsString, OsString)],
+    cwd: &Path,
+    cache: Option<&FactsCache>,
+) -> Result<NavoriCli, Ineligible> {
+    let Some(path) = prepare::env_value(env, "PATH") else {
+        return Ok(NavoriCli {
+            path: None,
+            version: None,
+        });
+    };
+    // `command -v navori`: relative entries resolve from the hook's working directory.
+    let Some(found) = command_v("navori", env, cwd) else {
+        return Ok(NavoriCli {
+            path: None,
+            version: None,
+        });
+    };
+    // The cache is keyed by the binary behind any symlink; the probe runs the resolved path.
+    let binary = found.canonicalize().map_err(io_failure)?;
+    let absolute = std::env::split_paths(path).all(|entry| entry.is_absolute());
+    let cache = cache.filter(|_| absolute).and_then(|cache| {
+        let stamp = format!(
+            "{}|node={}",
+            facts_cache::stamp(&binary)?,
+            node_identity(env, cwd)
+        );
+        Some((cache, stamp, facts_cache::now_ms()?))
+    });
+    if let Some((cache, stamp, now)) = &cache
+        && let Some(version) = cache.load_cli(&binary, stamp, *now)
+    {
+        return Ok(NavoriCli {
+            path: Some(found),
+            version,
+        });
+    }
+    let output = probe(
+        &found,
+        &["--version".into()],
+        cwd,
+        env,
+        Instant::now() + NAVORI_CLI_PROBE,
+    )?;
+    let version = (output.code == Some(0))
+        .then(|| String::from_utf8(output.stdout).ok())
+        .flatten()
+        .and_then(|text| text.lines().next().map(|line| line.trim().to_owned()))
+        .filter(|line| !line.is_empty());
+    if let Some((cache, stamp, now)) = &cache {
+        cache.store_cli(&binary, stamp, version.as_deref(), *now);
+    }
+    Ok(NavoriCli {
+        path: Some(found),
+        version,
+    })
+}
+
+/// Identity of the `node` that `PATH` resolves: `<canonical path>:<stamp>`, or `none` when
+/// there is no `node` or it cannot be canonicalized or stat'ed.
+fn node_identity(env: &[(OsString, OsString)], cwd: &Path) -> String {
+    command_v("node", env, cwd)
+        .and_then(|node| node.canonicalize().ok())
+        .and_then(|node| {
+            let stamp = facts_cache::stamp(&node)?;
+            Some(format!("{}:{stamp}", node.display()))
+        })
+        .unwrap_or_else(|| "none".to_owned())
+}
+
+/// Bash's `$PWD` at startup: an inherited absolute `PWD` naming the working directory, else
+/// the physical directory. Bash keeps such a `PWD` literally even when it is not canonical
+/// (`.`, `..` or `//` components, or a trailing slash); that case is not modeled and defers.
+pub(crate) fn shell_pwd(inherited: Option<String>, cwd: &Path) -> Result<String, String> {
+    use std::os::unix::fs::MetadataExt;
+    let physical = || {
+        cwd.to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "working directory is not UTF-8".to_owned())
+    };
+    let Some(pwd) = inherited.filter(|pwd| pwd.starts_with('/')) else {
+        return physical();
+    };
+    let same = match (fs::metadata(&pwd), fs::metadata(cwd)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    };
+    if !same {
+        return physical();
+    }
+    if pwd.len() > 1
+        && (pwd.contains("//")
+            || pwd.ends_with('/')
+            || pwd.split('/').any(|part| part == "." || part == ".."))
+    {
+        return Err("PWD is not in canonical form".to_owned());
+    }
+    Ok(pwd)
+}
+
+/// Collect real facts under the exact snapshot and return eligibility before any stdin read.
+/// Timeouts/output errors are explicit ineligibility, never evidence that jq/Node is absent.
+pub fn collect<'a>(
+    request: Request<'a>,
+    cwd: &Path,
+    limits: Limits,
+) -> Result<Prepared<'a>, Ineligible> {
+    collect_cached(request, cwd, limits, None)
+}
+
+/// [`collect`] that first replays cached facts of an unchanged host (R17) and caches the facts
+/// of a freshly probed eligible host. Replayed facts still pass through the planner.
+pub fn collect_cached<'a>(
+    request: Request<'a>,
+    cwd: &Path,
+    limits: Limits,
+    cache: Option<&FactsCache>,
+) -> Result<Prepared<'a>, Ineligible> {
+    collect_cached_traced(request, cwd, limits, cache).map(|(prepared, _)| prepared)
+}
+
+/// Where [`collect_cached_traced`] took the facts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// Replayed from an entry of the facts cache; no probe ran.
+    Cache,
+    /// Probed on the host.
+    Probed,
+}
+
+/// [`collect_cached`] that also reports whether the facts were replayed or probed, so tests can
+/// tell a cache hit apart without relying on a deadline too short for any probe.
+///
+/// # Errors
+/// Returns the ineligibility cause; the caller defers the call to the shell.
+pub fn collect_cached_traced<'a>(
+    request: Request<'a>,
+    cwd: &Path,
+    limits: Limits,
+    cache: Option<&FactsCache>,
+) -> Result<(Prepared<'a>, Source), Ineligible> {
+    let started = Instant::now();
+    let plan = prepare::plan(request, limits)?;
+    let deadline = started + plan.limits().total;
+    let env = plan.environment();
+    // `~/.jq` is loaded by every jq the shell runs and can redefine builtins: the shell answers.
+    if facts_cache::jq_init_present(env, cwd) {
+        return Err(Ineligible(
+            "$HOME/.jq exists and changes jq's behavior; the shell lane answers".into(),
+        ));
+    }
+    let path = prepare::env_value(env, "PATH").ok_or_else(|| Ineligible("missing PATH".into()))?;
+    let mut bash = None;
+    for directory in std::env::split_paths(path) {
+        if Instant::now() >= deadline {
+            return Err(Ineligible("probe deadline expired resolving Bash".into()));
+        }
+        let directory = if directory.is_absolute() {
+            directory
+        } else {
+            cwd.join(directory)
+        };
+        let candidate = directory.join("bash");
+        if fs::metadata(&candidate)
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        {
+            bash = Some(candidate.canonicalize().map_err(io_failure)?);
+            break;
+        }
+    }
+    let bash = bash.ok_or_else(|| Ineligible("legacy Bash is absent".into()))?;
+    let cache = cache
+        .and_then(|cache| Some((cache, facts_cache::key(&bash, env)?, facts_cache::now_ms()?)));
+    if let Some((cache, key, now)) = &cache
+        && let Some(cached) = cache.load(key, *now)
+        && let Ok(discovery) = plan.discover(&cached.facts.bootstrap)
+        && facts_cache::tools_unchanged(&discovery, path, &cached.tools)
+        && let Ok(prepared) = plan.prepare(&cached.facts)
+    {
+        return Ok((prepared, Source::Cache));
+    }
+    let bootstrap = probe(
+        &bash,
+        &["-c".into(), prepare::DISCOVERY.into()],
+        cwd,
+        env,
+        deadline,
+    )?;
+    let discovery = plan.discover(&bootstrap)?;
+    let resolved = |tool: Tool| -> Result<Option<PathBuf>, Ineligible> {
+        discovery
+            .tools
+            .get(&tool)
+            .and_then(Option::as_ref)
+            .map(|path| {
+                let path = if path.is_absolute() {
+                    path.clone()
+                } else {
+                    cwd.join(path)
+                };
+                path.canonicalize().map_err(io_failure)
+            })
+            .transpose()
+    };
+    let required = |tool: Tool| -> Result<PathBuf, Ineligible> {
+        resolved(tool)?.ok_or_else(|| Ineligible("required tool missing".into()))
+    };
+    let jq = resolved(Tool::Jq)?
+        .map(|path| {
+            probe(
+                &bash,
+                &[
+                    "-c".into(),
+                    prepare::JQ.into(),
+                    "jq-probe".into(),
+                    path.into_os_string(),
+                ],
+                cwd,
+                env,
+                deadline,
+            )
+        })
+        .transpose()?;
+    let node = resolved(Tool::Node)?
+        .map(|path| probe(&path, &["--version".into()], cwd, env, deadline))
+        .transpose()?;
+    let system = probe(&required(Tool::Uname)?, &["-s".into()], cwd, env, deadline)?;
+    let charmap = probe(
+        &required(Tool::Locale)?,
+        &["charmap".into()],
+        cwd,
+        env,
+        deadline,
+    )?;
+    let text = probe(
+        &bash,
+        &[
+            "-c".into(),
+            prepare::TEXT.into(),
+            "text-probe".into(),
+            prepare::text_input().into(),
+            required(Tool::Grep)?.into_os_string(),
+            required(Tool::Sed)?.into_os_string(),
+            required(Tool::Tr)?.into_os_string(),
+            required(Tool::Cat)?.into_os_string(),
+        ],
+        cwd,
+        env,
+        deadline,
+    )?;
+    // Always probed: a non-English host can name an English locale and still translate Bash.
+    let messages = probe(
+        &bash,
+        &[
+            "-c".into(),
+            prepare::MESSAGES.into(),
+            "messages-probe".into(),
+        ],
+        cwd,
+        env,
+        deadline,
+    )?;
+    let facts = Facts {
+        bootstrap,
+        system,
+        charmap,
+        text,
+        messages,
+        jq,
+        node,
+    };
+    let prepared = plan.prepare(&facts)?;
+    // Only an eligible host is cached: a failure is never replayed.
+    if let Some((cache, key, now)) = &cache
+        && let Some(tools) = facts_cache::tool_stamps(&discovery)
+    {
+        cache.store(key, &facts, &tools, *now);
+    }
+    Ok((prepared, Source::Probed))
+}
+
+/// Execute a single probe with null stdin, bounded combined output and an absolute deadline.
+/// Killing/reaping covers the direct child only; no promise is made to kill descendants.
+fn probe(
+    program: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+    deadline: Instant,
+) -> Result<Output, Ineligible> {
+    if Instant::now() >= deadline {
+        return Err(Ineligible("probe deadline expired".into()));
+    }
+    let (mut stdout, out_child) = UnixStream::pair().map_err(io_failure)?;
+    let (mut stderr, err_child) = UnixStream::pair().map_err(io_failure)?;
+    stdout.set_nonblocking(true).map_err(io_failure)?;
+    stderr.set_nonblocking(true).map_err(io_failure)?;
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env.iter().map(|(key, value)| (key, value)))
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(OwnedFd::from(out_child)))
+        .stderr(Stdio::from(OwnedFd::from(err_child)))
+        .spawn()
+        .map_err(io_failure)?;
+    let mut output = Output::default();
+    let mut out_done = false;
+    let mut err_done = false;
+    let mut status = None;
+    let result = (|| {
+        loop {
+            if Instant::now() >= deadline {
+                return Err(Ineligible("probe deadline expired".into()));
+            }
+            if !out_done {
+                out_done = drain(&mut stdout, &mut output.stdout, output.stderr.len())?;
+            }
+            if !err_done {
+                err_done = drain(&mut stderr, &mut output.stderr, output.stdout.len())?;
+            }
+            if status.is_none() {
+                status = child.try_wait().map_err(io_failure)?;
+            }
+            if out_done
+                && err_done
+                && let Some(status) = status
+            {
+                output.code = status.code();
+                return Ok(output);
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+    })();
+    if result.is_err() {
+        stop(&mut child);
+    }
+    result
+}
+
+fn drain(stream: &mut UnixStream, output: &mut Vec<u8>, other: usize) -> Result<bool, Ineligible> {
+    let mut buffer = [0; 4096];
+    loop {
+        let available = (prepare::MAX_OUTPUT + 1)
+            .saturating_sub(output.len() + other)
+            .min(buffer.len());
+        if available == 0 {
+            return Err(Ineligible("probe output limit exceeded".into()));
+        }
+        match stream.read(&mut buffer[..available]) {
+            Ok(0) => return Ok(true),
+            Ok(count) => {
+                output.extend_from_slice(&buffer[..count]);
+                if output.len() + other > prepare::MAX_OUTPUT {
+                    return Err(Ineligible("probe output limit exceeded".into()));
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(io_failure(error)),
+        }
+    }
+}
+fn stop(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+fn io_failure(error: io::Error) -> Ineligible {
+    Ineligible(format!("fact collection failed: {error}"))
+}

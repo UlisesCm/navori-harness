@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "tool": "git",
+  "version": "git version 2.54.0 (Apple Git-157)",
+  "responses": [
+    {
+      "args": [
+        "--version"
+      ],
+      "status": 0,
+      "stdout": "git version 2.54.0 (Apple Git-157)\n",
+      "stderr": ""
+    }
+  ]
+}

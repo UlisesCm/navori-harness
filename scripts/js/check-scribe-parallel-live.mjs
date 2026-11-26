@@ -5,6 +5,7 @@ import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 /** @typedef {import("../../packages/cli/src/lib/handoff/actor-provenance.ts").NativeActor} NativeActor */
 /** @typedef {{kind: "patch", patch: string} | {kind: "command", cmd: string, workdir: string}} Operation */
@@ -369,7 +370,7 @@ export function checkLive() {
   };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     process.stdout.write(`${JSON.stringify(checkLive())}\n`);
   } catch (error) {

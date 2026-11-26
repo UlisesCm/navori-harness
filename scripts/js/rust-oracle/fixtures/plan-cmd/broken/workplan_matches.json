@@ -1,0 +1,43 @@
+{
+  "feature": "matches",
+  "level": 1,
+  "classification": {
+    "score": 0,
+    "level": 0,
+    "signals": []
+  },
+  "objective": "Port the plan command",
+  "request": "first line\nsecond line — ñ",
+  "acceptance": [
+    {
+      "id": "A1",
+      "description": "criterion 1",
+      "command": "bun run a1",
+      "expected": "matches: /ok/i"
+    }
+  ],
+  "outOfScope": [
+    "the parallel producers"
+  ],
+  "files": [
+    {
+      "path": "src/a.ts",
+      "new": false
+    },
+    {
+      "path": "src/b.ts",
+      "new": true
+    }
+  ],
+  "progress": {},
+  "evidence": {},
+  "decisions": [
+    {
+      "text": "keep the TS for update",
+      "date": "2026-10-30"
+    }
+  ],
+  "extraKey": {
+    "kept": true
+  }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "navori-hooks"
+description = "Native hook runtime for navori (populated from E2)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+navori-core.workspace = true
+regex.workspace = true
+serde_json = { workspace = true, features = ["raw_value", "arbitrary_precision"] }
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

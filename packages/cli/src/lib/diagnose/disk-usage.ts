@@ -41,14 +41,21 @@ const DEFAULT_BACKUPS_THRESHOLD_BYTES = 1024 * 1024 * 1024;
  * case (4.2 GB / 15 worktrees) sat well past this. */
 const DEFAULT_WORKTREES_THRESHOLD_BYTES = 2 * 1024 * 1024 * 1024;
 
+/** How long one `du` may run. A hung filesystem (a dead network mount) would
+ * otherwise hang doctor with it; past this the directory reads as unmeasured
+ * (#1712). Generous on purpose: a large worktrees tree on a cold cache takes
+ * seconds, and a false "unmeasured" only skips an advisory. */
+export const DU_TIMEOUT_MS = 30_000;
+
 /** Allocated size of a directory via `du -sk`, or null when it can't be
- * measured (no `du` on PATH, unreadable path) — a skipped check, never a
- * doctor failure. */
+ * measured (no `du` on PATH, unreadable path, `du` past `DU_TIMEOUT_MS`) — a
+ * skipped check, never a doctor failure. */
 function duBytes(path: string): number | null {
   try {
     const out = execFileSync("du", ["-sk", path], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: DU_TIMEOUT_MS,
     });
     const kib = Number.parseInt(out.trim().split(/\s+/)[0] ?? "", 10);
     return Number.isFinite(kib) && kib >= 0 ? kib * 1024 : null;

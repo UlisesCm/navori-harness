@@ -1,0 +1,33 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
+  "name": "x",
+  "version": "1.0.0",
+  "harnessVersion": "0.12.2",
+  "engines": [
+    "claude",
+    "codex"
+  ],
+  "preset": "custom",
+  "language": "es",
+  "branchBase": "main",
+  "gitignoreHarness": "off",
+  "commits": "conventional-es",
+  "audit": {
+    "mode": "opt-in"
+  },
+  "plugins": {
+    "engram": {
+      "enabled": true
+    }
+  },
+  "project": {
+    "legacyPaths": [],
+    "criticalAreas": [],
+    "criticalPaths": [],
+    "testsExclude": [],
+    "localSkills": [],
+    "libraries": [],
+    "libraryMigrations": [],
+    "codeLanguage": "js"
+  }
+}

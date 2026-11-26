@@ -3,6 +3,7 @@ import { constants, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMain } from "./is-main.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const floorScript = join(packageRoot, "scripts", "check-coverage-floor.mjs");
@@ -193,7 +194,7 @@ export function runCoverage(dependencies = {}, args = []) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     process.exitCode = runCoverage({}, process.argv.slice(2));
   } catch (error) {

@@ -1,11 +1,45 @@
 > [English](architecture.md) | [Español](architecture.es.md) | [简体中文](architecture.zh-CN.md)
 
-# Arquitectura de navori — cómo funciona (v0.12.0)
+# Arquitectura de navori — cómo funciona (v0.13.0)
 
-> Diagramas navegables: en GitHub, **hacé click en los nodos** para saltar al
+> Diagramas navegables: en GitHub, **haz clic en los nodos** para saltar al
 > archivo fuente. navori reconstruye los recursos del engine seleccionado de forma
 > idempotente desde una única fuente de verdad (`navori.config.json`), sin
 > pisar tu trabajo manual.
+
+## Ejecución del CLI (0.13): binario de Rust y TypeScript congelado
+
+- **El CLI es `navori-rust`** ([crates/navori-cli](../crates/navori-cli)), publicado como el
+  paquete `navori` de npm. Su postinstall pone el binario de la plataforma (`navori-<os>-<cpu>`) en
+  lugar de los bins `navori`, `navori-native-hook` y `navori-rust` cuando responde `--version` con la
+  versión del paquete ([packaging/npm/lib/install.js](../packaging/npm/lib/install.js)); si no, se
+  quedan los bins JS y lo lanzan con Node.
+- **El CLI de TypeScript congelado** (`navori-legacy`, fijado en
+  [packaging/legacy.json](../packaging/legacy.json)) viaja dentro del paquete como `legacy/`. Responde
+  en las plataformas sin binario y en la **delegación permanente** de
+  [scripts/js/rust-areas.mjs](../scripts/js/rust-areas.mjs): `master`, `codex`, `workspace`,
+  `ticket` y `registry`, `doctor --json`, y las formas interactivas de `sync`, `remove`,
+  `backup restore` y `migrations restore`. Por ahora también atiende la **delegación transitoria**
+  del mismo archivo (`TRANSITIONAL_DELEGATION`: comandos y banderas todavía sin portar). Una
+  invocación que no coincide con ninguna entrada de [crates/ported.json](../crates/ported.json)
+  también se delega.
+- **Hooks nativos.** Un hook renderizado para una implementación nativa empieza con una cabecera
+  firmada, `# navori:native-hook v=1 file=sha256:<script renderizado> impl=sha256:<implementación>`,
+  donde `impl` es el hash de las fuentes del hook en
+  [crates/navori-hooks/src](../crates/navori-hooks/src). El bloque `navori:native-runtime` que sigue
+  corre `navori-rust hook --via-script "$0"` cuando el binario está en el `PATH` y
+  `NAVORI_HOOK_IMPL` no es `shell`:
+  - la salida 0, 1 o 2 es el veredicto nativo;
+  - 3, 126 o 127 (diferido, o sin binario) deja seguir al cuerpo shell de abajo, salvo con
+    `NAVORI_HOOK_IMPL=rust`, que falla;
+  - cualquier otra salida da el veredicto seguro del hook, así que un hook con compuerta nunca
+    permite ante un fallo.
+
+  En modo `shadow` la llamada lleva `--shadow`: decide el cuerpo shell y la comparación queda en
+  `.navori/state/rust-shadow/`. `crates/ported.json` guarda el modo de cada hook;
+  `rust-manifest-check.mjs` valida cada cambio de `shadow` a `active` contra una línea `activate` en
+  `crates/ported-history.jsonl`, que es de solo agregar. Las cabeceras y los hashes se regeneran con
+  `bun run rust:hooks-sync`.
 
 ## 1. Modelo de capas — de dónde sale el contenido
 

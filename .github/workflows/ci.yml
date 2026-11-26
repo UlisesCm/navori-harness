@@ -1,7 +1,7 @@
 name: CI
 
-# Checks always run; full coverage uses four shards and one aggregate merge.
-# PRs to dev use affected tests unless their plan requires the full suite.
+# `checks` always runs and is the one status `dev` requires: the Rust gate plus the cheap checks.
+# The TS suite is gone after the cutover; `asset-suites` keeps the tests that read shipped assets.
 on:
   push:
     branches: [main, dev]
@@ -54,6 +54,33 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # C1 (spec 0062 T10): `dev` is the Rust product, so the required `checks` runs its gate:
+      # cargo fmt, clippy and test of the workspace, the hook oracle, the artifact suites and the
+      # docs checks (`check:post-cutover`). rustup reads the pinned toolchain, components and
+      # targets from rust-toolchain.toml.
+      # Restore and save apart, the save always (as rust.yml does): a red run still warms the cache,
+      # so one cold run cannot keep `checks` red.
+      - id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-checks-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-checks-
+
+      - run: rustup show active-toolchain
+
+      # Compile what check:post-cutover runs, with its exact flags, before it starts timing: R18
+      # budgets the gate (600 s on CI), not a cold build (18 min uncached).
+      - name: Build the Rust gate outside the R18 window
+        run: |
+          cargo clippy --workspace --exclude navori-oracle-tests --all-targets --locked -- -D warnings
+          cargo test --workspace --exclude navori-oracle-tests --locked --no-run
+          cargo build -p navori-cli --locked
+
       # The ONE build: the e2e suite runs against dist/index.js + bundled assets.
       # `ensure-dist` seals `dist/` with the fingerprint of its inputs, so
       # `check:render` and the test suite below find the seal and build nothing.
@@ -71,9 +98,6 @@ jobs:
           SITE_BASE: ${{ vars.SITE_BASE || format('/{0}/', github.event.repository.name) }}
         run: bun run --filter @navori/website build
 
-      - name: Bundle size guard
-        run: bun run --filter navori check:size
-
       # #421: this repo dogfoods navori — `.claude/` + `CLAUDE.md` are the OUTPUT
       # of `navori render` over @navori/core. A PR that touches a managed asset
       # WITHOUT re-rendering the mirror leaves the harness (hooks included) running
@@ -87,6 +111,18 @@ jobs:
       - name: Harness mirror up to date
         run: bun run check:render
 
+      - name: Rust gate and post-cutover checks
+        run: bun run check:post-cutover
+
+      - if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
       # #490 — an asset that orders `navori <cmd>` resolves the PUBLISHED binary,
       # so a PR landing a subcommand plus an asset calling it ships an asset that
       # is broken until the next release (that is how `audit` shipped in #485).
@@ -97,17 +133,6 @@ jobs:
       # a check that skipped itself must never read as a check that passed.
       - name: Assets cite released subcommands
         run: bun run check:assets:ci
-
-      - name: Lint
-        run: bun run --filter navori lint
-
-      # #461: the build is esbuild, which strips types WITHOUT checking them, so
-      # until this step existed nothing verified the strict typing CLAUDE.md
-      # declares — 136 errors had accumulated unseen, including a union that made
-      # `tsc` report LIVE code as unreachable. Added only after the tree reached
-      # zero, so it can never be "temporarily" skipped.
-      - name: Typecheck
-        run: bun run --filter navori typecheck
 
       - name: Format check
         run: bun run format:check
@@ -188,133 +213,70 @@ jobs:
       - name: Smoke-test the built CLI on the published Node floor
         run: node packages/cli/scripts/smoke-node-floor.mjs
 
-  plan:
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && (github.event.action != 'labeled' || github.event.label.name == 'full')
+  # The TS tests that stay after the cutover (spec 0062 T10): only those that read the shipped
+  # assets, the plugin assets or the docs, from the explicit list in scripts/js/asset-suites.mjs.
+  # Outside the R18 budget of `check:post-cutover`, which runs the artifact suites itself.
+  asset-suites:
+    if: github.event.action != 'labeled' || github.event.label.name == 'full'
     runs-on: ubuntu-latest
-    outputs:
-      full: ${{ steps.plan.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # check-test-preservation.test.ts runs the script against the merge-base with origin/dev.
           fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - id: plan
-        env:
-          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          node packages/cli/scripts/test-affected.mjs --plan-json > "$RUNNER_TEMP/affected-plan.json"
-          node -e 'const fs = require("node:fs"); const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (typeof p.full !== "boolean") throw Error("invalid plan"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "full=" + p.full + "\n")' "$RUNNER_TEMP/affected-plan.json"
 
-  test:
-    needs: [plan]
-    if: >-
-      ${{ !cancelled() && (github.event.action != 'labeled' || github.event.label.name == 'full') &&
-          (github.event_name == 'push' || github.base_ref == 'main' ||
-          (needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||
-          contains(github.event.pull_request.labels.*.name, 'full')))) }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - run: bun install --frozen-lockfile
+
+      # No other job type-checks the TS that stays (the suites below, their helpers and the
+      # modules scripts/js imports); a type error there went unseen after the cutover.
+      - name: Typecheck
+        run: bun run typecheck
+
       - name: Install zsh
         run: |
           sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
           sudo apt-get install -y zsh
           zsh --version
+
       - name: Build
         run: bun run ensure-dist
-      - name: Coverage shard
-        run: node packages/cli/scripts/run-test-coverage.mjs --shard ${{ matrix.shard }}/4
-      - name: Upload successful shard
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: vitest-shard-${{ matrix.shard }}
-          path: packages/cli/.vitest-reports/
-          include-hidden-files: true
-          if-no-files-found: error
 
-  test-merge:
-    needs: [test]
-    # `!cancelled()` instead of an unconditional run: a run cancelled by concurrency (e.g. the
-    # `full` label superseding the opening run) skips the merge instead of
-    # failing it on `SHARD_RESULT: cancelled` (#1600). A failed shard still
-    # runs it, and the first step fails.
-    if: ${{ !cancelled() && needs.test.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every shard to succeed
-        env:
-          SHARD_RESULT: ${{ needs.test.result }}
-        run: test "$SHARD_RESULT" = success
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - name: Download all shard blobs
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: vitest-shard-*
-          merge-multiple: true
-          path: packages/cli/.vitest-reports/
-      - name: Aggregate coverage, floor and time budget
-        env:
-          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-merged.json
-          NAVORI_TEST_BUDGET_FACTOR: "2"
-        run: node packages/cli/scripts/run-test-coverage.mjs --merge .vitest-reports --shards 4
+      - name: Asset and docs suites
+        run: bun run test:assets
 
-  affected:
-    needs: [plan]
-    if: github.event_name == 'pull_request' && github.base_ref == 'dev' && needs.plan.result == 'success' && needs.plan.outputs.full == 'false'
+  # The step before publishing (spec 0062 D53, README § Releases): every PR to main checks that
+  # packaging/legacy.json pins a published navori-legacy reachable from HEAD and that packages/cli
+  # stays private. Here and not in rust-release.yml, whose `paths:` filter would skip a dev → main
+  # PR that touches none of them.
+  legacy-pin:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && (github.event.action != 'labeled' || github.event.label.name == 'full')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The pinned commit must be reachable to prove it is an ancestor of HEAD.
           fetch-depth: 0
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - name: Install zsh
-        run: |
-          sudo apt-get update || echo "::warning::apt-get update reported a failing source; continuing"
-          sudo apt-get install -y zsh
-          zsh --version
-      - name: Build
-        run: bun run ensure-dist
-      - name: Affected subset
-        env:
-          NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
-          NAVORI_TEST_REPORT: ${{ runner.temp }}/vitest-affected.json
-        run: node packages/cli/scripts/test-affected.mjs
-      - name: Affected time budget
-        env:
-          NAVORI_TEST_BUDGET_FACTOR: "2"
-        run: node packages/cli/scripts/check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"
+
+      - run: node scripts/js/dist-assemble.mjs check-pin
 
   # Semgrep `p/default` on `main` only (pushes and PRs into it). Diff-scoped via
   # `--baseline-commit`: only findings new since BASE block, so the pre-existing

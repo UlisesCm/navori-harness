@@ -9,7 +9,7 @@ Paquete npm (CLI) para replicar harness multi-agente + SDD en múltiples proyect
 
 ## Antes de hacer cualquier cosa
 1. `mem_search "navori"` + `git log --oneline -30` para recuperar el contexto vigente.
-2. Confirmar qué tarea específica se está abordando.
+2. Confirmar qué tarea se aborda.
 
 ## Contexto del usuario
 Ulises Ciprés, Tech Lead en Bonum. La **referencia** de lo que `navori` debe poder generar son los harness ya funcionando en `bonum-dashboard` y `bonum-webapp` (el más maduro). Su `~/.claude/CLAUDE.md` global tiene el diccionario de rutas del workspace Bonum.
@@ -45,7 +45,7 @@ el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_sess
 - Nunca inyectes tono o énfasis de persona (mayúsculas, exclamaciones) en artefactos.
 <!-- /navori:managed id="idioma-rol" -->
 
-<!-- navori:managed id="formato-respuesta" hash="373f818e" version="0.11.3" source="@navori/core" -->
+<!-- navori:managed id="formato-respuesta" hash="d22406cc" version="0.12.5" source="@navori/core" -->
 ## Concisión (aplica a todo: chat y subagentes)
 
 - Abre con el resultado; omite rutina y cortesías.
@@ -54,7 +54,7 @@ el proyecto, `mem_save` tras cada decisión de diseño o arquitectura, `mem_sess
 
 ### Resumen de decisión en el chat
 
-Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue.
+Antes de pedir aprobación, resume recomendación y motivo, alcance, riesgos pertinentes, bloqueos y verificación prevista o realizada. No se deben omitir garantías, riesgos ni bloqueos; el artefacto complementa el resumen. Aprobar producto o plan no autoriza despliegue. Campos fijos: **Verificado** (`file:line` o comando) y **Supuesto / sin verificar** (motivo, o «ninguno»).
 
 ## Formato de respuesta
 

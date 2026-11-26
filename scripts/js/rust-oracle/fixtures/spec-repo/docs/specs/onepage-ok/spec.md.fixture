@@ -1,0 +1,41 @@
+# Cuenta de correo
+
+## Resultado
+
+La persona usuaria conecta su cuenta de correo y ve su bandeja en menos de un minuto.
+
+## Guion de aceptación
+
+1. Abrir la app desplegada e iniciar sesión.
+2. Conectar la cuenta de correo de prueba.
+3. Ver la bandeja con los últimos mensajes.
+
+```md
+## Tareas
+- esto no cuenta: está dentro de un bloque de código
+```
+
+## Reglas aplicables
+
+- Solo lectura sobre el buzón.
+
+## Estados
+
+- Vacío: la bandeja sin mensajes muestra un aviso.
+- ERROR: el proveedor rechaza la conexión.
+- Sin conexión: se reintenta al volver la red.
+- Sin PERMISO: se pide reautorizar.
+
+## Entorno y datos
+
+Staging con una cuenta de prueba.
+
+## Fuera de alcance (por ahora)
+
+Enviar correo.
+
+## Tareas
+
+- [ ] La persona conecta su cuenta.
+- [x] La bandeja muestra los últimos mensajes.
+1. El aviso de bandeja vacía aparece.

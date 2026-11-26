@@ -1,5 +1,19 @@
-# navori:managed start id="session-start-context-base" hash="a7f897ee" version="0.12.3" source="@navori/core"
+# navori:native-hook v=1 file=sha256:4393dc00fe6744d14fefc3f035f0930061e0f48f752791dc4c099c64a3f91531 impl=sha256:99ccc7f103b2f1560012093731eac0f6fdbe33127218d851f6c4bb3e44b9ebc2
+# navori:managed start id="session-start-context-base" hash="0d8e2bd0" version="0.13.0" source="@navori/core"
 #!/usr/bin/env bash
+# navori:native-runtime start
+if [ "${NAVORI_HOOK_IMPL:-}" != shell ]; then
+  if nv_native=$(command -v navori-rust 2>/dev/null); then
+    nv_out=$(if "$nv_native" hook --via-script "$0" "$@"; then nv_status=0; else nv_status=$?; fi; printf '.%s' "$nv_status")
+    nv_rc=${nv_out##*.}; nv_out=${nv_out%.*}
+    case "$nv_rc" in
+      0|1|2) printf '%s' "$nv_out" >&1 || exit 1; exit "$nv_rc" ;;
+      3|126|127) if [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi ;;
+      *) printf '%s\n' 'navori: session-start-context could not evaluate this call (native runtime failed); confirm it manually' >&2 || :; exit 1 ;;
+    esac
+  elif [ "${NAVORI_HOOK_IMPL:-}" = rust ]; then printf '%s\n' 'navori: session-start-context native runtime unavailable or deferred' >&2; exit 1; fi
+fi
+# navori:native-runtime end
 #
 # SessionStart context hook.
 # Injects the harness's live session context — current branch, recent commits,

@@ -529,6 +529,11 @@ describe("parallel delivery authorization", () => {
     mkdirSync(scriptDir, { recursive: true });
     const script = join(scriptDir, "check-scribe-parallel-live.mjs");
     writeFileSync(script, readFileSync(liveScript));
+    // The script's entry guard lives next to it.
+    writeFileSync(
+      join(scriptDir, "is-main.mjs"),
+      readFileSync(join(dirname(liveScript), "is-main.mjs")),
+    );
     const result = spawnSync("node", [script], { cwd: temp, encoding: "utf8" });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("A4 unavailable");

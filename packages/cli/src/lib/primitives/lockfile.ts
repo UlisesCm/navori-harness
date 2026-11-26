@@ -20,7 +20,7 @@ const POLL_MS = 50;
 
 /** Synchronous sleep that doesn't spin the CPU — the CLI is single-shot, so
  * briefly parking the main thread while waiting for a lock is fine. */
-function sleepSync(ms: number): void {
+export function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 

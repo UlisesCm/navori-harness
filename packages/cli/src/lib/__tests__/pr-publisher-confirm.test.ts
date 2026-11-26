@@ -163,6 +163,13 @@ describe.runIf(runsBash)("pr-publisher-confirm.sh — Codex copy (spec 0041 R10)
     expect(r.code).toBe(0);
     expect(r.stdout.trim()).toBe("");
   });
+
+  // Covers: R10
+  it("stays silent when the trigger text is only quoted, past the fast filter", () => {
+    const r = runCodex(bash('echo "gh pr create"'));
+    expect(r.code).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+  });
 });
 
 /** Actual source CLI behind the rendered Codex hook, with checkout-local shims. */

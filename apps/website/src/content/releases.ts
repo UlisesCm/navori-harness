@@ -34,6 +34,47 @@ export interface ReleaseEntry {
 
 export const RELEASES: readonly ReleaseEntry[] = [
   {
+    minor: "0.13",
+    date: "2026-11-26",
+    headline: {
+      es: "navori es un binario nativo",
+      en: "navori is a native binary",
+      "zh-CN": "navori 现为原生二进制程序",
+    },
+    bullets: [
+      {
+        es: "La CLI es un binario Rust para macOS (arm64 y x64) y Linux (arm64 y x64, estático con musl), con los mismos comandos y la misma salida que el TS. En otras plataformas, el paquete instala el último TS publicado, verificado con su integrity.",
+        en: "The CLI is a Rust binary for macOS (arm64 and x64) and Linux (arm64 and x64, statically linked with musl), with the same commands and the same output as the TS one. On other platforms the package installs the last published TS, verified against its integrity.",
+        "zh-CN":
+          "CLI 现为 Rust 二进制程序，支持 macOS（arm64 与 x64）和 Linux（arm64 与 x64，使用 musl 静态链接），命令与输出与 TS 版本一致。其他平台会安装最后发布的 TS 版本，并校验其 integrity。",
+      },
+      {
+        es: "Los hooks de Claude Code y Pi corren nativos, con los mismos veredictos que los scripts de shell, comprobados con replay y la medición en sombra.",
+        en: "Claude Code and Pi hooks run natively, with the same verdicts as the shell scripts, checked by replay and shadow-run measurement.",
+        "zh-CN":
+          "Claude Code 与 Pi 的钩子以原生方式运行，裁决与 shell 脚本一致，已通过回放和影子运行测量验证。",
+      },
+      {
+        es: "Algunos comandos siguen en el TS congelado, que viaja dentro del paquete: master, codex, workspace, ticket, registry, la mayor parte de audit y, hasta que se porten en 0.13.x, init, add, update, refresh, configure, gate y receipt. No necesitas instalar nada aparte.",
+        en: "Some commands stay on the frozen TS, which ships inside the package: master, codex, workspace, ticket, registry, most of audit and, until they are ported in 0.13.x, init, add, update, refresh, configure, gate and receipt. There is nothing else to install.",
+        "zh-CN":
+          "部分命令仍由冻结的 TS 版本处理，它随包一起发布：master、codex、workspace、ticket、registry、audit 的大部分功能，以及在 0.13.x 中移植完成之前的 init、add、update、refresh、configure、gate 和 receipt。无需另行安装。",
+      },
+      {
+        es: "claudePlugins en navori.config.json declara los plugins de Claude Code y el render escribe enabledPlugins en .claude/settings.json (#1747).",
+        en: "claudePlugins in navori.config.json declares Claude Code plugins, and render writes enabledPlugins into .claude/settings.json (#1747).",
+        "zh-CN":
+          "navori.config.json 中的 claudePlugins 用于声明 Claude Code 插件，render 会将 enabledPlugins 写入 .claude/settings.json（#1747）。",
+      },
+      {
+        es: "render, sync y remove se niegan a escribir si un archivo gestionado tiene marcadores de conflicto de git y nombran los archivos; --force no lo evita (#1660).",
+        en: "render, sync and remove refuse to write when a managed file has git conflict markers and name the files; --force does not bypass it (#1660).",
+        "zh-CN":
+          "当受管理的文件含有 git 冲突标记时，render、sync 和 remove 会拒绝写入并列出这些文件；--force 也无法绕过（#1660）。",
+      },
+    ],
+  },
+  {
     minor: "0.12",
     patches: [
       {

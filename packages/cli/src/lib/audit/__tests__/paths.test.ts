@@ -26,6 +26,7 @@ import {
   rangeReportDir,
   repoFromCwd,
   sessionReportDir,
+  tailClock,
 } from "../paths.ts";
 import { NavoriError } from "../../primitives/errors.ts";
 
@@ -502,5 +503,129 @@ describe("repoFromCwd — project root resolution (#897)", () => {
     const orphan = join(projectDir, "no-marker-here");
     mkdirSync(orphan, { recursive: true });
     expect(repoFromCwd(orphan)).toBe("no-marker-here");
+  });
+});
+
+/**
+ * Tail re-check (#1717). Clock and filesystem are scripted: no real time, no
+ * sleeps, no concurrent processes. `step` runs on every fake sleep and may
+ * change the size / last byte the append sees.
+ */
+describe("appendPrivateAuditFile tail re-check", () => {
+  interface Scene {
+    state: { size: number; last: number };
+    written: () => string;
+    sleeps: number[];
+    reads: () => number;
+    clockReads: () => number;
+    file: string;
+  }
+  async function scene(step: (state: Scene["state"], elapsed: number) => void): Promise<Scene> {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    const file = join(root, "tail");
+    createPrivateAuditFile(file, "{}\n");
+    const ino = statSync(file).ino;
+    const state = { size: 3, last: 10 };
+    let now = 1000;
+    const sleeps: number[] = [];
+    const clock = vi.fn(() => now);
+    vi.spyOn(tailClock, "now").mockImplementation(clock);
+    vi.spyOn(tailClock, "sleep").mockImplementation((ms: number) => {
+      sleeps.push(ms);
+      now += ms;
+      step(state, now - 1000);
+    });
+    vi.mocked(fs.fstatSync).mockImplementation(((fd: number) => {
+      const stat = actual.fstatSync(fd);
+      return stat.ino === ino ? Object.assign(Object.create(stat), { size: state.size }) : stat;
+    }) as typeof fs.fstatSync);
+    vi.mocked(fs.readSync).mockClear();
+    vi.mocked(fs.readSync).mockImplementation(((fd: number, buffer: Buffer, ...rest: unknown[]) => {
+      if (rest[1] === 1 && rest[2] === state.size - 1) {
+        buffer[0] = state.last;
+        return 1;
+      }
+      return (actual.readSync as (...args: unknown[]) => number)(fd, buffer, ...rest);
+    }) as typeof fs.readSync);
+    return {
+      state,
+      sleeps,
+      file,
+      written: () => readFileSync(file, "utf-8"),
+      reads: () => vi.mocked(fs.readSync).mock.calls.length,
+      clockReads: () => clock.mock.calls.length,
+    };
+  }
+
+  it("reads a healthy tail once and never waits", async () => {
+    const s = await scene(() => {});
+    expect(appendPrivateAuditFile(s.file, '{"a":1}\n')).toEqual({ ok: true, value: 8 });
+    expect(s.reads()).toBe(1);
+    expect(s.sleeps).toEqual([]);
+    expect(s.clockReads()).toBe(0);
+    expect(s.written()).toBe('{}\n{"a":1}\n');
+  });
+
+  it("accepts a tail that completes during the wait and writes once", async () => {
+    const s = await scene((state, elapsed) => {
+      state.size = 3 + elapsed * 100;
+      state.last = elapsed >= 3 ? 10 : 120;
+    });
+    s.state.size = 100;
+    s.state.last = 120;
+    const sizes: number[] = [];
+    expect(
+      appendPrivateAuditFile(s.file, (_fd, settled) => {
+        sizes.push(settled);
+        return '{"a":1}\n';
+      }),
+    ).toEqual({ ok: true, value: 8 });
+    expect(sizes).toEqual([303]);
+    expect(s.sleeps).toEqual([1, 1, 1]);
+    expect(s.written()).toBe('{}\n{"a":1}\n');
+  });
+
+  it("refuses an unchanged corrupt tail after the 20 ms quiet window, writing nothing", async () => {
+    const s = await scene(() => {});
+    s.state.last = 120;
+    const callback = vi.fn(() => "{}\n");
+    expect(appendPrivateAuditFile(s.file, callback)).toMatchObject({
+      ok: false,
+      reason: "incomplete-tail",
+      partial: false,
+    });
+    expect(callback).not.toHaveBeenCalled();
+    expect(s.sleeps).toHaveLength(20);
+    expect(s.written()).toBe("{}\n");
+  });
+
+  it("refuses a tail that keeps changing without a newline at the 200 ms cap", async () => {
+    const s = await scene((state) => {
+      state.size += 1;
+    });
+    s.state.last = 120;
+    const callback = vi.fn(() => "{}\n");
+    expect(appendPrivateAuditFile(s.file, callback)).toMatchObject({
+      ok: false,
+      reason: "incomplete-tail",
+      partial: false,
+    });
+    expect(callback).not.toHaveBeenCalled();
+    expect(s.sleeps).toHaveLength(200);
+    expect(s.written()).toBe("{}\n");
+  });
+
+  it("refuses a file that shrinks while waiting as changed", async () => {
+    const s = await scene((state) => {
+      state.size -= 1;
+    });
+    s.state.size = 10;
+    s.state.last = 120;
+    expect(appendPrivateAuditFile(s.file, "{}\n")).toMatchObject({
+      ok: false,
+      reason: "changed",
+      partial: false,
+    });
+    expect(s.written()).toBe("{}\n");
   });
 });

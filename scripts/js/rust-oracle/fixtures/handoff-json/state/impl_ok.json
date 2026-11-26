@@ -1,0 +1,24 @@
+{
+  "feature": "ok",
+  "status": "DONE",
+  "worktree": "/nonexistent/worktree",
+  "branch": "feat/ok",
+  "commits": ["abc1234", "def5678"],
+  "filesTouched": ["src/a.ts", "src/b.ts"],
+  "verification": { "command": "bun run check", "exitCode": 0, "summary": "all green", "extra": true },
+  "markdownRequests": [{ "path": "docs/guide.md", "intent": "document the flag", "evidence": "src/a.ts:10", "note": 1 }],
+  "rootCause": "the flag was ignored",
+  "blockers": ["waiting on review"],
+  "acceptance": [
+    { "id": "A1", "command": "bun run oracle", "exitCode": 0, "excerpt": "0 differences" },
+    { "command": "true" },
+    { "id": "A3", "command": "x", "exitCode": 2.5, "excerpt": "" },
+    ["array", "entry"],
+    "plain string",
+    42,
+    null,
+    true
+  ],
+  "doubts": [{ "file": "src/a.ts", "reason": "edge case with ñ and — dashes" }],
+  "unknownKey": { "kept": true }
+}

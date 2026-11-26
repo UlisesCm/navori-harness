@@ -8,7 +8,18 @@ import { join } from "node:path";
 const home = vi.hoisted(() => ({ dir: "" }));
 vi.mock(import("../../primitives/home.ts"), () => ({ safeHomedir: () => home.dir }));
 
-const { scanDiskUsage, humanBytes } = await import("../disk-usage.ts");
+// Records the options of every `execFileSync` call; the real one still runs.
+const execOptions = vi.hoisted(() => [] as unknown[]);
+vi.mock(import("node:child_process"), async (importOriginal) => {
+  const mod = await importOriginal();
+  const execFileSync = (...args: Parameters<typeof mod.execFileSync>) => {
+    execOptions.push(args[2]);
+    return mod.execFileSync(...args);
+  };
+  return { ...mod, execFileSync: execFileSync as typeof mod.execFileSync };
+});
+
+const { scanDiskUsage, humanBytes, DU_TIMEOUT_MS } = await import("../disk-usage.ts");
 
 /** The suite-wide isolation root installed by `vitest.setup.ts` (#404). The
  * scan resolves the store through `backupRoot()`, so the override has to follow
@@ -33,6 +44,14 @@ afterEach(() => {
 // #393: doctor's disk surveillance — report real size + the cleanup command,
 // never delete. These cover the scan; the copy lives in i18n.
 describe("scanDiskUsage (#393)", () => {
+  it("bounds every du with DU_TIMEOUT_MS so a hung mount cannot hang doctor (#1712)", () => {
+    mkdirSync(join(home.dir, ".navori", "backups"), { recursive: true });
+    execOptions.length = 0;
+    scanDiskUsage(repo);
+    expect(execOptions).toHaveLength(1);
+    expect(execOptions[0]).toMatchObject({ timeout: DU_TIMEOUT_MS });
+  });
+
   it("reports nothing when neither directory exists (zero footprint)", () => {
     expect(scanDiskUsage(repo)).toEqual([]);
   });

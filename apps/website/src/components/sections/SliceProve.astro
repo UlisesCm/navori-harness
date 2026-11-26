@@ -1,0 +1,80 @@
+---
+/**
+ * Slice & Prove — navori's working method, presented as the evolution of Spec Kit and SDD.
+ *
+ * The copy avoids leading with "SDD": many readers discard it on sight. Config keys (`sdd.*`)
+ * keep their name; only the public wording changes.
+ */
+import SectionHeader from "../SectionHeader.astro";
+import type { Lang } from "../../i18n/ui";
+
+interface Props { lang: Lang }
+interface SliceProveCopy {
+  eyebrow: string;
+  title: string;
+  introduction: string;
+  items: Array<{ title: string; body: string }>;
+}
+const { lang } = Astro.props;
+const content: Record<Lang, SliceProveCopy> = {
+  en: {
+    eyebrow: "Slice & Prove",
+    title: "Slice & Prove, the revolution of Spec Kit and SDD",
+    introduction:
+      "Spec Kit and Spec-Driven Development got one thing right: write down what you're building before an agent builds it. They also earned their reputation: walls of markdown, ceremony for a copy tweak, specs that drift from the code, and \"done\" meaning \"merged\". Slice & Prove keeps the idea, adapts it to working with AI agents and fixes what hurt.",
+    items: [
+      { title: "Process sized to the risk", body: "A command classifies each change into levels 0 to 3. A copy tweak goes straight in; a full spec appears only for real scope, and only if you accept it." },
+      { title: "One page, one slice", body: "A spec is a single page: one actor reaching an observable outcome across every layer it needs. It describes behavior, not implementation, and navori spec check validates it." },
+      { title: "The spec is the board", body: "Its task list is the board. Nothing to copy into another tracker, so it can't drift from the work." },
+      { title: "Done means proven", body: "A change is done when a person runs the acceptance script on the real product — the deployed app, the built binary — and the happy-path E2E passes there, without mocks." },
+      { title: "Evidence, not trust", body: "Plans, quality gates and reviews ask for the command that backs each claim." },
+    ],
+  },
+  es: {
+    eyebrow: "Slice & Prove",
+    title: "Slice & Prove, la revolución de Spec Kit y SDD",
+    introduction:
+      "Spec Kit y Spec-Driven Development acertaron en algo: escribir qué vas a construir antes de que un agente lo construya. También se ganaron su fama: muros de markdown, ceremonia hasta para un cambio de texto, specs que se desactualizan y \"terminado\" que significa \"mergeado\". Slice & Prove conserva la idea, la adapta al trabajo con agentes de IA y corrige lo que dolía.",
+    items: [
+      { title: "Proceso a la medida del riesgo", body: "Un comando clasifica cada cambio en niveles del 0 al 3. Un cambio de texto entra directo; una spec completa aparece solo con alcance real, y solo si la aceptas." },
+      { title: "Una página, una porción", body: "La spec es una sola página, en la que un actor llega a un resultado observable a través de todas las capas que necesita. Describe comportamiento, no implementación, y navori spec check la valida." },
+      { title: "La spec es el tablero", body: "Su lista de tareas es el tablero. No hay que copiarla en otro gestor, así que no puede quedar desfasada del trabajo." },
+      { title: "Terminado es probado", body: "El cambio termina cuando una persona corre el guion de aceptación sobre el producto real (la app desplegada, el binario compilado) y el E2E del camino feliz pasa ahí, sin mocks." },
+      { title: "Evidencia, no confianza", body: "Los planes, los gates de calidad y las revisiones piden el comando que respalda cada afirmación." },
+    ],
+  },
+  "zh-CN": {
+    eyebrow: "Slice & Prove",
+    title: "Slice & Prove, Spec Kit 与 SDD 的革新",
+    introduction:
+      "Spec Kit 和规格驱动开发（SDD）做对了一件事：在智能体动手之前，先写清楚要构建什么。但它们的名声也事出有因：大段 markdown、连改一句文案都要走流程、规格与代码逐渐脱节，“完成”只意味着“已合并”。Slice & Prove 保留这个理念，使其适应与 AI 智能体协作，并解决了这些痛点。",
+    items: [
+      { title: "流程与风险相匹配", body: "一条命令把每个变更划分为 0 到 3 级。改文案直接进行；只有真正的大范围工作才需要完整规格，而且要经你同意。" },
+      { title: "一页规格，一个切片", body: "规格只有一页：一个角色跨越所需的各层，达成一个可观察的结果。它描述行为而非实现，并由 navori spec check 校验。" },
+      { title: "规格就是看板", body: "规格中的任务列表就是看板，无需复制到其他工具，因此不会与实际工作脱节。" },
+      { title: "完成即已证明", body: "只有当一个人在真实产品（已部署的应用、已构建的二进制）上运行验收脚本，并且主流程 E2E 在其上无 mock 通过时，变更才算完成。" },
+      { title: "依靠证据，而非信任", body: "计划、质量关卡和审查都会要求提供支撑每个结论的命令。" },
+    ],
+  },
+};
+const copy = content[lang];
+---
+
+<section class="py-24 sm:py-28 border-t" style="border-color: var(--color-border-soft);">
+  <div class="container-prose">
+    <SectionHeader eyebrow={copy.eyebrow} title={copy.title} />
+    <p class="mt-6 max-w-3xl leading-relaxed text-slate-600 dark:text-slate-300">
+      {copy.introduction}
+    </p>
+    <dl class="mt-14 grid gap-x-12 gap-y-9 md:grid-cols-2 lg:grid-cols-3">
+      {
+        copy.items.map((item) => (
+          <div>
+            <dt class="font-semibold text-lg">{item.title}</dt>
+            <dd class="mt-3 leading-relaxed text-slate-600 dark:text-slate-300">{item.body}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>

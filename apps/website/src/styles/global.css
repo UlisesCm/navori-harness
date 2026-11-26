@@ -546,6 +546,10 @@ html.dark .brand-name {
 .home-page .inventory-band {
   background: transparent;
 }
+.ferris-mark svg {
+  width: 100%;
+  height: 100%;
+}
 .home-page .inventory-band .text-slate-400 {
   color: #475569;
 }

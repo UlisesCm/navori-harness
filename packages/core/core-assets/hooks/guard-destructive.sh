@@ -81,6 +81,14 @@ navori_audit_reason=""
 navori_pi_ask=""
 navori_audit_on_exit() {
   navori_audit_code=$?
+  # KILL, then reap right here: bash 5.2 can report a background child that ends while a later
+  # command substitution waits (`wait_for: No record of process N`), on the stderr of a call it
+  # approved (#1708). Reaping it now leaves no such child; KILL cannot be lost like the TERM of a
+  # watchdog that has not installed its trap yet, so the wait never hangs.
+  if [ -n "${nv_watch:-}" ]; then
+    kill -KILL "$nv_watch" 2>/dev/null || true
+    wait "$nv_watch" 2>/dev/null || true
+  fi
   # A command every block rule let through but an `ask` rule matched is answered here, after the
   # whole script (user section included) had its say. The prefix comes from rendered config; quotes,
   # backslashes and control characters are dropped so the JSON below needs no escaping step.
@@ -100,6 +108,54 @@ if [ -z "$cmd" ]; then
   navori_audit_reason="sin comando que inspeccionar"
   exit 0
 fi
+
+# OWN DEADLINE (#1671) — fail CLOSED when the inspection runs long. The host kills this hook at
+# 10s and treats a kill (exit 137) as a non-blocking error, i.e. it APPROVES. So a watchdog
+# process with a shorter deadline (default 8s) signals USR1 to this shell FIRST; the handler
+# exits 2 (block). Only then does the watchdog KILL our descendants (a long awk/sed would
+# otherwise keep the shell waiting). Killing before signalling would exit 137 = approval.
+# NAVORI_GUARD_DEADLINE can only LOWER the deadline (integer 1..8; anything else is ignored):
+# a higher value would sit at or past the host timeout and re-open the fail-open window, and
+# an environment the caller controls must never be able to disarm the guard.
+# The watchdog is a separate `$BASH -c` process (not a subshell: bash 3.2 has no $BASHPID),
+# detached from stdin/stdout/stderr so the host never waits for it. A `sleep` that cannot run
+# (a stripped PATH) disarms the watchdog instead of firing at once: the rules still evaluate.
+# It starts after the recorder's EXIT trap (bash keeps ONE EXIT trap, R5), which kills it with
+# KILL and reaps it; what runs before this point is the linear payload extraction. A TERM could
+# be lost when this shell exits within milliseconds of the launch (measured on bash 3.2), which
+# is why the trap sends KILL; the watchdog still sleeps in 1s steps and leaves as soon as this
+# shell is gone, and its last `sleep 1` outlives it by at most a second. At the deadline it
+# checks that its parent is still this shell (without `ps` it cannot tell, and signals anyway:
+# fail closed).
+nv_deadline=8
+case "${NAVORI_GUARD_DEADLINE:-}" in
+  [1-8]) nv_deadline="$NAVORI_GUARD_DEADLINE" ;;
+esac
+# Works before block() exists; the EXIT trap records the verdict. No reason code: the audit
+# allowlist (_partials/audit-log.sh, HOOK_REASON_CODES) has none for a deadline yet.
+nv_on_deadline() {
+  echo "[navori] BLOCKED by guard-destructive: inspection did not finish within ${nv_deadline}s — nothing was approved" >&2
+  navori_audit_verdict="block"
+  navori_audit_reason=""
+  exit 2
+}
+trap nv_on_deadline USR1
+"${BASH:-bash}" -c '
+  trap "kill \"\$s\" 2>/dev/null; exit 0" TERM
+  i=0
+  while [ "$i" -lt "$2" ]; do
+    sleep 1 & s=$!; wait "$s" || exit 0
+    kill -0 "$1" 2>/dev/null || exit 0
+    i=$((i + 1))
+  done
+  pp=$(ps -o ppid= -p "$$" 2>/dev/null | tr -d " ") || pp=""
+  [ -z "$pp" ] || [ "$pp" = "$1" ] || exit 0
+  kill -USR1 "$1" 2>/dev/null || exit 0
+  ps -A -o pid= -o ppid= | awk -v root="$1" -v self="$$" "
+    { parent[\$1]=\$2 } END { for (p in parent) { q=p; while ((q in parent) && q!=root && q!=self && q>1) q=parent[q]; if (q==root && p!=root && p!=self) print p } }" |
+    while read -r p; do kill -KILL "$p" 2>/dev/null || true; done
+' nv-guard-deadline "$$" "$nv_deadline" </dev/null >/dev/null 2>&1 &
+nv_watch=$!
 
 # branchBase is shell-quoted at render time via the shq: marker (#197): a
 # hostile branchBase in navori.config.json lands here as an inert literal,
@@ -132,10 +188,10 @@ block() {
 
 # BOUNDED WORK (#511) — the guard runs under a wall-clock timeout it does NOT
 # control (10s, set by navori in build-settings.ts's GUARD_HOOK_DEST config —
-# not a Claude Code default, which is 600s for command hooks), and being
-# KILLED is indistinguishable from approving: the hook says nothing and the
-# tool call proceeds. So a guard cannot defend itself by handling the
-# timeout; it has to never get near it. Two halves, both load-bearing:
+# not a Claude Code default, which is 600s for command hooks). Being KILLED by
+# the host approves the call, so since #1671 the guard has its own shorter deadline
+# (see "OWN DEADLINE" above) that blocks instead. That is the backstop; it
+# should never fire, so the guard still has to stay far from it. Two halves:
 #
 #   1. every pass below is LINEAR in what it reads — `sed`/`grep`, never a bash
 #      `${var//pat/repl}` and never a bash string builder inside a loop. Both
@@ -876,20 +932,61 @@ fi
 # makes the segment a candidate; the token walk below decides the real subcommand.
 _dsc_re='^git[[:space:]]+(.*[[:space:]])?(reset|checkout|restore|clean)([[:space:]]|$)'
 _dsc_route="commit the work first (a WIP commit is enough: 'git add -A && git commit -m wip'), or ask the user to run the discard outside the agent."
-segments_dq=$(printf '%s' "$segments" | tr -d "'\")")
+# FORMS OF GIT (#1801). `segments` peeled every assignment prefix, so `GIT_DIR=… git reset`
+# looked like a plain `git reset` in the cwd, and a path (`/usr/bin/git`) or `env git` was not
+# a candidate at all. This pass reads the UNPEELED split instead, and per line: reads `env`,
+# assignments and a `…/git` path as the `git` word; and when `GIT_DIR=`/`GIT_WORK_TREE=` is
+# a prefix of the segment, or an EARLIER segment assigns/exports them (hold space), injects
+# `--git-dir=?` right after `git` — the token walk then blocks it like the real flag.
+# A segment that is not git is then RE-PEELED (leading `VAR=value` stripped, as `segments`
+# did), so the `cd` walk still follows `FOO=1 cd <dir>`. Exception: `tr -d` runs before the
+# peel here (needed to see `"GIT_DIR=x" git`), so `"FOO"=1 cd x` and `F"O"O=1 cd x` now peel
+# too (base did not); shell and native agree.
+# Out of scope, allowed as before: inherited env, sudo, sh -c, eval, and `env` with options
+# (`env -i`, `env -u NAME`, `env --`): known limitation.
+_dsc_w='[[:space:]]'
+_dsc_a='[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*'
+_dsc_g='(GIT_DIR|GIT_WORK_TREE)='
+_dsc_pre="^((env|${_dsc_a})${_dsc_w}+)*"
+_dsc_word='([^[:space:]=]*\/)?git([[:space:]]|$)'
+_dsc_sed="s/^${_dsc_w}+//
+/^(export|declare|typeset|readonly|local)(${_dsc_w}+[^[:space:]]+)*${_dsc_w}+${_dsc_g}/H
+/^(${_dsc_a}${_dsc_w}+)*${_dsc_g}[^[:space:]]*(${_dsc_w}+${_dsc_a})*${_dsc_w}*\$/H
+/${_dsc_pre}${_dsc_g}/s/${_dsc_pre}${_dsc_word}/git --git-dir=?\\4/
+s/${_dsc_pre}${_dsc_word}/git\\4/
+/^git([[:space:]]|\$)/{
+x
+/./{
+x
+s/^git/git --git-dir=?/
+b
+}
+x
+}
+:p
+s/^${_dsc_a}(${_dsc_w}+|\$)//
+tp"
+segments_dq=$(printf '%s' "$_split" | tr -d "'\")" | sed -E -e "$_dsc_sed")
 _dsc_cands=$(printf '%s' "$segments_dq" | grep -E "$_dsc_re" || true)
 if [ -n "$_dsc_cands" ]; then
   if [ "$(printf '%s\n' "$_dsc_cands" | wc -l)" -gt 16 ]; then
     block "too many discard commands to inspect (> 16) — nothing in it was evaluated" oversize "split it into smaller commands the guard can inspect."
   fi
-  # $1 dir · $2 tracked|untracked|all — succeeds when the dir holds what would be lost.
+  # $1 dir · $2 tracked|untracked|all — 0 when the dir holds what would be lost, 1 when it
+  # holds nothing (a non-work-tree included), 2 when git cannot inspect it (fail closed).
   _dsc_dirty() {
-    git -C "$1" rev-parse --git-dir >/dev/null 2>&1 || return 1
+    if ! git -C "$1" rev-parse --git-dir >/dev/null 2>&1; then
+      # "Not a work tree" only counts when git itself runs.
+      git --version >/dev/null 2>&1 && return 1
+      return 2
+    fi
+    _dsc_out=""
     case "$2" in
-      tracked) [ -n "$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null)" ] ;;
-      untracked) [ -n "$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ] ;;
-      *) [ -n "$(git -C "$1" ls-files --others 2>/dev/null | head -n 1)" ] ;;
+      tracked) _dsc_out=$(GIT_OPTIONAL_LOCKS=0 git -C "$1" status --porcelain --untracked-files=no 2>/dev/null) || return 2 ;;
+      untracked) _dsc_out=$(git -C "$1" ls-files --others --exclude-standard 2>/dev/null) || return 2 ;;
+      *) _dsc_out=$(git -C "$1" ls-files --others 2>/dev/null) || return 2 ;;
     esac
+    [ -n "$_dsc_out" ]
   }
   # $1 base dir · $2 operand → the directory it names, or `?` when it is not literal.
   _dsc_resolve() {
@@ -967,7 +1064,13 @@ if [ -n "$_dsc_cands" ]; then
       block "git ${_dsc_sub} discards work and its target directory cannot be inspected (variable, substitution, missing or unresolved path)" unspecified \
         "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
     fi
-    if _dsc_dirty "$_dsc_dir" "$_dsc_kind"; then
+    _dsc_rc=0
+    _dsc_dirty "$_dsc_dir" "$_dsc_kind" || _dsc_rc=$?
+    if [ "$_dsc_rc" = 2 ]; then
+      block "git ${_dsc_sub} discards work and its target directory cannot be inspected (the repository tool is missing, not executable or failing)" unspecified \
+        "use a literal existing directory (cd <dir> && … or git -C <dir> …), or ${_dsc_route}"
+    fi
+    if [ "$_dsc_rc" = 0 ]; then
       block "$_dsc_msg" unspecified "$_dsc_route"
     fi
   done <<< "$segments_dq"

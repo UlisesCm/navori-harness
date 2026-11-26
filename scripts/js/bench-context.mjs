@@ -3,7 +3,9 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { availableParallelism, loadavg } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
 import { createSandbox, readRegistrations, SCENARIOS, selectHooks, writePayload } from "./bench-hooks.mjs";
+import { isMain } from "./is-main.mjs";
 
 /**
  * Spec 0055 R4 — `bun run bench:context`.
@@ -218,6 +220,9 @@ function main() {
   return existsSync(stamped) ? 0 : 1;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const USAGE = "usage: node scripts/js/bench-context.mjs\n  Measures the context bytes an agent reads and writes .navori/state/bench/context-*.json.\n  -h, --help  print this text and exit";
+
+if (isMain(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
   process.exit(main());
 }

@@ -7,7 +7,7 @@ effort: low
 maxWords: 2925
 ---
 
-<!-- navori:managed id="reviewer-base" hash="996c5c97" version="0.12.3" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
+<!-- navori:managed id="reviewer-base" hash="b3f09946" version="0.13.0" source="@navori/core" fmkeys="name,description,tools,model,effort,maxWords" -->
 # Reviewer Agent
 
 Review; **approve or reject**, never edit code.
@@ -89,7 +89,7 @@ navori gate full
 The full gate runs only on the round about to sign `APPROVED`; it may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.
 `navori plan classify <feature> --diff` publishes `reviewDepth`: `light` → Pre-pass plus the sections the diff touches; `full` or absent → every section.
 
-If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage` instead. Read only the verdict.
+If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run typecheck && bun run test:assets` instead. Read only the verdict.
 
 
 Read the verdict (exit code and failure count); report `exit 0` plus summary, or the failing tail. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `navori gate full` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run the `&&`-chained steps separately in the foreground, never in the background (no shell `&`, no `run_in_background`, no `Monitor`); if no step fits, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success. Without the actual exit, exit code and failure count — or on timeout, cancellation, rejection or a lost handle — it is `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "cases": [
+    {"id": "preset:group-no-command", "fixture": "empty", "mask": ["version"], "args": ["preset"], "native": true},
+    {"id": "preset:group-help", "fixture": "empty", "mask": ["version"], "args": ["preset", "--help"], "native": true},
+    {"id": "preset:group-unknown", "fixture": "empty", "mask": ["version"], "args": ["preset", "nope"], "native": true},
+    {"id": "preset:init-help", "fixture": "empty", "args": ["preset", "init", "-h"], "native": true},
+    {"id": "preset:init-missing-id", "fixture": "empty", "args": ["preset", "init"], "native": true},
+    {"id": "preset:init-no-config", "fixture": "empty", "args": ["preset", "init", "stack-x"], "native": true},
+    {"id": "preset:init-config-es", "fixture": "fresh-init", "args": ["preset", "init", "web"], "native": true},
+    {"id": "preset:init-config-en", "fixture": "claude-en", "args": ["preset", "init", "api-2"], "native": true},
+    {"id": "preset:init-config-warnings", "fixture": "spec-repo", "args": ["preset", "init", "mine"], "native": true},
+    {"id": "preset:init-cwd", "fixture": "empty", "args": ["preset", "init", "sub-preset", "--cwd", "."], "native": true},
+    {"id": "preset:init-reserved", "fixture": "fresh-init", "args": ["preset", "init", "custom"], "native": true},
+    {"id": "preset:init-invalid", "fixture": "claude-en", "args": ["preset", "init", "Bad_Id"], "native": true},
+    {"id": "preset:init-exists", "fixture": "fresh-init", "files": {".navori/presets/web/keep": ""}, "args": ["preset", "init", "web"], "native": true},
+    {"id": "preset:init-bad-config-delegates", "fixture": "empty", "files": {"navori.config.json": "{"}, "mask": ["stderr"], "args": ["preset", "init", "x"]}
+  ]
+}

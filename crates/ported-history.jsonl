@@ -1,0 +1,48 @@
+{"date":"2026-10-29","op":"port","id":"gate probe","reason":"gate probe nativo con la misma caché de contenido que el TS (0059 T6)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"plan gate","reason":"plan gate nativo; delega al TS lo que no reproduce (0059 T10, T11)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"dominio inject","reason":"dominio inject nativo; delega layout legacy y orden de títulos no modelado (0059 T13)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"tools notice","reason":"tools notice nativo; el worker de red lo lanza el navori de PATH (0059 T13, R59)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"tools session-context","reason":"tools session-context nativo; el worker de red lo lanza el navori de PATH (0059 T13, R59)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"quality-gate-pre-commit","reason":"hook en sombra; la corrida del gate y gate foreign responden no observado (0059 T7, D40)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"plan-gate","reason":"hook en sombra; plan gate en proceso con la misma versión, por subproceso con otra (0059 T12)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"session-start-context","reason":"hook en sombra; tools session-context responde no observado (0059 T14, D40)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"subagent-stop-handoff","reason":"hook en sombra; capture-start difiere por modo (0059 T15, D31)","pr":1452}
+{"date":"2026-10-29","op":"port","id":"model-advisor","reason":"hook en sombra; codex-pretool-profile difiere por modo (0059 T16, D31)","pr":1452}
+{"date":"2026-11-10","op":"unport","id":"master mode","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master ux","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master close","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master part","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master advance","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master check","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master template","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master status","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master-accept-confirm","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-10","op":"unport","id":"master-plan-context","reason":"plan maestro v1 retirado del binario; master queda en el TS (0063, #1503)","pr":1644}
+{"date":"2026-11-11","op":"unport","id":"role-guard","reason":"role-guard retirado del binario; queda como hook shell permanente (#1503)","pr":1659}
+{"date":"2026-11-11","op":"unport","id":"engram-write-guard","reason":"engram-write-guard retirado del binario; queda como hook shell permanente (#1503)","pr":1659}
+{"date":"2026-11-11","op":"port","id":"backup list","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup restore","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup prune","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"backup","reason":"backup nativo, re-land de E3 (0060 T24, #1473); restore sin --yes delega al TS","pr":1664}
+{"date":"2026-11-11","op":"port","id":"migrations list","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
+{"date":"2026-11-11","op":"port","id":"migrations restore","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
+{"date":"2026-11-11","op":"port","id":"migrations","reason":"migrations nativo, re-land de E3 (0060, #1473); restore sin --yes delega al TS","pr":1672}
+{"date":"2026-11-11","op":"port","id":"preset init","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
+{"date":"2026-11-11","op":"port","id":"preset","reason":"preset nativo, re-land de E3 (0060, #1473)","pr":1673}
+{"date":"2026-11-12","op":"port","id":"scan","reason":"scan nativo, re-land de E3 (0060, #1473)","pr":1685}
+{"date":"2026-11-12","op":"port","id":"status","reason":"status nativo, re-land de E3 (0060, #1473)","pr":1689}
+{"date":"2026-11-22","op":"port","id":"gate foreign","reason":"gate foreign nativo, ayudante de quality-gate-pre-commit (0062, inventario post-0.13)","pr":1775}
+{"date":"2026-11-22","op":"port","id":"audit","reason":"audit --arm y --disarm nativos; los cuatro modos que llaman los hooks siguen delegando (0062, inventario post-0.13)","pr":1791}
+{"date":"2026-11-26","op":"activate","id":"plan-gate","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"general-purpose-confirm","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"session-start-context","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"model-advisor","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 11 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"pii-egress-guard","reason":"lote C de la activación (solo Claude, 0.13.1; spec 0062 R81-R83): ventana R81 desde el 19 nov sin divergencias; evidencia en Claude: 3 llamadas hasta el 20 nov","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"guard-destructive","reason":"lote del guard de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias en Claude y Pi","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"quality-gate-pre-commit","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"subagent-no-background","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"implementer-no-markdown","reason":"lote B de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"comment-draft-confirm","reason":"lote D de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-26","op":"activate","id":"pr-publisher-confirm","reason":"lote D de la activación (spec 0062 R81-R83): ventana R81 del 19 al 26 nov sin divergencias","pr":1527}
+{"date":"2026-11-24","op":"activate","id":"subagent-stop-handoff","reason":"activación ordenada por Ulises el 24 nov; cierra el lote 2","pr":1527}

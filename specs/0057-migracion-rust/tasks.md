@@ -1,0 +1,286 @@
+# Migración de navori a Rust — Tasks
+
+**Estado:** E1, E2 y E3 cerradas; la activación de `subagent-no-background` (M10: A10 y T27)
+pasa a la fase 4 (0060) por decisión del usuario (2026-10-28) · **Base:** `migration/rust`. Fase 1 del programa (ver `requirements.md` §
+"Fases del programa"): tres entregas, cada una un PR contra `migration/rust`. El LOC es una
+estimación, no una medición.
+
+Correspondencia con `design.md` § "Plan de entregas": E1–E3 son las mismas entregas del diseño. E4 en
+adelante, y E-Pi, pertenecen a las specs de fase 0058–0060.
+
+Reglas de ejecución:
+- Workplan por entrega: `0057-migracion-rust-e<n>`, con fases = milestones; `tasks.md` es el
+  tracking canónico.
+- Cada prueba nueva lleva `// Covers: R<n>` (Rust y TS). Los casos nombrados son planeados; los
+  archivos nuevos se crean en el milestone que los nombra.
+- Los milestones que tocan Rust corren `cargo fmt --check && cargo clippy --all-targets -- -D warnings
+  && cargo test --workspace` además de `bun run check:fast` y sus `A<n>`. El cierre de cada entrega
+  corre `bun check` completo, `rust.yml` en verde y un reviewer fresco.
+- Hooks, render, sync y backup son área crítica: un commit por mecanismo; un hook nunca pasa de
+  `shadow` a `active` sin los criterios de D9 y sin aprobación del usuario en el PR de activación.
+- `dev` se incorpora a `migration/rust` por merge (D1, R23); los conflictos siguen las cuatro clases
+  de D1.
+
+## E1 — Cimientos (foundation)
+Estimated LOC: 3500
+
+### M1 — Dirección y esqueleto
+- **A1** [observable] — DIRECTION enmendada, workspace compila y `--version` nativo · `cargo build --locked -p navori-cli && ./target/debug/navori-rust --version` → imprime `0.13.0-rust.1` (versión del workspace cargo), exit 0
+- [x] **T1** (R1) — `docs/DIRECTION.md` § "Non-goals" y una sección nueva de convivencia: retira "Rust control plane", registra la migración, la rama `migration/rust`, el sentido único de sincronización y su porqué · effect: docs · test: `docs/DIRECTION.md`::"Rust migration"
+- [x] **T2** (R2, R16) — `Cargo.toml` del workspace (`resolver = "3"`, `[workspace.lints]` con `unsafe_code`, `clippy::unwrap_used` y `clippy::expect_used` en deny), `rust-toolchain.toml` con `channel = "1.99.1"` y los cuatro targets, `Cargo.lock` versionado; crates `navori-core`, `navori-hooks`, `navori-cli` y `navori-oracle-tests` vacíos · effect: behavior · test: `crates/navori-cli/tests/lints.rs`::"un unwrap en código de producción no pasa clippy"
+- [x] **T3** (R17) — `crates/navori-core/build.rs`: tabla `include_bytes!` de `packages/core/core-assets/` y `packages/plugins/*/`, `rerun-if-changed` por directorio; `--version` nativo en `navori-cli` con el formato de salida de citty · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"--version reporta la versión del workspace"
+- [x] **T52** (R25, R26) — `[workspace.package] version = "0.13.0-rust.1"` heredada por los cuatro crates; `packages/cli/package.json` conserva la versión de `dev`; la sección de migración de `docs/DIRECTION.md` explica dónde vive la prerelease (la guía de instalación y sincronización de CONTRIBUTING llega con T17, en los tres idiomas). La regla del oráculo para `--version` llega con T9 · effect: behavior · test: `crates/navori-cli/tests/version.rs`::"la versión tiene la forma 0.13.0-rust.<n>"
+
+### M2 — Delegación
+- **A2** [observable] — un subcomando no portado se ejecuta vía TS con el mismo exit code · `cargo test -p navori-cli --test delegation` → exit 0, todos los casos verdes
+- [x] **T4** (R5) — `navori-cli` (`parser`, `help`): parser citty mínimo sobre `lexopt` 0.3.2 para la raíz y `--help` (D2) · effect: behavior · test: `crates/navori-cli/tests/parser.rs`::"--help de la raíz coincide con cli-surface.golden.json"
+- [x] **T5** (R5, R7) — `navori-cli` (`delegate`): selección por manifiesto (ruta + flags), `exec` al TS resuelto por `NAVORI_TS_CLI` → `dist/` del checkout → `PATH` sin el propio binario, aviso de versión en una línea (D3) · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"argv, stdin, cwd, entorno y exit code pasan tal cual"
+- [x] **T6** (R6) — sin TS o sin `node`: exit 69 con subcomando, rutas probadas y causa · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"sin TS sale 69 y no lanza procesos"
+- [x] **T7** (R7) — anti-bucle con `NAVORI_DELEGATED=<pid>` (70 solo con el propio pid) y test que recorre la tabla nativa contra el manifiesto · effect: behavior · test: `crates/navori-cli/tests/delegation.rs`::"toda implementación sin entrada en el manifiesto se delega"
+- [x] **T8** (R7, R10) — esquema de `crates/ported.json` y `crates/ported-history.jsonl` (D4, D1) con su validador en `navori-core` · effect: schema · test: `crates/navori-core/tests/manifest.rs`::"rechaza entradas sin flags normalizados o hashes incompletos"
+
+### M3 — Oráculo diferencial
+
+Verificación local (2026-10-23): A3 `bun run oracle:rust` → 52 casos, 0 diferencias; fmt,
+clippy y pruebas del workspace verdes. Ejecución directa por instrucción del usuario.
+- **Consumes:** `bun run oracle:rust` → ejecuta `navori-rust` (versión nativa de M1 y delegación de M2) contra el CLI TS sobre los fixtures
+- **A3** [observable] — el oráculo compara ambos binarios sobre los fixtures con diferencial cero en lo delegado · `bun run oracle:rust` → exit 0, reporte con 0 diferencias
+- [x] **T9** (R8) — `scripts/js/rust-oracle.mjs` y `bun run oracle:rust`: corrida secuencial en la misma ruta, entorno hermético, comparación de stdout, stderr, exit code y árbol de archivos (D5) · effect: behavior · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"una diferencia de un byte en el árbol se reporta"
+- [x] **T10** (R8, R9) — normalización por tokens estrictos (PID, rutas, hashes derivados de rutas, fechas) con un test de mutación por regla · effect: tests · test: `packages/cli/src/__tests__/rust-oracle.test.ts`::"cada regla de normalización tiene una mutación que la rompe"
+- [x] **T11** (R9) — fixtures en `scripts/js/rust-oracle/fixtures/`, incluido un repo con contenido de usuario fuera de los markers, y casos de superficie desde `cli-surface.golden.json` · effect: tests · test: `scripts/js/rust-oracle/cases.json`::"user-content-outside-markers"
+- [x] **T12** (R9) — `navori-core` (`js_json`): serialización con semántica JS (claves enteras, `1.0`) con propiedades contra Node (D14) · effect: behavior · test: `crates/navori-oracle-tests/tests/js_json.rs`::"js_json coincide con JSON.stringify en valores generados"
+
+### M4 — CI e instalación
+
+Implementados localmente T13–T16 y la parte CI de T17 en `.github/workflows/rust.yml`,
+los tres scripts `rust-*-check.mjs` / `rust-sync-age.mjs`, sus pruebas y `ci.yml`.
+Instalación local comprobada: `navori-rust` tiene ruta propia y `navori` conserva ruta y hash.
+Los seis jobs remotos de Rust pasaron en PR1389. `quality` instala las dependencias JS desde
+#1413 (`config_parity` importa el cargador de config TS). M4 cerrado: CONTRIBUTING (en, es,
+zh-CN) documenta instalación junto al CLI TS, delegación, hooks nativos y sombra, sincronización
+por merge y los checks de la rama.
+- **A4** [observable] — `rust.yml` corre todos sus jobs y la instalación local no toca `navori` · `cargo install --path crates/navori-cli --locked && command -v navori-rust && command -v navori` → dos rutas distintas; la de `navori` igual que antes de instalar
+- [x] **T13** (R15) — `.github/workflows/rust.yml` job `quality` (fmt, clippy `-D warnings`, test) para PRs y pushes a `migration/rust`, sin `schedule` · effect: behavior · test: `.github/workflows/rust.yml`::"quality"
+- [x] **T14** (R10) — jobs `oracle` y `manifest` (recalcula hashes, exige línea `unport` al quitar una entrada) · effect: behavior · test: `packages/cli/src/__tests__/rust-manifest-check.test.ts`::"quitar una entrada sin unport falla"
+- [x] **T15** (R23) — `scripts/js/rust-sync-age.mjs` y job `freshness` por commits de primer padre de `dev`; el PR de sincronización siempre pasa (D10) · effect: behavior · test: `packages/cli/src/__tests__/rust-sync-age.test.ts`::"commit de dev sin incorporar con más de 7 días falla y el PR de sync pasa"
+- [x] **T16** (R4) — job `tarball`: `npm pack --dry-run --json` en `packages/cli` sin binarios, sin `crates/` y sin `postinstall` · effect: behavior · test: `packages/cli/src/__tests__/rust-tarball.test.ts`::"el tarball no contiene artefactos Rust"
+- [x] **T17** (R3) — job `install` y CONTRIBUTING de la rama con instalación y sincronización; `ci.yml` acepta `migration/rust` en `plan` y `affected` · effect: docs · test: `CONTRIBUTING.md`::"navori-rust local"
+
+## E2 — Runtime de hooks
+Estimated LOC: 4000
+
+### M5 — Runner
+
+Verificación local (2026-10-23): runner (5 casos), integridad exacta, propiedades contra Node,
+workspace completo, clippy y fmt verdes. A5 pasa. Son bibliotecas sin wiring nativo todavía:
+la integración del CLI, la escritura final y el fallback del renderer llegan en M6.
+Las propiedades escapan U+2028/U+2029 solo en el transporte JSONL hacia Node; no en los datos.
+- **A5** [observable] — el runner solo sale con 0/1/2/3 y un panic produce el veredicto seguro · `cargo test -p navori-hooks --test runner` → exit 0
+- [x] **T18** (R12) — `navori-hooks` (`runner`): salida en búfer, `catch_unwind`, contrato 0/1/2/3 y veredicto seguro por engine para hooks con `gating` (D6) · effect: behavior · test: `crates/navori-hooks/tests/runner.rs`::"panic en hook con compuerta emite el veredicto seguro del engine"
+- [x] **T19** (R11, R13) — integridad `file`/`impl`/`deps` con sha256 de bytes exactos y hash de marker sha1/8 con `normalize` de JS (D8) · effect: behavior · test: `crates/navori-core/tests/integrity.rs`::"CRLF, espacio final o script hermano editado difieren al shell"
+
+### M6 — Wiring de convivencia
+
+Implementado en `feat/0057-rust-e2-m6`, con Rust y TS divididos entre principal/clon y revisión
+independiente. Entrada interna de hooks, validación antes de stdin, wrappers compartidos y
+golden manual. 62 pruebas focalizadas verdes; Rust 54 casos, fmt y clippy verdes. Oráculo final
+52 casos sin diferencias. El full preliminar reprodujo el stamp legacy sin wrapper (corregido)
+y un timeout de doctor (caso aislado verde). Full final verde: 10240 aprobadas, dos omitidas,
+483 archivos en1369.1s; cobertura87.87/86.17/90.51/80.95%, piso162/0 y bundle1637.7/1650KiB.
+No hay hooks portados/activos todavía.
+- **A6** [observable] — ninguna salida anómala del binario termina en permitir · `bun run vitest run src/__tests__/native-hook-failclosed.test.ts` → exit 0 en Claude, Codex y Pi
+- [x] **T20** (R13) — `packages/cli/src/lib/render/native-hook.ts` (`nativeRunnerShell`), puntos de llamada en `claudeHookCommand` y `expandHookIncludes`; sin hooks en el manifiesto la salida es idéntica a `dev` (D7) · effect: behavior · test: `packages/cli/src/__tests__/native-hook.test.ts`::"manifiesto sin hooks renderiza igual que dev"
+- [x] **T21** (R12, R13) — mapeo de salidas por engine: 3/126/127 al shell; otra salida, señal o stdout cerrado al veredicto seguro (T8 del diseño) · effect: behavior · test: `packages/cli/src/__tests__/native-hook-failclosed.test.ts`::"SIGSEGV, SIGABRT y exit 101 nunca permiten"
+
+### M7 — Auditoría
+- **A7** [observable] — metadata byte exacta frente al partial shell y bridge al escritor TS real · `cargo test -p navori-core --test audit --locked` → exit 0, seis pruebas
+- [x] **T22** (R11) — `navori-core` (`audit`): actividad, metadata cerrada y bridge best-effort al escritor CLI único (D12); conserva campos y `tsMs` del shell sin append directo · effect: behavior · test: `crates/navori-core/tests/audit.rs`::`metadata_matches_the_real_shell_partial_without_human_content`, `real_ts_writer_remains_authoritative_for_identity_modes_and_wire_ids`
+
+Validado desde el hilo principal: seis pruebas A7 verdes; workspace, fmt, clippy y check:fast
+verdes en el worktree de M7. La aceptación anterior de replay ignoraba flags y no probaba
+audit-writer; replay/fuzz reales permanecen en M8. No activa hooks ni cambia el writer productivo.
+El primer full local tuvo un timeout zsh de 300 s; el focal pasó dos pruebas en166.7s.
+Full final verde:10218 aprobadas, dos omitidas,481 archivos en1915.7s. Integrado en #1390.
+El test del writer real usa Node24 transform-types; el job Rust quality no dispone de Bun.
+
+### M8 — Herramientas
+
+Incremento de tooling en `feat/0057-rust-e2-m8-tools`: adapter Rust directo con binario/rutas
+fijados antes del sandbox, parser estricto, replay, fuzz determinista y benchmark wall-time/p95
+separado del CPU de shell. 59 pruebas focales iniciales y63 al integrar #1393, check:fast verde.
+Fuzz acepta hasta100000 casos
+(D9), pero con el registro real vacío termina con error y cero casos ejecutados.
+Auditoría active Rust falla explícitamente hasta disponer de fixtures CLI válidos.
+El benchmark conserva el evento registrado y rechaza wrappers/argumentos de shell que no
+pueda representar mediante argv exacto; no mide silenciosamente otra rama del hook.
+T23–T25 y A8 siguen pendientes: portes reales, clasificación del corpus, gramática ampliada,
+log shadow y medición de rendimiento nativo. Full M8 final verde:10238 aprobadas, dos omitidas,
+482 archivos en2281.8s; piso160 módulos sin excepciones. Ancestry integrada mediante #1393.
+
+Cierre de T24/T25 (#1406, #1408, #1409 y el PR que pone `subagent-no-background` en sombra):
+el journal D9 queda conectado al executor de sombra mediante `navori tools rust-shadow`; el bench
+Rust mide sólo hooks portados y reconoce las formas sin argumentos que navori renderiza; la caché
+de hechos del host deja la evaluación nativa en p95 3.99 ms (Claude) / 4.38 ms (Pi) con caché
+caliente (bajo carga, una corrida no comparable dio 5.56 ms en Pi). El fuzz calienta esa caché
+una vez antes de su snapshot base: restaurar el snapshot por caso la borraba y cada caso pagaba
+los probes en frío. A8 pasa con `NAVORI_RUST_BIN` y `NAVORI_RUST_HOOKS_DIR` apuntando al binario
+release y al checkout renderizado: semillas 1–3 × 1000 casos idénticos.
+
+Cierre de T23: el binario audita cuando Rust decide (forzado o `active`) con el mismo carril
+que `audit-log.sh`: un archivo `O_EXCL` 0600 en el spool 0700 propio de la sesión y, si falta,
+el bridge `navori audit --record-metadata`; en sombra audita sólo el shell. El replay `--impl
+rust` compara ese evento en el modo `active`. Los 163 casos `shell-runtime` del corpus son de
+`role-guard` (88), `engram-write-guard` (72) y `comment-draft-confirm` (3), hooks sin portar:
+`divergences` vive en su entrada de `ported.json`, así que se clasifican al portar cada uno
+(decisión del usuario). `subagent-no-background` ya tiene allow, block y skip en Claude y Pi.
+
+- **A8** [observable] — replay, fuzz y bench funcionan con `--impl rust` · `bun run fuzz:hooks --seed 1 --cases 1000 && bun run bench:hooks --impl rust --report-only` → exit 0
+- [x] **T23** (R11) — `hook-verdict-replay.mjs --impl rust` en los modos `off` y `active`, `divergences` clasificadas al portar cada hook (los 163 `shell-runtime` son de hooks sin portar), corpus ampliado (al menos un caso por clase de veredicto y engine) · effect: tests · test: `packages/cli/src/__tests__/hook-verdict-replay.test.ts`::"rust reproduce el corpus o la categoría de su divergencia"
+- [x] **T24** (R11, R12) — `scripts/js/hook-fuzz.mjs` (`fuzz:hooks`) y modo `shadow` con log local de divergencias (D9) · effect: behavior · test: `packages/cli/src/__tests__/hook-fuzz.test.ts`::"reports a seeded divergence with the exact reproducible payload"
+- [x] **T25** (R17) — `bench-hooks.mjs --impl rust`: p95 de la invocación directa del binario con comparabilidad de 0055 · effect: behavior · test: `packages/cli/src/__tests__/bench-scripts.test.ts`::"bench --impl rust mide el binario sin wrapper"
+
+### M9 — Primer hook en sombra
+
+Infraestructura integrada en #1393: handler puro, hashes compilados D8 y dispatch shadow
+con shell autoritativo. Rust forzado devuelve sólo el resultado nativo y conserva defer como
+unavailable. Perfiles explícitos BSD/GNU/C y diagnósticos NUL de Bash3/5, sin normalizar stderr.
+CI final verde:98 pruebas Rust y10265 JS, una omitida; cobertura162 módulos sin excepciones.
+Los232 casos del handler prueban política pura; no sustituyen A9 ni acreditan auditoría activa.
+Registro/manifiesto productivos vacíos: faltan preparación de elegibilidad antes de stdin,
+registro, fixtures de auditoría activa y journal D9. T26 permanece abierto.
+
+Journal D9 preparado como biblioteca privada del CLI: pares begin/complete, append con
+creación exclusiva vacía, payload sólo en divergencias y reporte por hash/engine registrado.
+Exige500 matches/14d por engine, cero divergencias/pendientes y al menos un host no-Claude.
+Quince pruebas focales verdes incluyen concurrencia real, privacidad y payload binario de4MiB;
+la validación base64 canónica evita el desbordamiento de pila de la regex anterior.
+Pendientes el bridge Rust, la resolución de registros reales y el comando público de reporte;
+estas pruebas sintéticas no acreditan uso vivo ni completan T26/A9.
+
+Nota: el journal ya no guarda `payloadBase64` (enmienda de D9 paso 4 en `design.md`). El
+diagnóstico de una divergencia real ya no sale del journal: el replay y el fuzz son sintéticos, y
+reproducirla exige capturar el payload a mano, fuera del journal.
+
+T26 cerrado: elegibilidad antes de stdin conectada al registro nativo (#1406), journal acusado
+antes de stdin y completado tras el shell (#1406), caché de hechos del host (#1409) y entrada
+`mode: "shadow"` en `ported.json` con el render de Claude y Pi. La sombra sólo corre donde
+`navori-rust` está en `PATH`; sin binario todo sigue en shell (R13). A9 verde: el replay Rust
+reproduce los 232 casos con auditoría `off` y `active`.
+
+- **A9** [observable] — `subagent-no-background` reproduce el corpus en Claude y Pi · `node scripts/js/hook-verdict-replay.mjs --impl rust --only subagent-no-background` → exit 0, 232 casos
+- [x] **T26** (R11) — `navori-hooks` (`hooks/subagent_no_background`) en `mode: "shadow"` en `ported.json` · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"veredictos del corpus"
+
+## E3 — `guard-destructive`
+Estimated LOC: 2500
+
+### M10 — Activar `subagent-no-background` (movido a 0060)
+
+Decisión del usuario (2026-10-28): la ventana de sombra de 14 días no bloquea el cierre de esta
+spec. A10 y T27 pasan a la fase 4 (0060), junto con la activación de `guard-destructive` (E1 de
+0058), y se resuelven en un solo PR de activación con la sombra acumulada desde ahora. Hasta
+entonces el hook sigue en `shadow` y decide el shell (R13). R11 queda cubierto en esta fase por
+T26 y T28.
+
+Estado de la sombra (2026-10-28): el ledger local tiene una sola observación. El fragmento
+renderizado resuelve `navori-rust` con `command -v`; sin el binario en el `PATH` que hereda el
+host, la invocación toma la ruta del shell y no registra nada, y un binario anterior a PR 4a de
+T28 no coincide con el `impl` vigente. La ventana de 14 días corre desde que el binario fresco
+está en el `PATH` de los tres engines. El script del comando de A10 no existe todavía: lo entrega
+0058 T3 (D18) sobre el ledger de `navori tools rust-shadow`, sin un segundo reporte.
+
+- **A10** [observable] (→ 0060) — criterios de D9 cumplidos · `node scripts/js/hook-shadow-report.mjs subagent-no-background` → ≥ 500 invocaciones por engine en ≥ 14 días y 0 divergencias
+- **T27** (R11, → 0060) — `ported.json` pasa el hook a `active`, con el resumen de sombra adjunto al PR y aprobación del usuario · effect: behavior · test: `crates/navori-hooks/tests/subagent_no_background.rs`::"modo active responde Rust"
+
+### M11 — `guard-destructive` en sombra
+
+Avance T28 (PR 1 de 4): `navori-hooks::shell` comparte `Locale` y las transformaciones de
+`inert-skeleton` (fuera de `src/hooks/`, así entran en el hash `impl` de cada hook). El módulo
+`hooks/guard_destructive` porta, en el orden del shell, el comando vacío, los techos de bytes,
+líneas y heredocs, la vía rápida sin tokens y las reglas 1, 2, 3, 3b, 4 y 5; lee `base`,
+`nv_pi_rules`, `nv_owned_paths` y `navori_pg_lane` del script verificado. Contra el corpus decide
+524 de 886 casos con exit, stderr byte a byte y categoría de auditoría del shell; los 362
+restantes caen en reglas 1b, 6, 6b, 6c, 6d y 7 (PR 2) y nunca en una regla ya portada. Sin
+registro en `ported.json`: el runtime no cambia. Pendientes: rutas y git (PR 2),
+`tgrep-search-lane` (PR 3), extracción, registro en sombra, corpus de Codex y A11 (PR 4).
+
+Avance T28 (PR 2a): reglas 6 y 6b (reescritura por redirección, `sed -i` o `tee` de un archivo
+gestionado, relativo o con el prefijo absoluto del proyecto) y 6d (`copy-dest`, transcripción
+byte a byte del programa awk sobre el inventario exacto). `Host` recibe `nv_project_dir`, el
+`cwd` del payload y `PWD`. Corpus: 589 de 886 casos idénticos (65 `managed-rewrite`). `copy-dest`
+se compara además contra el awk real con una batería escrita a mano y 500 comandos generados en
+tres contextos de raíz. Pendientes del PR 2b: 6c (Pi), 7 (descartes de git) y 1b.
+
+Avance T28 (PR 2b): regla 6c (plano de control de Pi, `pi --no-extensions`, reglas `deny`
+compartidas y la primera `ask`, que la trampa de salida responde con exit 0) y regla 7
+(descartes de árbol completo: recorrido de `cd`/`-C` y de banderas puro; existencia del
+directorio y estado de git vía `discard::Repo`, con `discard::System` como único adaptador que
+ejecuta `git`). `Outcome::Allow` sustituye a `Continue` y lleva `copy_only` y la `ask`
+pendiente. Corpus: 886 de 886 casos idénticos (exit, stdout, stderr y veredicto). Además, las
+copias renderizadas de Pi y Claude se ejecutan contra el modelo sobre repositorios reales
+(limpio, con cambios, con no rastreados, sólo ignorados) en el locale UTF-8 de la plataforma y
+en `C`, con baterías escritas a mano y 100 comandos generados por regla. Pendiente: 1b
+(`resolve-worktree` + `progress-ratchet`) en su propio PR.
+
+Avance T28 (PR 2c): regla 1b. `landing` transcribe `gate-trigger` (conteo de triggers y
+cuerpos de heredoc como datos) y `resolve-worktree` (`navori_commit_landing` con el repositorio
+home, `navori_worktree` con la restricción de mismo repositorio); `ratchet` transcribe
+`progress-ratchet`. Los hechos de git y del sistema de archivos pasan por `repo::Repo`, que
+ahora sirve también a la regla 7. `Outcome::Ratchet` sustituye a `ProgressLane` y lleva el
+stderr de la lane; un árbol al que bash no puede entrar es `Err` (su mensaje lleva número de
+línea). Con esto el bloque base completo está portado. Las copias renderizadas de Claude y Codex,
+con la lane encendida, se comparan sobre repositorios reales (home, worktree enlazado, otro
+repositorio, submódulo, índice, no rastreado, ignorado, sin git) en diez configuraciones de
+sesión. Residuales documentados: `CDPATH` en `repo::System` y rangos de glob por intercalación
+en bash 3.2. Pendientes: `tgrep-search-lane` (PR 3) y el PR 4.
+
+Avance T28 (PR 3): `search` transcribe el bloque `tgrep-search-lane` y `guard-search-routing.sh`
+(segmentación awk con su unión de líneas, peel de `VAR=`, `grep -r` y `rg` al inicio de un
+comando, `names_a_file` con raíz fuera del repo, extensión, nombres sin extensión y `[ -f ]`, y
+el remedio según `tgrep status`). `Repo` suma `is_file` y `tgrep_status`; `Host` suma `PATH`.
+`decide` compone bloque base, lane de búsqueda y la `ask` de la trampa en el veredicto final
+(exit, stdout, stderr, veredicto y razón). La copia renderizada de Claude se compara con un
+`tgrep` falso en cinco estados (ausente, sin índice, servidor detenido, activo, fallando). Las
+pruebas diferenciales reintentan un caso discrepante: bajo carga, un `jq` sin recursos falla en
+silencio dentro de `extract-cmd` y el shell ve un comando vacío. Pendiente: PR 4.
+
+Avance T28 (PR 4a): la extracción de `extract-cmd`, los avisos de NUL de Bash 5 y la
+planificación de elegibilidad pasan a `navori-hooks::shell`, con la lista de campos y los engines
+acreditados como parámetros (cambia el `impl` de `subagent-no-background`; su sombra tenía una
+sola invocación). `entry` reproduce el script de punta a punta: `payload_load` sobre sus nueve
+campos, el directorio del proyecto de `hook-input`, `decide` y la categoría de auditoría. El
+binario registra `guard-destructive` para Claude, Codex y Pi; la lane de búsqueda sólo corre si
+el script trae su bloque, y la sombra y la auditoría usan el `$0` invocado. Los 886 casos se
+reproducen desde el payload crudo; las cuatro cascadas (jq y Node, sólo jq, sólo Node, sed) en
+UTF-8 y `C` coinciden con la copia renderizada, y el registro de producción responde igual que
+las tres copias (Claude, Codex, Pi), con el evento de auditoría del shell. Sin entrada en
+`ported.json`. Pendiente del PR 4b: el render no firma aún el guard, porque su referencia omite
+los `extraVars` del hook (`navoriOwnedPaths`, `piPermissionRules`) y compara `deps` contra el
+script desplegado, que lleva su propio marker; luego registro en sombra, corpus de Codex y A11.
+
+Avance T28 (PR 4b): el firmante nativo renderiza su referencia con los `extraVars` finales de cada
+colocación (`CollectedPlan.renderVars`, de Claude, Codex y Pi), y `deps` fija el asset fuente del
+script del plugin: la copia desplegada debe ser su render gestionado fresco y esos bytes entran en
+la firma. `guard-destructive` queda en `shadow` y el render firma sus tres copias. Sin
+`NAVORI_RUST_HOOKS_DIR`, replay y fuzz firman el asset expandido con sus deps fuente (los bytes
+que grabó el corpus); el shell del fuzz corre la misma copia que el binario. La gramática de fuzz
+del guard cubre cada familia de reglas, sus casi-aciertos, formas inertes y formas límite del
+payload; contra las copias renderizadas dispara todas salvo el bloqueo de búsqueda, que exige un
+índice tgrep vivo (lo cubre `guard_state.rs` con un tgrep falso). La copia Codex decide como la
+de Claude bajo bash y zsh.
+A11 verde: el replay reproduce los 886 casos con auditoría `off` y `active`, y el fuzz (semilla 1,
+contra las copias renderizadas) da 100 000 casos idénticos en Claude y 20 000 en Codex y en Pi.
+Cierre de T28: el corpus se regenera con la matriz bash+zsh (`NAVORI_TEST_ALL_SHELLS=1`) e
+incorpora los casos de Codex: de 886 a 1202 casos (Claude 933, Codex 140, Pi 129), sin cambiar el
+veredicto de ningún caso conservado. Los casos nuevos de Codex sacaron una divergencia previa del
+shell bajo zsh: `payload=${payload-$(cat)}` partía en palabras la sustitución y colapsaba los
+espacios repetidos del comando. Se corrige en `dev` (#1436, `payload=${payload-"$(cat)"}`) y llega
+por la sincronización #1437, que actualiza el contrato literal de captura de `prepare.rs` y los
+hashes de `ported.json`. Replay `--impl rust`: 1202 casos idénticos con auditoría `off` y `active`;
+la paridad zsh reproduce el corpus completo. Fuzz de cierre (semilla 1, contra las copias
+renderizadas, sobre la sincronización #1437): 100 000 casos idénticos en Claude y 20 000 en Codex y
+en Pi. Desde ese cierre `fuzz:hooks` corre en paralelo y a prioridad baja, deduplica por
+`session_id` y puede cachear el oráculo shell (enmienda de D9 en `design.md`).
+
+- **A11** [observable] — corpus y fuzz de gramática completa verdes · `node scripts/js/hook-verdict-replay.mjs --impl rust --only guard-destructive && bun run fuzz:hooks --hook guard-destructive --seed 1 --cases 100000` → exit 0, 0 divergencias
+- [x] **T28** (R11, R12) — `guard-destructive-base` y `tgrep-search-lane` (con `deps` del script de búsqueda) en `shadow` · effect: behavior · test: `crates/navori-hooks/tests/guard_destructive.rs`::"cada regla bloquea, pregunta o permite igual que el shell"
+

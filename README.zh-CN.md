@@ -111,6 +111,17 @@ Codex 已**冻结**：该引擎作为需显式启用的选项保留在 CLI 中�
 
 → 完整命令表、预设和插件见 [`packages/cli/README.md`](./packages/cli/README.zh-CN.md)。
 
+## 迁移到 0.13
+
+- 你的仓库无需任何改动。执行 `npm i -g navori@0.13` 后，`navori --version` 应输出 `0.13.0`。
+- CLI 现在是 macOS（arm64、x64）和 Linux（arm64、x64）上的原生二进制程序，npm 通过可选的平台包（`navori-<os>-<cpu>`）安装它。在其他平台上，该包会运行随包发布的冻结 TypeScript CLI。
+- 部分命令仍由这个冻结的 TypeScript CLI 处理，无需另行安装任何东西：
+  - 永久委托：`master`、`codex`、`workspace`、`ticket` 和 `registry`，以及部分交互形式（不带非交互标志的 `sync`、不带 `--yes` 的 `remove` 和 `restore` 命令、`doctor --json`）；
+  - 暂时委托，直到完成移植：`init`、`add`、`configure`、`update`、`refresh`、`receipt`、`gate` 与 `tools` 的大部分功能、除 `--arm`/`--disarm` 之外的 `audit`，以及 `render` 和 `sync` 的部分标志（见 `scripts/js/rust-areas.mjs` 中的 `TRANSITIONAL_DELEGATION`）。
+- 安装了平台二进制时，`crates/ported.json` 标记为 `active` 的钩子在 Claude Code 和 Pi 中以原生方式裁决；否则运行渲染出的 shell 主体，裁决相同。其余钩子继续运行其 shell 主体。
+- 当受管理的文件含有 git 冲突标记时，`render`、`sync` 和 `remove` 会拒绝写入并列出这些文件；`--force` 也无法绕过（#1660）。
+- `navori.config.json` 中的 `claudePlugins` 用于声明 Claude Code 插件，`render` 会将 `enabledPlugins` 写入 `.claude/settings.json`（#1747）。
+
 ## 迁移到 0.12
 
 - 已移除 `global` 命令和 launchd 收集器（`audit --collect` 仍保留）。`doctor --json` 不再输出 `globalScope`。
@@ -138,16 +149,25 @@ Navori 安装的是基线；让它在**你的**仓库中发挥价值的，是只
 
 ```
 navori-harness/
+├─ crates/
+│  ├─ navori-cli/     # `navori-rust` 二进制程序（以 `navori` 发布）
+│  ├─ navori-core/    # render、config、manifest 与内嵌资源
+│  ├─ navori-hooks/   # 原生钩子（其签名实现的来源）
+│  ├─ ported.json     # 哪些部分原生运行，以及每个钩子的模式（shadow / active）
+│  └─ ported-history.jsonl  # 只追加的 port/activate 历史
+├─ packaging/
+│  ├─ npm/            # `navori` 包的 JS bins、启动器与 postinstall
+│  └─ legacy.json     # 冻结 TS（`navori-legacy`）的固定版本
 ├─ packages/
-│  ├─ cli/            # el CLI `navori` (publicado a npm)
-│  ├─ core/           # @navori/core — managed assets (agentes, skills, presets, hooks), bundleados al CLI
+│  ├─ cli/            # 冻结的 TypeScript CLI（委托与无二进制的平台）
+│  ├─ core/           # @navori/core — managed assets（agents、skills、presets、hooks）
 │  └─ plugins/        # acli · codegraph · engram · gh · tgrep
 ├─ apps/
 │  └─ website/        # landing + docs (Astro, deploy a GitHub Pages)
 └─ package.json      # workspaces + trustedDependencies (bun)
 ```
 
-构建时，`@navori/core` 和插件会**打包进 CLI**（不会单独发布）：只需执行一次 `npm i -g navori` 即可获得全部内容。
+`@navori/core` 和插件会在**构建时打包**（不会单独发布）：只需执行一次 `npm i -g navori` 即可获得全部内容。
 
 ## 开发
 
@@ -157,13 +177,20 @@ navori-harness/
 bun install
 bun run build                 # build de todos los paquetes
 
-bun check                     # quality gate completo (lo que valida CI en PRs a main)
-bun check:fast                # pasada rápida: format, jscpd, ast-grep, lint, typecheck
+bun check                     # quality gate completo (lo que corre el job checks de CI)
+bun check:fast                # pasada rápida: deps, format, jscpd, ast-grep
 bun hooks:install             # instala el pre-commit: check:fast (sin tests)
 
 # probar el binario local sin publicar:
 node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
+
+# CLI en Rust (toolchain fijado en rust-toolchain.toml)
+cargo build --release -p navori-cli   # target/release/navori-rust
+cargo test --workspace --locked
+bun run rust:hooks-sync              # cabeceras firmadas de los hooks nativos + render
 ```
+
+Rust 工具链固定在 `rust-toolchain.toml` 中（1.99.1，含发布所需的四个 target）。修改 `crates/navori-hooks` 后，运行 `bun run rust:hooks-sync`：它会重写 `crates/ported.json` 中过时的哈希和原生钩子的头部，重新渲染，并运行 `cargo install`（`--no-install` 只构建不安装）。`bun run rust:hooks-sync --check` 不写入任何内容，发现过时内容时会失败。
 
 **质量门**：在仓库根目录运行 `bun check`。它是 `navori.config.json` 中 `qualityGate.full` 的别名；该配置是质量门的**唯一来源**。`CLAUDE.md` 中的 managed blocks 和 `publisher` 执行的命令都由此生成。不要复制到其他文件：副本会逐渐与原配置不一致。
 
@@ -174,13 +201,11 @@ node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
 发布需要手动操作，并且必须按**以下顺序**进行。分支流程是 `dev` → `main`：tickets 合并到 `dev`，只有发布才从 `dev` 进入 `main`。从 0.8.2 起，第 4 步的提交必须**通过 PR**，不能直接 push。此前 README 曾写明直接发布，同时又提醒没有 PR 可供事前查看——也就是说，CI 只能在发布树已经合入后才能验证。
 
 1. 在 `apps/website/src/content/releases.ts` 中编写该次 minor 版本的条目（标题 + 3–5 个项目符号，提供西班牙语和英语版本）。如果当前 CLI minor 版本没有对应条目，`landing-inventory.test.ts` 中的 "release notes" 检查会失败。
-2. 更新 `packages/cli/package.json` 中的版本号。
+2. 更新 `packages/cli/package.json` **以及** `Cargo.toml` 中 `[workspace.package]` 的版本号，然后运行 `cargo update --workspace`（使用 `--locked` 时，在更新 lock 之前构建会失败）。二进制程序报告的是 Cargo 版本，各个包也从这里取版本号。
 3. **必须重新渲染镜像，不是可选步骤：**
 
 ```bash
-   bun run --filter navori build && node packages/cli/dist/index.js render --apply
-
-
+   cargo build --release -p navori-cli && target/release/navori-rust render --apply
 ```
    每个 managed block 的标记都会记录 CLI 版本，因此第 2 步的版本更新会让整个仓库的已渲染镜像过时。从 0.6.0 升到 0.6.1 时，`.claude/` 和 `CLAUDE.md` 中共有 **30 个文件**受影响。跳过这一步会让 tag 指向不一致的树，并导致发布后 `main` 上的第一次 CI 失败（`bun run check:render`，#421）。走 PR 流程可以在合并前发现问题；直接 push 时就没有这道检查。
 4. 提交 `chore(release): navori vX.Y.Z`，同时包含版本更新**和**第 3 步的重新渲染。推送到 `dev`，并像其他 ticket 一样创建指向 `dev` 的 PR。
@@ -199,7 +224,18 @@ node packages/cli/dist/index.js init --cwd /ruta/a/un/repo
    之所以自动化，是因为 **0.8.4 和 0.8.5** 都漏掉了这一步，而且第二次漏掉时，准确命令已经写在这里。影响会延迟出现且不易察觉：`check-asset-commands.mjs` 会与最新 tag 比较，因此没有 tag 的发布会拿前一个版本做校验。仓库已经是 0.8.4，它却仍会报告“存在于 v0.8.3”，而检查不会失败。
 
    如需手动执行：`git tag -a vX.Y.Z <第 6 步之后 main 的 HEAD> && git push origin vX.Y.Z`。在 `dev` → `main` 流程启用前发布的 tag 直接指向 `chore(release)` 提交，例如 `v0.8.2` → `285fa51` 和 `v0.8.3` → `6f32a00`。
-8. 合并后在 `main` 上，于 `packages/cli` 中运行 `npm publish`（先执行 `npm login`；`prepack` 会构建 `dist/`）。用 `npm view navori version` 确认。
+8. 合并后在 `main` 上，从发布提交对应的 `rust-release.yml` 运行产物（`navori-<platform>`、`navori-legacy`、`npm-packages`）发布，而不是从 `packages/cli` 发布（先执行 `npm login`）。每个包都以 `--tag next` 发布，因此 `npm i -g navori` 不会拿到发布到一半的版本；`latest` 只在最后移动，顺序如下：
+   1. `node scripts/js/dist-assemble.mjs check-pin` 输出 `packaging/legacy.json is complete`。
+   2. `navori-legacy`：用 `node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir>` 重新构建（integrity 与固定值不一致时会失败）并发布。`npm view navori-legacy@X.Y.Z dist.integrity` 必须等于固定文件中的 `integrity`。
+   3. 从 `npm-packages/` 发布四个平台包（`navori-darwin-arm64`、`navori-darwin-x64`、`navori-linux-arm64`、`navori-linux-x64`）。
+   4. 对这五个包执行 `npm view <package>@X.Y.Z version`。缺少任何一个都不要发布 `navori`。
+   5. `navori`：`dist-assemble.mjs --out <dir> --pack` 加上每个平台一个 `--binary <platform>=<path>`，会从 npm 下载 `navori-legacy` 并对照固定值校验；然后发布该 tarball。
+   6. 在临时目录中做冒烟测试：`npm i navori@next`；`npx navori --version` 输出 `X.Y.Z`，`npx navori workspace ls` 由内嵌的 TypeScript CLI 响应，`scripts/js/dist-legacy-smoke.mjs` 使用已安装的二进制和从 registry 下载的 legacy tarball 通过。
+   7. 按相同顺序（legacy、平台包、最后 `navori`）执行 `npm dist-tag add <package>@X.Y.Z latest`，再执行 `npm view navori version`。
+
+   绝不使用 `npm unpublish`。第 7 步之前出错：修复后发布下一个补丁版本。第 7 步之后出错：`npm dist-tag add navori@<previous> latest` 让用户回到上一版本，并用 `npm deprecate` 标记出错的版本。npm 不允许重新发布同一版本：`navori` 固定了平台包和 legacy 的确切版本，因此其中任何一个出错，都需要发布整套包的下一个版本。
+
+   `packaging/legacy.json` 固定了冻结的 TypeScript CLI（`navori-legacy`），该包会在永久委托和无二进制的平台上运行它。它在切换之前通过 `dist-assemble.mjs legacy ... --write-pin` 构建，并在第 8 步中最先发布；组装时会校验其 `integrity`。只有在明确决定后才修改它。
 
 Website 页脚通过导入 CLI 的 `package.json` 显示版本（`apps/website/src/components/Footer.astro`）；`deploy-website.yml` 的 `paths` 过滤器也会监视该文件，所以第 2 步的版本更新会触发网站重新部署。**如果网站显示旧版本，首先检查这个过滤器**：在 0.8.4 之前，它没有包含 CLI manifest，导致网站落后两个版本；npm 已发布 0.8.4 时，网站仍显示 `v0.8.2`。
 

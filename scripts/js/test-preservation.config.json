@@ -7,6 +7,31 @@
         {
           "title": "a full label added after opening starts the suite and other labels start nothing (#1551)",
           "reason": "Renamed by #1562: a run for another label now repeats checks instead of skipping it, so the title says other labels only repeat checks."
+        },
+        {
+          "title": "writes actual boolean GitHub outputs and rejects malformed plans",
+          "reason": "Spec 0062 T10: the `plan` job and its affected-tests plan left ci.yml with the TS suite; nothing writes that output any more."
+        },
+        {
+          "title": "push corre shards y merge, PR corre afectados salvo hub o main",
+          "reason": "Spec 0062 T10: the sharded coverage, merge and affected jobs left ci.yml with the TS suite; the replacement title asserts the Rust gate in `checks` and the `asset-suites` job."
+        }
+      ]
+    },
+    {
+      "path": "packages/cli/src/__tests__/repo-config-gate.test.ts",
+      "removedCases": [
+        {
+          "title": "check:fast runs the scans, lint, format and typecheck (anti-false-green)",
+          "reason": "Spec 0062 T10: renamed, check:fast no longer runs the TS lint or typecheck; the new title says so."
+        },
+        {
+          "title": "the quality job still runs the tests with coverage",
+          "reason": "Spec 0062 T10: the sharded coverage jobs left ci.yml with the TS suite; the asset-suites test asserts what CI runs instead."
+        },
+        {
+          "title": "does not count %s as equivalent aggregate coverage",
+          "reason": "Spec 0062 T10: hasAggregateCoverage and the shard/merge jobs it policed were removed with the TS suite."
         }
       ]
     },

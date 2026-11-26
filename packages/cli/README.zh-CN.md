@@ -348,6 +348,15 @@ Navori 不会猜测——它会询问，或使用 `--scout=<model> --scout-effor
 
 每个 session 都会加载 `progress/current.md`，因此它有大小上限。pre-commit hook 会阻止 agent 提交：如果文件超出硬上限，或已超限时仍继续增长（人工提交不受阻止）。`navori doctor` 使用相同上限按字节测量并发出警告；session-start hook 超过软上限时也会警告，但不会阻止。
 
+## 迁移到 0.13
+
+- 你的仓库无需任何改动。执行 `npm i -g navori@0.13` 后，`navori --version` 应输出 `0.13.0`。Node.js 最低版本仍为 >= 22.12。
+- CLI 现为原生二进制程序，支持 macOS（arm64、x64）和 Linux（arm64、x64）。npm 通过可选的平台包（`navori-<os>-<cpu>`）安装它，postinstall 会用它替换 JS bin。postinstall 未运行时（pnpm、`--ignore-scripts`），JS 启动器会启动同一个二进制程序。在其他平台上，或跳过可选依赖时，该包会运行随包发布的冻结 TypeScript CLI。
+- 部分命令仍由该冻结的 TypeScript CLI 处理，无需另行安装：`master`、`codex`、`workspace`、`ticket`、`registry`、`audit` 的大部分功能，以及在 0.13.x 中移植完成之前的 `init`、`add`、`configure`、`update`、`refresh`、`receipt` 和 `gate`、`tools` 的大部分功能。
+- 安装了平台二进制时，已移植的钩子在 Claude Code 和 Pi 中以原生方式裁决；否则运行渲染出的 shell 主体，裁决相同。渲染出的钩子在 managed block 之前带有一行 `navori:native-hook` 签名。
+- 当受管理的文件含有 git 冲突标记时，`render`、`sync` 和 `remove` 会拒绝写入并列出这些文件；`--force` 也无法绕过。解决冲突后重新运行该命令。
+- `navori.config.json` 中的 `claudePlugins` 用于声明 Claude Code 插件，`render` 会将 `enabledPlugins` 写入 `.claude/settings.json`。
+
 ## 迁移到 0.12
 
 - `global` 命令和 launchd collector 已移除（`audit --collect` 保留）。`doctor --json` 不再输出 `globalScope`。

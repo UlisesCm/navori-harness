@@ -191,41 +191,23 @@ function jobBody(job: string): string {
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
-/** Only a complete shard + aggregate invocation of the local wrapper counts as coverage. */
-function hasAggregateCoverage(shards: string, merge: string, script: string): boolean {
-  return (
-    script === "node scripts/run-test-coverage.mjs" &&
-    /^\s*run: node packages\/cli\/scripts\/run-test-coverage\.mjs --shard \$\{\{ matrix\.shard \}\}\/4\s*$/m.test(
-      shards,
-    ) &&
-    /^\s*run: node packages\/cli\/scripts\/run-test-coverage\.mjs --merge \.vitest-reports --shards 4\s*$/m.test(
-      merge,
-    )
-  );
+/** The root package.json script `name`, or "" when it does not exist. */
+function rootScripts(name: string): string {
+  const pkg = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"),
+  ) as RootPackageJson;
+  return pkg.scripts?.[name] ?? "";
 }
 
-/** Checks across the full CI path; coverage is normalized only for the same wrapper in both modes. */
+/** Checks across the whole CI path: the required `checks` job plus the asset suites. */
 function ciChecks(job?: string): Set<string> {
-  const jobs = job ? [job] : ["checks", "test", "test-merge"];
+  const jobs = job ? [job] : ["checks", "asset-suites"];
   const checks = new Set<string>();
   for (const name of jobs) {
     const runs = [...jobBody(name).matchAll(/^\s*run: (.+)$/gm)].flatMap((m) => m[1] ?? []);
     for (const run of runs) {
       for (const m of run.matchAll(BUN_INVOCATION)) checks.add(checkKey(m));
     }
-  }
-  if (!job) {
-    const cliPkg = JSON.parse(
-      readFileSync(resolve(REPO_ROOT, "packages/cli/package.json"), "utf-8"),
-    ) as RootPackageJson;
-    if (
-      hasAggregateCoverage(
-        jobBody("test"),
-        jobBody("test-merge"),
-        cliPkg.scripts?.["test:coverage"] ?? "",
-      )
-    )
-      checks.add("test:coverage");
   }
   return checks;
 }
@@ -249,7 +231,12 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
     // A parser that silently matched nothing would report "the gate covers
     // everything" — the exact false green this suite exists to prevent.
     expect([...ci]).toEqual(
-      expect.arrayContaining(["check:render", "check:assets:ci", "format:check", "lint"]),
+      expect.arrayContaining([
+        "check:render",
+        "check:assets:ci",
+        "format:check",
+        "check:post-cutover",
+      ]),
     );
     expect(ci.size).toBeGreaterThanOrEqual(7);
     expect(uncovered(new Set([...ci, "sast:scan"]), gate, EXEMPT_FROM_LOCAL_GATE)).toEqual([
@@ -259,7 +246,7 @@ describe("qualityGate.full covers what CI gates on (#508.1)", () => {
 
   it("the gate parser reads the declared command (anti-false-green)", () => {
     expect(declaredGate).not.toBe("");
-    expect([...gate]).toContain("lint");
+    expect([...gate]).toContain("check:post-cutover");
     expect(gate.size).toBeGreaterThanOrEqual(5);
   });
 
@@ -450,9 +437,9 @@ describe("pre-commit and CI's dev tier run no tests", () => {
   const fast = gateChecks(rootPkg.scripts?.["check:fast"] ?? "");
   const full = gateChecks(readConfig(CONFIG_PATH).qualityGate?.full ?? "");
 
-  it("check:fast runs the scans, lint, format and typecheck (anti-false-green)", () => {
+  it("check:fast runs the scans and the format check, no TS lint or typecheck (anti-false-green)", () => {
     expect([...fast].sort()).toEqual(
-      ["check:ast", "check:dup", "check:deps", "format:check", "lint", "typecheck"].sort(),
+      ["check:ast", "check:dup", "check:deps", "format:check"].sort(),
     );
   });
 
@@ -477,23 +464,11 @@ describe("pre-commit and CI's dev tier run no tests", () => {
   });
 
   // Covers: R23 R25
-  it("the quality job still runs the tests with coverage", () => {
-    expect([...ciChecks()]).toContain("test:coverage");
-    const shards = jobBody("test");
-    const merge = jobBody("test-merge");
-    expect(shards).toContain("fail-fast: false");
-    expect(shards).toContain("shard: [1, 2, 3, 4]");
-    expect(shards).toContain("name: vitest-shard-${{ matrix.shard }}");
-    expect(shards).toContain("path: packages/cli/.vitest-reports/");
-    expect(shards).toContain("include-hidden-files: true");
-    expect(shards).toContain("if-no-files-found: error");
-    expect(merge).toContain("needs: [test]");
-    expect(merge).toContain("!cancelled() && needs.test.result != 'skipped'");
-    expect(merge).toContain("SHARD_RESULT: ${{ needs.test.result }}");
-    expect(merge).toContain('run: test "$SHARD_RESULT" = success');
-    expect(merge).toContain("pattern: vitest-shard-*");
-    expect(merge).toContain("merge-multiple: true");
-    expect(merge).toContain("path: packages/cli/.vitest-reports/");
+  it("the asset-suites job runs the explicit asset list and no coverage suite", () => {
+    const assets = jobBody("asset-suites");
+    expect(assets).toMatch(/^\s*run: bun run test:assets$/m);
+    expect(assets).not.toMatch(/test:coverage|run-test-coverage|--shard/);
+    expect(rootScripts("test:assets")).toBe("node scripts/js/asset-suites.mjs");
   });
 
   // Covers: R23 R24
@@ -502,51 +477,11 @@ describe("pre-commit and CI's dev tier run no tests", () => {
     expect(workflow).toContain("branches: [main, dev]");
     expect(workflow).toMatch(/^  pull_request:/m);
     expect(jobBody("checks")).not.toMatch(/^ {4}needs:/m);
-    const shards = jobBody("test");
-    expect(shards).toContain("needs: [plan]");
-    expect(shards).toContain("!cancelled()");
-    expect(shards).toContain("github.event_name == 'push' || github.base_ref == 'main'");
-    expect(shards).toContain(
-      "needs.plan.result == 'success' && (needs.plan.outputs.full == 'true' ||",
-    );
-    // A `full` label forces the full suite on a PR to dev (#1492).
-    expect(shards).toContain("contains(github.event.pull_request.labels.*.name, 'full')");
-    const plan = jobBody("plan");
-    expect(plan).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
-    expect(plan).toContain("full: ${{ steps.plan.outputs.full }}");
-    // The diff base is fixed at the event: a merge to dev mid-run must not change the plan (#1566).
-    expect(plan).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
-    expect(plan).not.toContain("origin/${{ github.base_ref }}");
-    expect(plan).toContain("node packages/cli/scripts/test-affected.mjs --plan-json");
-    const affected = jobBody("affected");
-    expect(affected).toContain("needs: [plan]");
-    expect(affected).toContain("github.event_name == 'pull_request' && github.base_ref == 'dev'");
-    expect(affected).toContain(
-      "needs.plan.result == 'success' && needs.plan.outputs.full == 'false'",
-    );
-    expect(affected).toContain("NAVORI_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}");
-    expect(affected).not.toContain("origin/${{ github.base_ref }}");
-    expect(affected).toMatch(/^\s*run: node packages\/cli\/scripts\/test-affected\.mjs$/m);
-    expect(affected).toContain(
-      'check-test-budget.mjs --report "$RUNNER_TEMP/vitest-affected.json"',
-    );
+    // The TS suite jobs left with the cutover; nothing in ci.yml plans or shards tests any more.
+    for (const gone of ["plan", "test", "test-merge", "affected"]) {
+      expect(workflow).not.toMatch(new RegExp(`^ {2}${gone}:$`, "m"));
+    }
   });
-
-  // Covers: R23 R25
-  it.each(["missing shard", "missing merge", "raw vitest", "different wrapper"])(
-    "does not count %s as equivalent aggregate coverage",
-    (mutation: string) => {
-      const shards = mutation === "missing shard" ? "" : jobBody("test");
-      const merge = mutation === "missing merge" ? "" : jobBody("test-merge");
-      const script =
-        mutation === "raw vitest"
-          ? "vitest run --coverage"
-          : mutation === "different wrapper"
-            ? "node scripts/other-coverage.mjs"
-            : "node scripts/run-test-coverage.mjs";
-      expect(hasAggregateCoverage(shards, merge, script)).toBe(false);
-    },
-  );
 
   it("the semgrep job is main-only, digest-pinned and blocks only on new findings", () => {
     const semgrep = jobBody("semgrep");

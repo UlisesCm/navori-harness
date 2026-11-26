@@ -102,6 +102,24 @@ describe("renderCodexEngine — workspace bajo `root` (spec 0043 T11)", () => {
     expect(existsSync(join(ws, ".agents"))).toBe(false);
   });
 
+  it("un hook con firma nativa y texto del usuario fuera del bloque se conserva", () => {
+    // Covers: R8
+    writeMonorepo("full");
+    expect(apply().ok).toBe(true);
+    const hooks = join(cwd, "apps/backend/.codex/hooks");
+    const signed = readdirSync(hooks)
+      .map((name) => join(hooks, name))
+      .find((path) => readFileSync(path, "utf-8").startsWith("# navori:native-hook v=1 "));
+    expect(signed, "a natively wired hook in the workspace").toBeDefined();
+    writeFileSync(signed!, `${readFileSync(signed!, "utf-8")}# mine\n`);
+
+    writeMonorepo("root");
+    expect(apply().ok).toBe(true);
+
+    // Only the signature line is navori's to discount: the user's line keeps the file.
+    expect(readFileSync(signed!, "utf-8")).toContain("# mine\n");
+  });
+
   it("la raíz recibe lo subido en `.agents/skills`", () => {
     // Covers: R8, R5
     writeMonorepo("root");

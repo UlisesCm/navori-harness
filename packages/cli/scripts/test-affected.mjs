@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMain } from "./is-main.mjs";
 // Root-level utilities stay outside the package's TypeScript rootDir (as in bench-tests.mjs).
 /** @type {{ buildGraph: (sources: Record<string, string>) => Map<string, string[]>, HUB_FRACTION: number }} */
 const { buildGraph, HUB_FRACTION } = await import(
@@ -357,7 +358,7 @@ function main() {
   return vitest(affectedVitestArgs(plan));
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   try {
     process.exitCode = main();
   } catch (error) {

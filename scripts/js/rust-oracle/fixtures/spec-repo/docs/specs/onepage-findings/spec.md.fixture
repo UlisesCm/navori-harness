@@ -1,0 +1,39 @@
+# Export
+
+## OUTCOME
+
+   
+
+## Outcome: again
+
+Not a section: the colon breaks the alias.
+
+## Acceptance Script
+
+- open the app
+- export a file
+
+## States
+
+- Empty: nothing to export.
+- Error: the export fails.
+
+## Environment and data (staging)
+
+Staging.
+
+## Out of Scope
+
+Imports.
+
+## Tasks
+
+- [ ] Bump the exporter to 2.4.1
+- [ ] Edit packages/cli/src/export.ts
+- [ ] Call exportAll(opts) from the menu
+- [X] The user downloads a CSV
+- The user sees progress
+2. The user cancels
+3. The user retries
+4. The user sees a summary
+5. The user shares the file

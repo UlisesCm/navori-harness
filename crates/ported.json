@@ -1,0 +1,212 @@
+{
+  "schema": 2,
+  "commands": [
+    { "path": ["--version"] },
+    { "path": ["--help"] },
+    {
+      "path": ["render"],
+      "flags": ["cwd", "dry-run", "json", "apply", "force"],
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
+    },
+    { "path": ["adopt"], "flags": ["apply", "cwd"] },
+    { "path": ["scan"], "flags": ["cwd", "yes"] },
+    { "path": ["status"], "flags": ["cwd", "json"] },
+    { "path": ["doctor"], "flags": ["cwd", "strict"] },
+    {
+      "path": ["sync"],
+      "flags": ["cwd", "dry-run", "apply", "yes", "json", "accept-new", "keep-mine", "accept-new-files"],
+      "requires": [["apply"], ["yes"], ["dry-run"], ["json"], ["accept-new"], ["keep-mine"], ["accept-new-files"]],
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
+    },
+    {
+      "path": ["remove"],
+      "flags": ["cwd", "yes"],
+      "requires": [["yes"]],
+      "when": { "engines": ["claude", "agents-md", "cursor", "copilot", "codex", "pi"] }
+    },
+    { "path": ["audit"], "flags": ["arm", "cwd", "host", "json"], "requires": [["arm"]] },
+    { "path": ["audit"], "flags": ["disarm", "cwd", "json"], "requires": [["disarm"]] },
+    { "path": ["gate", "foreign"], "flags": ["cwd"] },
+    { "path": ["gate", "probe"], "flags": ["index", "clean", "cwd"] },
+    { "path": ["plan", "gate"] },
+    {
+      "path": ["plan", "classify"],
+      "flags": [
+        "bug-without-root-cause",
+        "bugWithoutRootCause",
+        "critical-area",
+        "criticalArea",
+        "cwd",
+        "data-schema-migration",
+        "dataSchemaMigration",
+        "diff",
+        "dir",
+        "files",
+        "h",
+        "help",
+        "json",
+        "money-credentials-pii",
+        "moneyCredentialsPii",
+        "multi-repo",
+        "multiRepo",
+        "new-external-dependency",
+        "newExternalDependency",
+        "shared-contract",
+        "sharedContract"
+      ]
+    },
+    { "path": ["plan", "check"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["plan", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["plan", "update"], "flags": ["cwd", "date", "decision", "dir", "h", "help", "json", "progress"] },
+    { "path": ["plan", "escalation-reset"], "flags": ["approved-by", "cwd", "dir", "h", "help", "json", "reason"] },
+    {
+      "path": ["plan", "acknowledge"],
+      "flags": [
+        "authorization-id",
+        "continue-after",
+        "cwd",
+        "decision",
+        "h",
+        "help",
+        "inspect",
+        "json",
+        "opening",
+        "snapshot"
+      ]
+    },
+    { "path": ["plan", "resume"], "flags": ["h", "help", "json"] },
+    { "path": ["plan"], "flags": ["h", "help"] },
+    { "path": ["dominio", "inject"] },
+    { "path": ["dominio", "init"], "flags": ["h", "help", "workspace"] },
+    { "path": ["dominio", "list"], "flags": ["h", "help", "workspace"] },
+    { "path": ["dominio", "show"], "flags": ["h", "help", "workspace"] },
+    { "path": ["dominio", "reindex"], "flags": ["h", "help", "workspace"] },
+    { "path": ["dominio", "doctor"], "flags": ["h", "help", "workspace"] },
+    { "path": ["dominio"], "flags": ["h", "help"] },
+    { "path": ["backup", "list"], "flags": ["h", "help", "json", "limit"] },
+    { "path": ["backup", "restore"], "flags": ["cwd", "h", "help", "yes"] },
+    { "path": ["backup", "prune"], "flags": ["days", "h", "help", "max-mb"] },
+    { "path": ["backup"], "flags": ["h", "help"] },
+    { "path": ["migrations", "list"], "flags": ["h", "help", "json", "limit"] },
+    { "path": ["migrations", "restore"], "flags": ["cwd", "h", "help", "yes"] },
+    { "path": ["migrations"], "flags": ["h", "help", "json", "limit"] },
+    { "path": ["preset", "init"], "flags": ["cwd", "h", "help"] },
+    { "path": ["preset"], "flags": ["h", "help"] },
+    { "path": ["tools", "notice"], "flags": ["ack"] },
+    { "path": ["tools", "session-context"], "flags": ["notice-reserve"] },
+    { "path": ["spec", "classify"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec", "check"], "flags": ["cwd", "h", "help", "json"] },
+    { "path": ["spec"], "flags": ["h", "help"] },
+    { "path": ["handoff", "check"], "flags": ["cwd", "dir", "for", "h", "help", "json", "parallel", "produced-by", "since", "target"] },
+    { "path": ["handoff", "render"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff", "log-review"], "flags": ["cwd", "dir", "h", "help", "json"] },
+    { "path": ["handoff", "attest"], "flags": ["dir", "h", "help", "json", "target"] },
+    { "path": ["handoff", "prepare-parallel"], "flags": ["dir", "h", "help", "json", "request", "supersede", "target"] },
+    { "path": ["handoff", "begin-parallel"], "flags": ["dir", "h", "help", "json", "run", "target"] },
+    { "path": ["handoff", "complete-parallel"], "flags": ["dir", "h", "help", "json", "reason", "run", "status", "target"] },
+    { "path": ["handoff", "finalize-parallel"], "flags": ["dir", "h", "help", "json", "target"] },
+    { "path": ["handoff"], "flags": ["h", "help"] }
+  ],
+  "hooks": {
+    "guard-destructive": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "guard-destructive-base": "sha256:c8dcda5ec6fc4d533785ffb60a0c959344c45a5020d71b0b16ef9be24271a4f3",
+        "tgrep-search-lane": "sha256:40c5028ff66f79e674daa948e7ad0c5e5a21fe1001cdcd8054179b3a66d0d484"
+      },
+      "deps": {
+        "scripts/guard-search-routing.sh": "sha256:ae09f92a67ec3e6c796fbcf64fb59828f040ae71f57334341f9d1bdb90116b21"
+      },
+      "impl": "sha256:9f552f75026991674fb652909e2187aba6c6dc25ca1d2d91b0ba8fc4f9f2a807"
+    },
+    "subagent-no-background": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "subagent-no-background-base": "sha256:7a66430b90ea3006bfa6f7c3e9643e8c0de8532e7029bb6712e9adab2d4ee119"
+      },
+      "impl": "sha256:61722caa43e1b7547b76a24f025caab0784b2b2a62b205452f2f59e42a217021"
+    },
+    "quality-gate-pre-commit": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "qg-pre-commit-base": "sha256:afa3b41f46d37ba5881816702e1cdd4f692d6e1c06c81086ee8d8c5109737025"
+      },
+      "impl": "sha256:211d47623f6a22e6d0adf965449ec0b6caa9fe08aa85a962b07df142a4bbf951"
+    },
+    "plan-gate": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "plan-gate-base": "sha256:a189e8f4d1921bfa2d6fb2e22722e0ac476245d40298a11eba23182a162c636b"
+      },
+      "impl": "sha256:d4376269796260e6a1ad4ad738644cd3556180e65b18b9567ce471f124c8070a"
+    },
+    "session-start-context": {
+      "mode": "active",
+      "gating": false,
+      "blocks": {
+        "session-start-context-base": "sha256:1375d62cc3a3fd22ca8a6f84b1d9c63d6f9696648b308b81a1cbc2d744e3578c"
+      },
+      "impl": "sha256:99ccc7f103b2f1560012093731eac0f6fdbe33127218d851f6c4bb3e44b9ebc2"
+    },
+    "subagent-stop-handoff": {
+      "mode": "active",
+      "gating": false,
+      "blocks": {
+        "subagent-stop-handoff-base": "sha256:76644a2563e07c75229dd738f66acffe0a9311c94070b0caa49267be054310b0"
+      },
+      "impl": "sha256:afca09803078a862cb61c3a1986d37856ac93d15f9bce074181b46b96f982dd5"
+    },
+    "model-advisor": {
+      "mode": "active",
+      "gating": false,
+      "blocks": {
+        "model-advisor-base": "sha256:c7beeedd2c3d7d088b774b52bff13b4fabae0c279532f69eb5a0ae31d6916a30"
+      },
+      "impl": "sha256:0368e22e420f1b1f68b5e850a9c675cf34a3a9eb8cb0fc6c732f2cb823f8fe30"
+    },
+    "general-purpose-confirm": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "general-purpose-confirm-base": "sha256:a51c01bfedfc1a1aad2e8e360b84e88163d5be0352c742c360a3f27eff0543bf"
+      },
+      "impl": "sha256:4bd427e748eee6cfacd62e4a1ea000e8d55db91f4b42de19f566f793cc01a487"
+    },
+    "implementer-no-markdown": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "implementer-no-markdown-base": "sha256:ce00753f3e660e1510d91f2577841e57dcfba9df8006f84b2a0d3a38d9d71a7b"
+      },
+      "impl": "sha256:9a2a3e2daaba15a8caf5850fedc8c6358cc5d334c3bcb107d4c01125cd747459"
+    },
+    "comment-draft-confirm": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "comment-draft-confirm-base": "sha256:1802adfc799603cf0d22ce9197f38ca4e7c0409239bad1f674712bddd1d83173"
+      },
+      "impl": "sha256:cd9655219d8641d08c21230ac2525a1835f4e9f7c0540f27b646d52e99fe2eaf"
+    },
+    "pr-publisher-confirm": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "pr-publisher-confirm-base": "sha256:9dab29bb39731d62b2f67011b6afd2b0fb4ec4b26e089ef817ed7fbc1b9a13d3"
+      },
+      "impl": "sha256:590ccdecd8dbcdcb5a9777aa6ca555ea2a19fe9ff203928ff68655541aee4f34"
+    },
+    "pii-egress-guard": {
+      "mode": "active",
+      "gating": true,
+      "blocks": {
+        "pii-egress-guard-base": "sha256:4ff455a3d96947dabf37f1d7817ff20f3e177a36bc54dc248abab77b7c202eec"
+      },
+      "impl": "sha256:cf9d8687accd005ae91fd357082ff177f19bd905a907b52432f9439b73eda9ac"
+    }
+  }
+}

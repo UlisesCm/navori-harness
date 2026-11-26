@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -264,6 +264,58 @@ describe("check-render — harness mirror drift guard (#421)", () => {
     expect(check.status).toBe(1);
     expect(check.combined).toContain("refuses to overwrite");
     expect(check.combined).toContain(".claude/hooks/guard-destructive.sh");
+  });
+
+  describe("conflict markers in managed files (#1660)", () => {
+    const TRIPLE = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n";
+    const HOOK = ".claude/hooks/guard-destructive.sh";
+
+    it("exits non-zero naming a rendered hook that holds an unresolved conflict", () => {
+      const repo = seedRenderedRepo();
+      const hook = join(repo, HOOK);
+      writeFileSync(hook, `${TRIPLE}${readFileSync(hook, "utf-8")}`, "utf-8");
+
+      const check = runCheck(repo);
+      expect(check.status).toBe(1);
+      expect(check.combined).toContain("conflict markers (1)");
+      expect(check.combined).toContain(`${HOOK}:1`);
+      expect(check.combined).not.toContain("rebase-rerender");
+    });
+
+    it("ignores a conflict example inside a fenced block of a user skill", () => {
+      const repo = seedRenderedRepo();
+      const skill = join(repo, ".claude/skills/x/SKILL.md");
+      mkdirSync(join(repo, ".claude/skills/x"), { recursive: true });
+      writeFileSync(skill, `# x\n\n\`\`\`\n${TRIPLE}\`\`\`\n`, "utf-8");
+      const check = runCheck(repo);
+      expect(check.status, check.combined).toBe(0);
+    });
+
+    it("still flags the same triple outside a fence in a user skill", () => {
+      const repo = seedRenderedRepo();
+      const skill = join(repo, ".claude/skills/x/SKILL.md");
+      mkdirSync(join(repo, ".claude/skills/x"), { recursive: true });
+      writeFileSync(skill, `# x\n\n${TRIPLE}`, "utf-8");
+      const check = runCheck(repo);
+      expect(check.status).toBe(1);
+      expect(check.combined).toContain(".claude/skills/x/SKILL.md:3");
+    });
+
+    it("stays green on a clean mirror, and ignores a lone ======= underline", () => {
+      const repo = seedRenderedRepo();
+      writeFileSync(join(repo, ".gitignore"), "Title\n=======\n", { flag: "a" });
+      const check = runCheck(repo);
+      expect(check.status, check.combined).toBe(0);
+    });
+
+    it("never walks .claude/worktrees", () => {
+      const repo = seedRenderedRepo();
+      const nested = join(repo, ".claude/worktrees/x/.claude/hooks");
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(join(nested, "guard.sh"), TRIPLE, "utf-8");
+      const check = runCheck(repo);
+      expect(check.status, check.combined).toBe(0);
+    });
   });
 
   it("is RED (never a silent pass) when the render itself fails", () => {

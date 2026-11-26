@@ -108,9 +108,10 @@ function bash(command: string): Record<string, unknown> {
 
 /**
  * The same, with the `tool_response` the host really sends — the command's own
- * output. It exists to drive rung 2 of the write probe: rung 1 can only test
- * the whole payload, so a `>` printed by `git log --graph` reaches it, and only
- * the extracted COMMAND can settle the question.
+ * output. It checks that a `>` printed by `git log --graph` does not count:
+ * rung 1 probes the loaded COMMAND, so the output never reaches the stamp
+ * path (#1793); without the loaded command it falls back to the whole payload
+ * and rung 2 settles it on the extracted command.
  */
 function bashWithOutput(command: string, output: string): Record<string, unknown> {
   return {
@@ -606,6 +607,94 @@ describe("shell writes reach the threshold too (#722)", () => {
       bashWithOutput("ls -la", "total 8\ndrwxr-xr-x  4 u  s  128 > x\n"),
     ]);
     expect(runs.every((r) => r.stdout === "")).toBe(true);
+  });
+
+  it("rung 1 sondea el comando cargado, no la salida (#1793)", () => {
+    const four = (
+      mk: (cmd: string, out: string) => Record<string, unknown>,
+      out: string,
+    ): HookRun[] =>
+      play([
+        mk("echo x > src/a.ts", out),
+        mk("echo x > src/b.ts", out),
+        mk("echo x > src/c.ts", out),
+        mk("echo x > src/d.ts", out),
+      ]);
+
+    // '>' only in the output / description / cwd: leaves at rung 1, so the
+    // stamp DIRECTORY is never created (it did not exist before the run).
+    const leavesAtRung1 = (payloads: Record<string, unknown>[]): void => {
+      acrossShells((shell) => {
+        const cwd = freshProject();
+        expect(existsSync(stampDirFor(cwd))).toBe(false);
+        for (const p of payloads) expect(runHook(shell, cwd, p).stdout).toBe("");
+        expect(existsSync(stampDirFor(cwd))).toBe(false);
+        return [];
+      });
+    };
+    leavesAtRung1(
+      ["git log --graph", "ls -la", "cat notas.txt"].map((c) => bashWithOutput(c, "| > merged\n")),
+    );
+    leavesAtRung1([
+      {
+        session_id: SESSION,
+        tool_name: "Bash",
+        tool_input: { command: "ls -la", description: "list files > to check" },
+      },
+    ]);
+    leavesAtRung1([
+      {
+        session_id: SESSION,
+        tool_name: "Bash",
+        tool_input: { command: "ls -la" },
+        cwd: "/tmp/a>b",
+      },
+    ]);
+
+    // '>' in the command and empty output: counted.
+    expect(four(bashWithOutput, "")[3]?.stdout).toContain("4 distinct files");
+    // '>' in both: counted.
+    expect(four(bashWithOutput, "a > b\n")[3]?.stdout).toContain("4 distinct files");
+
+    // tee / sed -i in the command, output carrying '>': counted.
+    const mixed = play([
+      bashWithOutput("cat p | tee src/a.ts", "x > y"),
+      bashWithOutput("sed -i '' 's/a/b/' src/b.ts", "> z"),
+      bashWithOutput("cat p | tee src/c.ts", "> w"),
+      bashWithOutput("sed -i '' 's/a/b/' src/d.ts", "->"),
+    ]);
+    expect(mixed[3]?.stdout).toContain("4 distinct files");
+
+    // No tool_response (Pi shape): counted.
+    expect(four((c) => bash(c), "")[3]?.stdout).toContain("4 distinct files");
+
+    // tool_response BEFORE tool_input: still counted.
+    const reordered = (cmd: string): Record<string, unknown> => ({
+      session_id: SESSION,
+      tool_name: "Bash",
+      tool_response: { stdout: "", stderr: "", interrupted: false },
+      tool_input: { command: cmd },
+    });
+    expect(four((c) => reordered(c), "")[3]?.stdout).toContain("4 distinct files");
+  });
+
+  it("cost guard: un comando de ~300 KB no es cuadratico (#1793)", () => {
+    const big = "echo " + "a".repeat(300_000);
+    const timed = (payload: Record<string, unknown>, shell: HookShell): number => {
+      const t0 = Date.now();
+      runHook(shell, freshProject(), payload);
+      return Date.now() - t0;
+    };
+    acrossShells((shell) => {
+      // No write token: leaves at rung 1. Claude shape and Pi shape (no tool_response).
+      expect(timed(bashWithOutput(big, "x"), shell)).toBeLessThan(5000);
+      expect(timed(bash(big), shell)).toBeLessThan(5000);
+      return [];
+    });
+    // A large command that writes is still counted.
+    const writing = (n: string): string => `echo ${"a".repeat(300_000)} > src/${n}.ts`;
+    const runs = play(["a", "b", "c", "d"].map((n) => bash(writing(n))));
+    expect(runs[3]?.stdout).toContain("4 distinct files");
   });
 
   it("sigue contando las formas de escritura reales, una por una", () => {

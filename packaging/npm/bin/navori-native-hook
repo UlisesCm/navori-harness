@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+"use strict";
+// Replaced by the platform binary when the postinstall runs; without a binary it exits 127, so the
+// hook prologue runs its shell body. See ../lib/launcher.js.
+require("../lib/launcher.js").launch("navori-native-hook", require("node:path").join(__dirname, ".."));

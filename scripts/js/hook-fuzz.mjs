@@ -1,0 +1,863 @@
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { availableParallelism, homedir, release, setPriority, tmpdir } from "node:os";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+import { createScratch, firstDifference, runMode, signedAssets } from "./hook-verdict-replay.mjs";
+import { prepareRustReplay } from "./rust-hook-adapter.mjs";
+import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const MAX_CASES = 100_000;
+
+/**
+ * Spec 0057 T24 / R11-R12 — deterministic live differential. Rust always runs live; the shell
+ * oracle may come from a local cache keyed by the exact shell bytes, harness and host tools, and a
+ * deterministic ~1% of cache hits is re-run live (D9 amendment, 2026-10-28). Payloads that differ
+ * only in `session_id` are compared once: with audit off no rule reads it.
+ * Native active audit and productive shadow logging remain unavailable until their runtime lands.
+ *
+ * @typedef {{ seed: number, cases: number, hook: string, engine: "claude" | "codex" | "pi", shell: "bash" | "zsh", audit: "off" | "active", timeoutMs: number }} FuzzOptions
+ * @typedef {{ manifestPath?: string, binary?: string, scriptsRoot?: string, shellScript?: string, timeoutMs?: number }} ProcessFixtures
+ * @typedef {{ everyMs?: number, now?: () => number, report?: (compared: number, total: number, elapsedMs: number) => void }} ProgressOptions
+ * @typedef {{ shard?: { index: number, count: number }, cacheDir?: string, verifyEvery?: number }} RunOptions
+ * @typedef {{ jobs: number, cache: "on" | "off", priority: "low" | "normal", shard?: { index: number, count: number }, fixtures?: ProcessFixtures }} CliRun
+ */
+
+const PROGRESS_EVERY_MS = 10 * 60_000;
+
+/** Per-run deadline a protocol test injects through its fixtures (test-only seam, #1830). It
+ * replaces `--timeout-ms` for both runtimes, and `0` removes the wall-clock deadline, so a test
+ * that expects `ok: true` from trivial fixtures cannot fail because the host is loaded; the test
+ * runner's own timeout stays the hang detector. The CLI never sets fixtures (they are internal to a
+ * shard worker), so real runs keep their bounded deadline.
+ * @param {unknown} value
+ * @returns {number | undefined}
+ */
+function fixtureTimeout(value) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 60_000) throw new Error("fixture timeoutMs must be an integer between 0 and 60000");
+  return value;
+}
+
+/** One progress line: done/total, percent, elapsed and a linear estimate of what is left.
+ * @param {number} completed
+ * @param {number} total
+ * @param {number} elapsedMs
+ * @returns {string}
+ */
+export function progressLine(completed, total, elapsedMs) {
+  const minutes = (ms) => `${Math.round(ms / 60_000)}m`;
+  const left = completed === 0 ? "?" : minutes((elapsedMs / completed) * (total - completed));
+  return `hook-fuzz: ${completed}/${total} (${Math.floor((completed / total) * 100)}%) in ${minutes(elapsedMs)}, ~${left} left`;
+}
+
+/** Validate programmatic input as strictly as CLI arguments, before any process is launched.
+ * @param {Partial<FuzzOptions>} input
+ * @returns {FuzzOptions}
+ */
+function optionsOf(input) {
+  const options = { seed: 1, cases: 1000, hook: "subagent-no-background.sh", engine: "claude", shell: "bash", audit: "off", timeoutMs: 10_000, ...input };
+  if (!Number.isInteger(options.seed) || options.seed < 0 || options.seed > 0xffff_ffff) throw new Error("seed must be a uint32");
+  if (!Number.isInteger(options.cases) || options.cases < 1 || options.cases > MAX_CASES) throw new Error(`cases must be between 1 and ${MAX_CASES}`);
+  if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 60_000) throw new Error("timeout-ms must be between 1 and 60000");
+  if (!/^[A-Za-z0-9_-]+(?:\.sh)?$/.test(options.hook)) throw new Error("hook must be a single hook name");
+  if (!["claude", "codex", "pi"].includes(options.engine)) throw new Error("engine must be claude, codex or pi");
+  if (!["bash", "zsh"].includes(options.shell)) throw new Error("shell must be bash or zsh");
+  if (!["off", "active"].includes(options.audit)) throw new Error("audit must be off or active");
+  return { ...options, hook: options.hook.endsWith(".sh") ? options.hook : `${options.hook}.sh` };
+}
+
+/** Default worker count: half the cores, at most 8, so the host keeps headroom.
+ * @returns {number}
+ */
+function defaultJobs() {
+  return Math.min(8, Math.max(1, Math.floor(availableParallelism() / 2)));
+}
+
+/** Strict standalone CLI: every option has one value and may appear only once. `--shard` and
+ * `--fixtures` are internal: the parent passes them to its workers (fixtures only for protocol tests).
+ * @param {string[]} argv
+ * @returns {FuzzOptions & { run: CliRun }}
+ */
+export function parseFuzzArgs(argv) {
+  /** @type {Map<string, string>} */
+  const values = new Map();
+  const flags = ["--seed", "--cases", "--hook", "--engine", "--shell", "--audit", "--timeout-ms", "--jobs", "--cache", "--priority", "--shard", "--fixtures"];
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (!flags.includes(flag)) throw new Error(`unknown option ${flag}`);
+    if (values.has(flag)) throw new Error(`duplicate option ${flag}`);
+    const value = argv[++index];
+    if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`${flag} needs a value`);
+    if (["--seed", "--cases", "--timeout-ms", "--jobs"].includes(flag) && !/^(?:0|[1-9][0-9]*)$/.test(value)) throw new Error(`${flag} needs a decimal integer`);
+    values.set(flag, value);
+  }
+  const jobs = Number(values.get("--jobs") ?? defaultJobs());
+  if (jobs < 1 || jobs > 64) throw new Error("jobs must be between 1 and 64");
+  const cache = values.get("--cache") ?? "on";
+  if (cache !== "on" && cache !== "off") throw new Error("cache must be on or off");
+  const priority = values.get("--priority") ?? "low";
+  if (priority !== "low" && priority !== "normal") throw new Error("priority must be low or normal");
+  /** @type {CliRun} */
+  const run = { jobs, cache, priority };
+  const shard = values.get("--shard");
+  if (shard !== undefined) {
+    const match = /^(0|[1-9][0-9]*)\/([1-9][0-9]*)$/.exec(shard);
+    if (match === null || Number(match[1]) >= Number(match[2]) || Number(match[2]) > 64) throw new Error("shard must be k/N with k < N <= 64");
+    run.shard = { index: Number(match[1]), count: Number(match[2]) };
+  }
+  const fixtures = values.get("--fixtures");
+  if (fixtures !== undefined) {
+    if (shard === undefined) throw new Error("fixtures are internal to a shard worker");
+    run.fixtures = JSON.parse(fixtures);
+  }
+  const options = optionsOf({
+    seed: Number(values.get("--seed") ?? 1), cases: Number(values.get("--cases") ?? 1000),
+    timeoutMs: Number(values.get("--timeout-ms") ?? 10_000), hook: values.get("--hook") ?? "subagent-no-background.sh",
+    engine: values.get("--engine") ?? "claude", shell: values.get("--shell") ?? "bash", audit: values.get("--audit") ?? "off",
+  });
+  return { ...options, run };
+}
+
+/** Fixed uint32 LCG: the same seed always yields the same stream.
+ * @param {number} seed
+ * @returns {() => number}
+ */
+function lcg(seed) {
+  let state = seed >>> 0;
+  return () => (state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0);
+}
+
+/** Commands aimed at every guard-destructive rule, its near misses and inert spellings of both. */
+const GUARD_CORES = [
+  // 1: hook skipping, and the inert spellings of it.
+  "git commit --no-verify -m wip", "git commit -n -m x", "git -C . commit \"--no-verify\"", "git push --no-verify",
+  "git commit -m \"skip --no-verify later\"", "git commit -am fix",
+  // 2: force-push to the base branch, and the safe forms.
+  "git push --force origin main", "git push -f origin dev", "git push origin +main", "git push --force origin feature",
+  "git push --force-with-lease origin main", "git push origin main",
+  // 3 and 3b: recursive rm over root, home, system dirs, variables and the scratch root.
+  "rm -rf /", "rm -rf ~", "rm -rf $HOME", "rm -rf /usr", "rm -rf /tmp", "rm -rf \"$DIR\"", "rm -rf ${X}/",
+  "rm -rf ./dist", "rm -rf node_modules/.cache", "rm -rf /*", "rm -rf --no-preserve-root /", "rm -r -f @TMP@",
+  "rm file.txt", "rm -rf @REPO@/build",
+  // 4 and 5: fork bomb and block devices.
+  ":(){ :|:& };:", "dd if=/dev/zero of=/dev/sda", "cat x > /dev/disk2", "mkfs.ext4 /dev/sdb1", "echo x > /dev/null",
+  // 6, 6b and 6d: rewrites and copies onto navori-managed files.
+  "echo x > CLAUDE.md", "printf y >> AGENTS.md", "sed -i '' s/a/b/ .claude/settings.json", "tee .codex/config.toml",
+  "cat a > @REPO@/.claude/hooks/guard-destructive.sh", "cp x .claude/settings.json", "mv a AGENTS.md",
+  "install -m 644 f .claude/agents/scout.md", "ln -sf a CLAUDE.md", "cp CLAUDE.md /tmp/x", "echo x > notes.md",
+  // 6d inside "$(...)" and unreadable quoting (#1515, #1569).
+  "echo \"$(cp x .claude/settings.json)\"", "git commit -m \"$(cp x AGENTS.md; echo \"y\")\"",
+  "echo \"$(cat <<EOF\nx\nEOF\n)\"", "cp a \"unterminated", "echo \"$(cp a b",
+  // 6c: the Pi control plane and shared rules.
+  "pi --no-extensions", "echo x > .pi/settings.json", "engram delete obs-1", "pi --version",
+  // 7: whole-tree discards, from here and from elsewhere.
+  "git reset --hard", "git checkout -- .", "git clean -fdx", "git restore .", "git stash clear", "git clean -n",
+  "cd /tmp && git reset --hard", "git -C sub clean -fd", "git reset --soft HEAD~1",
+  // tgrep search lane.
+  "grep -rn foo .", "rg foo", "grep -R x src", "FOO=1 rg bar", "git grep foo", "grep foo package.json", "rg --files",
+  // Benign and inert content.
+  "ls -la", "bun run test", "echo hello", "git status", "cat README.md", "git log --oneline -3",
+  "gh pr create --body \"git push --force origin main\"", "cat <<'EOF'\nrm -rf /\nEOF", "echo 'rm -rf /'",
+];
+const GUARD_PREFIXES = ["", "", "", "sudo ", "env A=1 ", "command ", "\\", "time ", "(", "nohup "];
+const GUARD_JOINERS = [" && ", " || ", "; ", " | ", "\n", " & ", " \\\n  "];
+const GUARD_TAILS = ["", "", "", "", " # \u00f1\u{1f680}", " 2>&1", "\u0000x", "\n"];
+
+/** One guard-destructive payload: one to three rule segments under the payload's edge shapes.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function guardPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const segments = Array.from({ length: 1 + ((next() >>> 16) % 3) }, () => {
+    const prefix = pick(GUARD_PREFIXES);
+    return `${prefix}${pick(GUARD_CORES)}${prefix === "(" ? ")" : ""}`;
+  });
+  let command = segments[0];
+  for (const segment of segments.slice(1)) command += pick(GUARD_JOINERS) + segment;
+  command += pick(GUARD_TAILS);
+  const shape = (next() >>> 16) % 16;
+  const toolInput = shape === 0 ? { command: 7 } : shape === 1 ? { command: [command] } : shape === 2 ? {} : { command };
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: shape === 3 ? "Read" : "Bash",
+    tool_input: shape === 4 ? command : { ...toolInput, ...(shape === 5 ? { file_path: "a\u0000b" } : {}) },
+  };
+  if (shape !== 6) payload.cwd = shape === 7 ? "@REPO@/sub" : shape === 8 ? "" : "@CWD@";
+  return JSON.stringify(payload);
+}
+
+/** Role spellings around `general-purpose`: the exact role, near misses and other roles. */
+const GP_ROLES = ["general-purpose", "general-purpose", "scout", "implementer", "general-purpose-lite", "General-Purpose", "", " general-purpose", "general-purpose\n", "general\u0000purpose"];
+/** Non-text values the extractor must not read as the role. */
+const GP_ODD = [7, null, ["general-purpose"], { type: "general-purpose" }, true];
+
+/** One general-purpose-confirm payload: `subagent_type` and/or `agent_type`, odd values, and the
+ * substring elsewhere so the fast path passes without the role.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function gpConfirmPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const value = () => ((next() >>> 16) % 6 === 0 ? pick(GP_ODD) : pick(GP_ROLES));
+  const shape = (next() >>> 16) % 8;
+  /** @type {Record<string, unknown>} */
+  const input = {};
+  if (shape !== 1) input.subagent_type = value();
+  if (shape === 1 || shape === 2 || shape === 3) input.agent_type = value();
+  if (shape === 4) input.prompt = "use general-purpose for this";
+  if (shape === 5) input.command = "echo general-purpose";
+  if (shape === 6) input.message = pick(GP_ROLES);
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    tool_name: pick(["Agent", "spawn_agent", "Task", "Bash"]),
+    tool_input: shape === 7 ? pick(GP_ROLES) : input,
+  };
+  return JSON.stringify(payload);
+}
+
+/** Every form master-accept-confirm gates, its near misses and other commands. */
+const MA_CORES = [
+  "master part P1 --approved-by ana", "master part P1 --approved-by=ana --status done", "master part P1 --status done",
+  "master close", "master close --abandon --reason r", "master closer", "master close;",
+  "master delivery-baseline --approved-by ana", "master delivery-queue --approved-by=ana", "master delivery-queue",
+  "master delivery-review D1", "master delivery-decision D1", "master delivery-publication D1 --ref v1",
+  "master delivery-revoke D1", "master delivery-reviewer D1", "master delivery-criterion C1 --approved-by ana",
+  "master delivery-slice S1 --refresh", "master delivery-slice S1", "plan escalation-reset f --approved-by ana",
+  "plan escalation-reset f", "master status", "master advance",
+];
+/** How the command reaches `navori`: bare, a path, a version pin or a package runner. */
+const MA_RUNNERS = ["navori ", "navori ", "./node_modules/.bin/navori ", "navori@1.2.3 ", "npx navori ", "npx -y navori ", "bunx navori ", "pnpm exec navori ", "pnpm dlx navori ", "xnavori ", "echo navori "];
+const MA_WRAPS = [(c) => c, (c) => c, (c) => `cd x && ${c}`, (c) => `ls; ${c}`, (c) => `echo "${c}"`, (c) => `sh -c '${c}'`, (c) => `x=$(${c})`, (c) => `(${c})`, (c) => `cat <<EOF\n${c}\nEOF`, (c) => `FOO=1 ${c}`, (c) => `${c} | tee log`, (c) => c.replace(" master", "\\\n master"), (c) => c.replace("master", "mas\u00a0ter")];
+
+/** One master-accept-confirm payload: a gated form or a near miss, run through a wrapper.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function masterAcceptPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const command = pick(MA_WRAPS)(`${pick(MA_RUNNERS)}${pick(MA_CORES)}`);
+  const shape = (next() >>> 16) % 12;
+  const toolInput = shape === 0 ? { command: 7 } : shape === 1 ? { command: [command] } : shape === 2 ? {} : { command };
+  return JSON.stringify({
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: shape === 3 ? "Read" : "Bash",
+    tool_input: shape === 4 ? command : toolInput,
+  });
+}
+
+/** Paths an edit tool may name: Markdown and not, doctrine and not, relative, absolute and `..`. */
+const INM_PATHS = [
+  "docs/a.md", "README.MD", "notes.mdx", "src/a.ts", "a.md.bak", ".claude/agents/a.md", "./.claude/skills/x/SKILL.md",
+  "packages/core/core-assets/hooks/h.md", ".codex/orchestrator.md", ".codex/orchestrator.mdx", ".pi/navori/a.md",
+  "../.claude/agents/a.md", ".claude/agents/../x.md", "@CWD@/.claude/agents/a.md", "@CWD@/docs/a.md", "/elsewhere/.claude/agents/a.md", "",
+];
+/** Bash commands across the R4 rules, their near misses and the interpreter forms. */
+const INM_COMMANDS = [
+  "echo x > notes.md", "echo x >> NOTES.MD", "echo x >| a.mdx", "echo x > notes.md.bak", "cat notes.md", "cat a | tee -a b.md", "tee b.mdx < a",
+  "sed -i '' s/a/b/ a.md", "sed --in-place s/a/b/ a.md", "sed s/a/b/ a.md", "perl -pi -e s/a/b/ a.md", "cp a.txt b.md", "mv b.md a.txt", "mv tmp README.md",
+  "git commit -m 'update docs.md'", "ls *.md | wc -l", "bun run test",
+  `node -e 'require("fs").writeFileSync("a.md", "x")'`,
+  `node -e 'const fs = require("node:fs"); fs.writeFileSync("a.json", JSON.stringify({"files": ["a.md"]}) + "\\n");'`,
+  `node -e 'const fs = require("node:fs"); const p = "a.json"; const d = JSON.parse(fs.readFileSync(p, "utf8")); d.files = ["x.md"]; fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\\n");'`,
+  `python3 -c 'open("a.md", "w").write("x")'`,
+  `python3 -c 'import json; open("h.json", "w").write(json.dumps({"filesTouched": ["a.md"]}))'`,
+  "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.json').write_text('[\"a.md\"]')\nEOF",
+  "python3 - <<'EOF'\nfrom pathlib import Path\nPath('notes.md').write_text('x')\nEOF",
+  "ruby -e 'File.write(\"a.md\", 1)'", "bun -e 'Bun.write(\"a.md\", 1)'", "node script.js notes.md",
+  "python3 -c 'print(open(\"a.md\").read())'", "deno run x.ts > out.md", "python3 -c 'import shutil; shutil.copy(\"a\", \"b.md\")'",
+];
+
+/** One implementer-no-markdown payload: the agent, the tool and its path or command.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function implementerNoMarkdownPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const tool = pick(["Write", "Edit", "Write", "NotebookEdit", "Bash", "Bash", "Bash", "apply_patch", "Read", "Agent"]);
+  const path = pick(INM_PATHS);
+  /** @type {Record<string, unknown>} */
+  const input = {};
+  if (tool === "Bash") input.command = pick(INM_COMMANDS);
+  else if (tool === "apply_patch") input.command = `*** Begin Patch\n*** ${pick(["Add File", "Update File", "Delete File"])}: ${path}\n${next() & 1 ? `*** Move to: ${pick(INM_PATHS)}\n` : ""}*** End Patch`;
+  else if (tool === "NotebookEdit") input.notebook_path = path;
+  else input.file_path = path;
+  const payload = { session_id: `fuzz-${seed}-${index}`, hook_event_name: "PreToolUse", tool_name: tool, tool_input: input, cwd: "@CWD@" };
+  const agent = (next() >>> 16) % 8;
+  if (agent < 6) payload.agent_type = agent === 5 ? pick(["scribe", "reviewer", "Implementer", ""]) : "implementer";
+  return JSON.stringify(payload);
+}
+
+/** Draft sources the publish confirmations read: missing, plain, long, JSON (ADF) and `-`. */
+const DRAFT_FILES = ["@CWD@/missing.md", "@REPO@/README.md", "@REPO@/package.json", "@REPO@/LICENSE", "/etc/hosts", "-", "'@CWD@/a b.md'"];
+/** comment-draft-confirm rows, their near misses and the body forms each one reads. */
+const CDC_COMMANDS = [
+  "gh pr comment 5 --body-file @FILE@", "gh issue comment 5 -F @FILE@", "gh pr comment 5 --body 'hi'", "gh pr comment 5 -b hi", "gh pr comment 5",
+  "gh pr review 5 --approve", "gh pr review 5 --comment -b x", "gh pr review 5 --request-changes -F @FILE@", "gh pr review 5 -a --body-file=@FILE@",
+  "gh issue create --title t --body-file @FILE@", "gh issue create --title t",
+  "gh api graphql -f query='mutation { addComment(input: $i) { clientMutationId } }' -F body=@@FILE@",
+  "gh api graphql -f query='mutation { createIssue(input: $i) { issue { id } } }' -f body=x",
+  "gh api graphql --input @FILE@ -f query='mutation { updateIssueComment(input: $i) { clientMutationId } }'",
+  "gh api graphql -f query='query { viewer { login } }'",
+  "gh api repos/o/r/issues/1/comments -X POST -F body=@@FILE@", "gh api repos/o/r/issues -X POST --input @FILE@", "gh api -X PATCH repos/o/r/issues/1 -f state=closed",
+  "gh api repos/o/r/pulls/1/reviews --input @FILE@", "gh api repos/o/r/pulls/1/reviews", "gh api --method=GET repos/o/r/issues/1/comments",
+  "acli jira workitem comment create --key K-1 --body-file @FILE@", "acli jira workitem comment create --key K-1 --body x",
+  "acli jira workitem comment update --id 1 --body-adf @FILE@", "acli jira workitem comment update --id 1 -F @FILE@",
+  "gh pr view 5 --comments", "echo api review",
+];
+const PUBLISH_WRAPS = [(c) => c, (c) => c, (c) => `cd x && ${c}`, (c) => `${c}; echo done`, (c) => `x=$(${c})`, (c) => `echo "${c}"`];
+
+/** One payload of a publish confirmation: a command from `commands` with a draft file.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @param {string[]} commands
+ * @param {boolean} agents whether `agent_id`/`subagent_id` vary
+ * @returns {string}
+ */
+function publishPayload(next, seed, index, commands, agents) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const command = pick(PUBLISH_WRAPS)(pick(commands).replaceAll("@FILE@", () => pick(DRAFT_FILES)).replaceAll("@CWD@/a b.md", "a b.md"));
+  const shape = (next() >>> 16) % 10;
+  /** @type {Record<string, unknown>} */
+  const payload = { session_id: `fuzz-${seed}-${index}`, hook_event_name: "PreToolUse", tool_name: shape === 0 ? "Read" : "Bash", tool_input: shape === 1 ? { command: [command] } : { command } };
+  if (agents) {
+    const agent = (next() >>> 16) % 4;
+    if (agent === 1) payload.agent_id = "publisher-1";
+    if (agent === 2) payload.subagent_id = "child-1";
+  }
+  return JSON.stringify(payload);
+}
+
+/** role-guard: paths a role may or may not patch, relative, absolute, temp, `..` and review outputs. */
+const RG_PATHS = [
+  "specs/a.md", "specs-evil/a.md", ".navori/state/handoffs/review_f.md", ".navori/state/handoffs/x.json", "src/a.ts",
+  "specs/../src/a.ts", "./specs/b.md", "../outside.md", "/tmp/scratch.txt", "/var/tmp/x", "@CWD@/specs/c.md", "@CWD@",
+  "/etc/navori-fuzz.txt", "/elsewhere/.navori/state/handoffs/review_f.md", "",
+];
+const RG_ROLES = ["scout", "auditor", "reviewer", "publisher", "architect", "implementer", "scribe", "default", "mystery-role", ""];
+
+/** One role-guard payload: a role, a tool and, for apply_patch, one or two paths.
+ * @param {() => number} next
+ * @param {number} seed
+ * @param {number} index
+ * @returns {string}
+ */
+function roleGuardPayload(next, seed, index) {
+  const pick = (list) => list[(next() >>> 16) % list.length];
+  const tool = pick(["apply_patch", "apply_patch", "apply_patch", "spawn_agent", "functions.spawn_agent", "Bash", "mcp__engram__mem_save"]);
+  const headers = [`*** ${pick(["Add File", "Update File", "Delete File"])}: ${pick(RG_PATHS)}`];
+  if (next() & 1) headers.push(`*** Move to: ${pick(RG_PATHS)}`);
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    session_id: `fuzz-${seed}-${index}`,
+    hook_event_name: "PreToolUse",
+    tool_name: tool,
+    tool_input: { command: `*** Begin Patch\n${headers.join("\n")}\n*** End Patch`, agent_type: "scout" },
+    cwd: "@CWD@",
+  };
+  if ((next() >>> 16) % 6 !== 0) payload.agent_type = pick(RG_ROLES);
+  if (next() & 1) payload.agent_id = "019a0000-0000-4000-8000-000000000000";
+  return JSON.stringify(payload);
+}
+
+/** pr-publisher-confirm: `gh pr create` forms, their near misses and the body forms of the Pi arm. */
+const PRP_COMMANDS = [
+  "gh pr create --title t --body-file @FILE@", "gh pr create -t t -F @FILE@", "gh pr create --title t --body b", "gh pr create --fill",
+  "gh pr create", "gh pr createx", "gh pr list", "git commit -m 'create'", "GH_TOKEN=x gh pr create --draft",
+];
+
+/** Fixed uint32 LCG and a bounded payload grammar: malformed JSON plus tool/agent edge values.
+ * guard-destructive gets its own grammar over every rule; the others keep the original one.
+ * @param {number} seed
+ * @param {number} count
+ * @param {string} [hook]
+ * @returns {string[]}
+ */
+export function generatePayloads(seed, count, hook = "subagent-no-background.sh") {
+  optionsOf({ seed, cases: count });
+  const next = lcg(seed);
+  if (hook === "model-advisor.sh") {
+    // Spec 0059 T16: the fields its node block reads, under the mode `argsFor` assigns.
+    const pick = (list) => list[(next() >>> 16) % list.length];
+    const models = ["claude-opus-4", "claude-fable-5", "gpt-6-astra", "claude-sonnet-4", "OPUS-x", ""];
+    const levels = ["high", "medium", "xhigh", "max", 5, null];
+    const malformed = ["", "{", "[]", "{}", '"text"', "5"];
+    return Array.from({ length: count }, (_, index) => {
+      if (index % 11 === 0) return pick(malformed);
+      const payload = { model: pick(models), to_model: pick(models), scratchpad_dir: next() & 1 ? "@CWD@/scratch" : "" };
+      if (next() & 1) payload.effort = { level: pick(levels) };
+      if ((next() & 7) === 0) payload.agent_id = "child";
+      return JSON.stringify(payload);
+    });
+  }
+  if (hook === "guard-destructive.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":', '{"tool_input":{"command":"rm -rf /"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : guardPayload(next, seed, index),
+    );
+  }
+  if (hook === "role-guard.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"agent_type":"scout"', '{"agent_type":"scout","tool_name":"apply_patch"}'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : roleGuardPayload(next, seed, index),
+    );
+  }
+  if (hook === "comment-draft-confirm.sh" || hook === "pr-publisher-confirm.sh") {
+    const commented = hook === "comment-draft-confirm.sh";
+    const malformed = ["", "{", "null", "[]", "{}", "gh pr create", '{"tool_input":{"command":"gh pr comment 5 -b x"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0
+        ? malformed[(next() >>> 16) % malformed.length]
+        : publishPayload(next, seed, index, commented ? CDC_COMMANDS : PRP_COMMANDS, !commented),
+    );
+  }
+  if (hook === "implementer-no-markdown.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", '{"agent_type":"implementer"', '{"agent_type":"implementer","tool_name":"Write"}'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : implementerNoMarkdownPayload(next, seed, index),
+    );
+  }
+  if (hook === "master-accept-confirm.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", "navori master close", '{"tool_input":{"command":"navori master close"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : masterAcceptPayload(next, seed, index),
+    );
+  }
+  if (hook === "general-purpose-confirm.sh") {
+    const malformed = ["", "{", "null", "[]", "{}", "general-purpose", '{"tool_input":{"subagent_type":"general-purpose"'];
+    return Array.from({ length: count }, (_, index) =>
+      index % 11 === 0 ? malformed[(next() >>> 16) % malformed.length] : gpConfirmPayload(next, seed, index),
+    );
+  }
+  const tools = ["Bash", "Agent", "Task", "Read", "Write", "Edit"];
+  const commands = ["true", "git status", "git push --force origin main", "rm -rf /", "echo 'quoted'", "printf '%s' \"${HOME}\"", "cat file\npwd", "echo ñ🚀"];
+  const agents = ["scout", "implementer", "general-purpose", "unknown"];
+  const malformed = ["", "{", "null", "[]", "{}", '{"tool_input":'];
+  return Array.from({ length: count }, (_, index) => {
+    if (index % 11 === 0) return malformed[(next() >>> 16) % malformed.length];
+    return JSON.stringify({
+      session_id: `fuzz-${seed}-${index}`, cwd: "@CWD@", tool_name: tools[(next() >>> 16) % tools.length],
+      tool_input: { command: commands[(next() >>> 16) % commands.length], subagent_type: agents[(next() >>> 16) % agents.length], run_in_background: (next() & 1) === 1, file_path: "@REPO@/fixture.ts", content: `seed:${seed} case:${index}` },
+    });
+  });
+}
+
+/** The ported modes a mode-taking hook rotates through (spec 0059 D31: any other mode defers).
+ * @param {string} hook
+ * @param {number} index
+ * @returns {string[]}
+ */
+export function argsFor(hook, index) {
+  if (hook !== "model-advisor.sh") return [];
+  const modes = ["claude-session-start", "claude-post-model-switch", "claude-stop", "codex-session-start"];
+  return [modes[index % modes.length]];
+}
+
+/** Real bounded shell invocation for one generated payload; failures never become verdicts.
+ * @param {string} script
+ * @param {string} shell
+ * @param {{ input: string, cwd: string, env: Record<string, string> }} call
+ * @param {number} timeoutMs
+ * @returns {{ status: number, stdout: string, stderr: string }}
+ */
+function runShell(script, shell, call, timeoutMs) {
+  const result = spawnSync(shell, [script, ...(call.args ?? [])], { input: call.input, cwd: call.cwd, env: { ...process.env, ...call.env, NAVORI_HOOK_IMPL: "shell" }, shell: false, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 });
+  if (result.error !== undefined || result.signal !== null || result.status === null) {
+    throw new Error(`shell unavailable: ${result.error?.code ?? result.signal ?? "missing status"}`);
+  }
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  return { status: result.status, stdout: decoder.decode(result.stdout), stderr: decoder.decode(result.stderr) };
+}
+
+/** Comparison key of a payload: the payload without `session_id`. With audit off no rule reads
+ * it (the audit recorder is the only reader), so two payloads that differ only there are one case.
+ * @param {string} payload
+ * @returns {string}
+ */
+function caseKey(payload) {
+  try {
+    const value = JSON.parse(payload);
+    if (typeof value !== "object" || value === null || Array.isArray(value) || !("session_id" in value)) return payload;
+    const { session_id: _session, ...rest } = value;
+    return JSON.stringify(rest);
+  } catch {
+    return payload;
+  }
+}
+
+/** First occurrence of each comparison key, with how many generated payloads it stands for.
+ * @param {string[]} payloads
+ * @returns {Array<{ index: number, weight: number }>}
+ */
+export function uniqueCases(payloads) {
+  /** @type {Map<string, { index: number, weight: number }>} */
+  const seen = new Map();
+  payloads.forEach((payload, index) => {
+    const key = caseKey(payload);
+    const entry = seen.get(key);
+    if (entry === undefined) seen.set(key, { index, weight: 1 });
+    else entry.weight += 1;
+  });
+  return [...seen.values()];
+}
+
+/** Every file under `dir`, sorted, with its bytes: part of the shell cache fingerprint.
+ * @param {string} dir
+ * @returns {Array<[string, Buffer]>}
+ */
+function treeFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(entry.parentPath, entry.name))
+    .sort()
+    .map((file) => [relative(dir, file), readFileSync(file)]);
+}
+
+/** Everything a cached shell verdict depends on: the exact shell bytes (hook and sibling scripts),
+ * this harness, the host tools the hook may call, and the platform. A change in any of them opens
+ * a fresh cache; tools the key cannot see are caught by the live re-run sample.
+ * @param {{ shellScript: string, shell: string, engine: string, hook: string }} input
+ * @returns {string}
+ */
+function shellFingerprint({ shellScript, shell, engine, hook }) {
+  const hash = createHash("sha256");
+  const add = (label, value) => hash.update(`${label}\0`).update(value).update("\0");
+  add("schema", "1");
+  add("case", `${hook}\0${engine}\0${shell}`);
+  add("hook", readFileSync(shellScript));
+  for (const [name, bytes] of treeFiles(join(dirname(dirname(shellScript)), "scripts"))) add(`scripts/${name}`, bytes);
+  const here = fileURLToPath(import.meta.url);
+  for (const file of [here, join(dirname(here), "hook-verdict-replay.mjs")]) add(basename(file), readFileSync(file));
+  for (const [tool, args] of [[shell, ["--version"]], ["jq", ["--version"]], ["git", ["--version"]]]) {
+    const out = spawnSync(tool, args, { encoding: "utf8" });
+    add(`version:${tool}`, out.status === 0 ? out.stdout.split("\n")[0] : "missing");
+  }
+  for (const tool of ["jq", "git", "tgrep", "rg", "node", "navori"]) {
+    const out = spawnSync("/bin/sh", ["-c", `command -v ${tool}`], { encoding: "utf8" });
+    add(`path:${tool}`, out.status === 0 ? out.stdout.trim() : "missing");
+  }
+  add("platform", `${process.platform} ${process.arch} ${release()}`);
+  return hash.digest("hex").slice(0, 32);
+}
+
+/** Append-only shell verdict cache: one JSONL file per writer process, all read at start.
+ * @param {string} dir
+ * @param {string} tag
+ * @returns {{ get: (key: string) => object | undefined, put: (key: string, value: object) => void }}
+ */
+function openShellCache(dir, tag) {
+  /** @type {Map<string, object>} */
+  const entries = new Map();
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir).filter((n) => n.endsWith(".jsonl")).sort()) {
+      for (const line of readFileSync(join(dir, name), "utf8").split("\n")) {
+        if (line === "") continue;
+        try {
+          const { k, v } = JSON.parse(line);
+          if (typeof k === "string" && typeof v === "object" && v !== null && typeof v.status === "number") entries.set(k, v);
+        } catch {
+          // A torn last line from an interrupted run is skipped; the case runs live again.
+        }
+      }
+    }
+  }
+  const file = join(dir, `${tag}-${process.pid}.jsonl`);
+  return {
+    get: (key) => entries.get(key),
+    put: (key, value) => {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      appendFileSync(file, `${JSON.stringify({ k: key, v: value })}\n`);
+      entries.set(key, value);
+    },
+  };
+}
+
+/** Default cache root, outside the repo.
+ * @returns {string}
+ */
+function defaultCacheDir() {
+  return process.env.NAVORI_FUZZ_CACHE_DIR ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "navori", "hook-fuzz");
+}
+
+/**
+ * Compare each unique generated payload (see {@link uniqueCases}) against the shell oracle and
+ * DIRECT native execution. A full scratch snapshot is restored at the same path before each
+ * runtime, including HOME and TMPDIR. With `run.cacheDir` the shell verdict may come from the
+ * cache, and every `verifyEvery`-th hit (by key hash) is re-run live; a mismatch fails as a stale
+ * cache. With `run.shard` this process takes every N-th unique case. Process fixture paths are only
+ * for protocol tests; they never certify productive Rust parity.
+ *
+ * `completed` counts generated payloads covered (duplicates included); `compared` counts unique
+ * cases run; `cached` counts shell verdicts served by the cache.
+ *
+ * @param {Partial<FuzzOptions>} input
+ * @param {ProcessFixtures} [fixtures]
+ * @param {ProgressOptions} [progress] Off unless `everyMs` > 0 and `report` is given.
+ * @param {RunOptions} [run]
+ * @returns {Promise<{ ok: boolean, seed: number, completed: number, compared: number, cached: number, index?: number, payload?: string, difference?: object, failure?: string }>}
+ */
+export async function fuzzHooks(input, fixtures = {}, progress = {}, run = {}) {
+  const options = optionsOf(input);
+  const { everyMs = 0, now = Date.now, report } = progress;
+  const { shard = { index: 0, count: 1 }, cacheDir, verifyEvery = 100 } = run;
+  const startedAt = now();
+  let nextReportAt = startedAt + everyMs;
+  let completed = 0;
+  let compared = 0;
+  let cached = 0;
+  if (options.audit === "active") return { ok: false, seed: options.seed, completed, compared, cached, failure: "native unavailable: audit active requires CLI-writer fixtures and log replay support" };
+  const timeoutMs = fixtureTimeout(fixtures.timeoutMs) ?? options.timeoutMs;
+  let payload;
+  let index = 0;
+  let scratch;
+  let baselineRoot;
+  /** @type {string | undefined} */
+  let signed;
+  try {
+    const scriptsRoot = fixtures.scriptsRoot ?? process.env.NAVORI_RUST_HOOKS_DIR ?? (signed = await signedAssets());
+    const native = prepareRustReplay({ manifestPath: fixtures.manifestPath ?? join(REPO_ROOT, "crates", "ported.json"), binary: fixtures.binary ?? process.env.NAVORI_RUST_BIN ?? "navori-rust", scriptsRoot });
+    const prepared = native.resolveHook(options.hook, options.engine);
+    scratch = createScratch();
+    const enginePath = options.engine === "pi" ? ".pi/navori" : `.${options.engine}`;
+    // Only what a hook runs: its script and the engine's sibling scripts (manifest `deps`). The
+    // rest of a rendered engine tree would be copied again by every per-case restore.
+    const copyHook = (root) => {
+      mkdirSync(join(root, "hooks"), { recursive: true });
+      cpSync(prepared, join(root, "hooks", basename(prepared)));
+      const scripts = join(dirname(dirname(prepared)), "scripts");
+      if (existsSync(scripts)) cpSync(scripts, join(root, "scripts"), { recursive: true });
+    };
+    const nativeRoot = join(scratch.root, "native", enginePath);
+    copyHook(nativeRoot);
+    const nativeScript = join(nativeRoot, "hooks", basename(prepared));
+    // The shell runs the very bytes the binary verified (its own engine tree, sibling scripts
+    // included), under NAVORI_HOOK_IMPL=shell, so a rendered copy is compared with itself.
+    const shellRoot = join(scratch.root, "shell", enginePath);
+    const shellScript = join(shellRoot, "hooks", options.hook);
+    if (fixtures.shellScript === undefined) copyHook(shellRoot);
+    else {
+      mkdirSync(dirname(shellScript), { recursive: true });
+      cpSync(resolve(fixtures.shellScript), shellScript);
+    }
+    // Warm the host-fact cache once and keep it in the baseline: restoring the snapshot before each
+    // case would otherwise erase it and make every case a cold probe run, which can defer under load.
+    // The cold path has its own tests; R17 is about the warm path. Warming uses the first case, so a
+    // deferral is still reported as case 1 with its reproducible payload.
+    payload = generatePayloads(options.seed, 1, options.hook)[0];
+    // Claude always exports the project directory; Codex and Pi derive it from the payload.
+    // Hermetic: with the version notice on, a session hook would launch the detached version worker
+    // (network, then writes into the scratch HOME while the next restore deletes it).
+    const envDelta = { NAVORI_HOOK_IMPL: "shell", NAVORI_NO_UPDATE_NOTIFIER: "1", ...(options.engine === "claude" ? { CLAUDE_PROJECT_DIR: "@REPO@" } : {}) };
+    const warm = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, 0) };
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        runMode([warm], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs });
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+      }
+    }
+    baselineRoot = mkdtempSync(join(tmpdir(), "navori-fuzz-baseline-"));
+    const baseline = join(baselineRoot, "root");
+    cpSync(scratch.root, baseline, { recursive: true });
+    const restore = () => {
+      rmSync(scratch.root, { recursive: true, force: true });
+      cpSync(baseline, scratch.root, { recursive: true });
+    };
+    const cache = cacheDir === undefined
+      ? undefined
+      : openShellCache(join(cacheDir, shellFingerprint({ shellScript, shell: options.shell, engine: options.engine, hook: options.hook })), `shard${shard.index}`);
+    const runShellCase = (c) => {
+      restore();
+      return runMode([c], "off", { resolveHook: () => shellScript, runHookBatch: (script, shell, calls) => calls.map((call) => runShell(script, shell, call, timeoutMs)), scratch })[0];
+    };
+    const payloads = generatePayloads(options.seed, options.cases, options.hook);
+    const mine = uniqueCases(payloads).filter((_, position) => position % shard.count === shard.index);
+    for (const { index: at, weight } of mine) {
+      index = at;
+      payload = payloads[at];
+      const c = { hook: options.hook, engine: options.engine, shell: options.shell, input: payload, envDelta, cwdKind: "repo", args: argsFor(options.hook, at) };
+      restore();
+      // Native first: a compiled-registry/integrity deferral aborts before a shell batch/later cases.
+      const actual = runMode([c], "off", { ...native, resolveHook: () => nativeScript, scratch, impl: "rust", timeoutMs })[0];
+      // The mode is part of the case: the same payload under another mode is another verdict.
+      const key = createHash("sha256").update(`${JSON.stringify(c.args)}\0${caseKey(payload)}`).digest("hex");
+      let expected = cache?.get(key);
+      if (expected === undefined) {
+        expected = runShellCase(c);
+        cache?.put(key, expected);
+      } else {
+        cached += 1;
+        if (Number.parseInt(key.slice(0, 8), 16) % verifyEvery === 0) {
+          const live = runShellCase(c);
+          const stale = firstDifference(expected, live);
+          if (stale !== null) {
+            return { ok: false, seed: options.seed, completed, compared, cached, index: at + 1, payload, failure: `stale shell cache in ${cacheDir} (${stale.field} differs from the live shell): delete it and rerun` };
+          }
+        }
+      }
+      const difference = firstDifference(expected, actual);
+      compared += 1;
+      if (difference !== null) return { ok: false, seed: options.seed, completed: compared, compared, cached, index: at + 1, payload, difference };
+      completed += weight;
+      if (report !== undefined && everyMs > 0 && compared < mine.length) {
+        const at2 = now();
+        if (at2 >= nextReportAt) {
+          report(compared, mine.length, at2 - startedAt);
+          nextReportAt = at2 + everyMs;
+        }
+      }
+    }
+    return { ok: true, seed: options.seed, completed, compared, cached };
+  } catch (error) {
+    return { ok: false, seed: options.seed, completed, compared, cached, index: payload === undefined ? undefined : index + 1, payload, failure: error instanceof Error ? error.message : "fuzz execution unavailable" };
+  } finally {
+    scratch?.cleanup();
+    if (baselineRoot !== undefined) rmSync(baselineRoot, { recursive: true, force: true });
+    if (signed !== undefined) rmSync(signed, { recursive: true, force: true });
+  }
+}
+
+/** CLI flags that rebuild `options` in a worker.
+ * @param {FuzzOptions} options
+ * @returns {string[]}
+ */
+function optionArgs(options) {
+  return ["--seed", String(options.seed), "--cases", String(options.cases), "--hook", options.hook, "--engine", options.engine, "--shell", options.shell, "--audit", options.audit, "--timeout-ms", String(options.timeoutMs)];
+}
+
+/**
+ * Split the unique cases across `run.jobs` worker processes (each with its own scratch), at low
+ * scheduling priority unless asked otherwise: macOS `taskpolicy -c utility`, elsewhere nice 10.
+ * The first divergence stops every worker; among the failures that reached the parent, the lowest
+ * case index is reported. Progress is summed across workers.
+ *
+ * @param {FuzzOptions} options
+ * @param {CliRun} run
+ * @param {{ fixtures?: ProcessFixtures, everyMs?: number, report?: (line: string) => void }} [extra]
+ * @returns {Promise<{ ok: boolean, seed: number, completed: number, compared: number, cached: number, elapsedMs: number, jobs?: number, index?: number, payload?: string, difference?: object, failure?: string }>}
+ */
+export async function fuzzParallel(options, run, { fixtures, everyMs = PROGRESS_EVERY_MS, report } = {}) {
+  const startedAt = Date.now();
+  const total = uniqueCases(generatePayloads(options.seed, options.cases, options.hook)).length;
+  const jobs = Math.max(1, Math.min(run.jobs, total));
+  const script = fileURLToPath(import.meta.url);
+  const taskpolicy = "/usr/sbin/taskpolicy";
+  const low = run.priority === "low";
+  const wrapped = low && process.platform === "darwin" && existsSync(taskpolicy);
+  const progress = new Array(jobs).fill(0);
+  /** @type {Array<Record<string, unknown>>} */
+  const results = [];
+  /** Placeholders for workers that ended without reporting (usually killed after another failed). */
+  const silent = new Set();
+  const workers = [];
+  const timer = report === undefined ? undefined : setInterval(() => {
+    report(progressLine(progress.reduce((a, b) => a + b, 0), total, Date.now() - startedAt));
+  }, everyMs);
+  timer?.unref();
+  await Promise.all(Array.from({ length: jobs }, (_, shardIndex) => new Promise((done) => {
+    const args = [script, ...optionArgs(options), "--jobs", "1", "--cache", run.cache, "--priority", "normal", "--shard", `${shardIndex}/${jobs}`];
+    if (fixtures !== undefined) args.push("--fixtures", JSON.stringify(fixtures));
+    const child = wrapped
+      ? spawn(taskpolicy, ["-c", "utility", process.execPath, ...args], { stdio: ["ignore", "pipe", "inherit"] })
+      : spawn(process.execPath, args, { stdio: ["ignore", "pipe", "inherit"] });
+    if (low && !wrapped && child.pid !== undefined) {
+      try {
+        setPriority(child.pid, 10);
+      } catch {
+        // Lowering priority is best effort; the run itself is unaffected.
+      }
+    }
+    workers.push(child);
+    let result;
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (typeof message.progress === "number") progress[shardIndex] = message.progress;
+      if (typeof message.result === "object" && message.result !== null) {
+        result = message.result;
+        if (result.ok !== true) for (const other of workers) if (other !== child) other.kill("SIGTERM");
+      }
+    });
+    child.on("close", () => {
+      if (result === undefined) {
+        result = { ok: false, seed: options.seed, completed: 0, compared: 0, cached: 0, failure: `worker ${shardIndex}/${jobs} ended without a result` };
+        silent.add(result);
+      }
+      results.push(result);
+      done();
+    });
+  })));
+  if (timer !== undefined) clearInterval(timer);
+  const elapsedMs = Date.now() - startedAt;
+  const sum = (field) => results.reduce((acc, r) => acc + (typeof r[field] === "number" ? r[field] : 0), 0);
+  const failures = results.filter((r) => r.ok !== true);
+  if (failures.length > 0) {
+    // A worker killed after another failed ends silent; report a real failure when there is one.
+    const real = failures.filter((r) => !silent.has(r));
+    const first = (real.length > 0 ? real : failures).sort((a, b) => (a.index ?? Infinity) - (b.index ?? Infinity))[0];
+    return { ...first, ok: false, seed: options.seed, completed: sum("completed"), compared: sum("compared"), cached: sum("cached"), elapsedMs };
+  }
+  return { ok: true, seed: options.seed, completed: sum("completed"), compared: sum("compared"), cached: sum("cached"), elapsedMs, jobs };
+}
+
+/** Strict CLI entry; an unavailable runtime or a divergence is always a nonzero result.
+ * @param {string[]} argv
+ * @returns {Promise<number>}
+ */
+export async function main(argv) {
+  const { run, ...options } = parseFuzzArgs(argv);
+  const cacheDir = run.cache === "on" ? defaultCacheDir() : undefined;
+  if (run.shard !== undefined) {
+    // Worker: JSON lines only, read by the parent.
+    const emit = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+    const result = await fuzzHooks(options, run.fixtures ?? {}, { everyMs: 5_000, report: (compared) => emit({ progress: compared }) }, { shard: run.shard, cacheDir });
+    emit({ result });
+    return result.ok ? 0 : 1;
+  }
+  const result = await fuzzParallel(options, run, { report: (line) => process.stderr.write(`${line}\n`) });
+  if (!result.ok) {
+    process.stderr.write(`hook-fuzz: ${JSON.stringify(result)}\n`);
+    return 1;
+  }
+  const from = result.cached > 0 ? `, ${result.cached} shell verdicts from cache` : "";
+  process.stdout.write(`hook-fuzz: seed ${result.seed}, ${result.completed} live cases identical (${result.compared} unique${from}) in ${Math.round(result.elapsedMs / 1000)}s with ${result.jobs} jobs\n`);
+  return 0;
+}
+
+const USAGE = `usage: node scripts/js/hook-fuzz.mjs --seed <n> --cases <n> [--hook <id>.sh] [--engine claude|codex|pi]
+         [--shell bash|zsh] [--audit off|active] [--jobs N] [--cache on|off] [--priority low|normal]
+         [--shard i/n] [--timeout-ms N]
+  Deterministic differential fuzz of a ported hook (shell oracle vs native).
+  -h, --help  print this text and exit`;
+
+if (isMain(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
+  try {
+    process.exit(await main(process.argv.slice(2)));
+  } catch (error) {
+    process.stderr.write(`hook-fuzz: ${error instanceof Error ? error.message : "invalid invocation"}\n`);
+    process.exit(1);
+  }
+}

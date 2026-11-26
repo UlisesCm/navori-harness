@@ -99,8 +99,13 @@ async function verdict(
 const SCRIPT_BLOCK = /BLOCKED by guard-destructive/;
 
 describe("Pi guards: destructive commands, deny rules and the control plane", () => {
+  // One case per thread kind (#1830): the three in one test took ~12 s and timed out under load.
   // Covers: R2, R18
-  it("destructive and deny rules blocked in parent child and nested", async () => {
+  it.each([
+    ["parent", PARENT],
+    ["child", CHILD],
+    ["nested", NESTED],
+  ] as const)("destructive and deny rules blocked in the %s thread", async (kind, env) => {
     const dir = piProject();
     const blocked = [
       "rm -rf /",
@@ -116,17 +121,19 @@ describe("Pi guards: destructive commands, deny rules and the control plane", ()
       "pi -p hi --no-extensions",
       "/usr/local/bin/pi -ne",
     ];
-    for (const env of [PARENT, CHILD, NESTED]) {
-      for (const command of blocked) {
-        const result = await verdict(env, dir, bash(command));
-        expect(result, `${command} (${JSON.stringify(env)})`).toMatchObject({ block: true });
-        expect(reasonOf(result)).toMatch(SCRIPT_BLOCK);
-      }
-      for (const command of ["git status", "ls -la .pi", "echo hello", "pi --version"]) {
-        expect(await verdict(env, dir, bash(command)), command).toBeUndefined();
-      }
+    for (const command of blocked) {
+      const result = await verdict(env, dir, bash(command));
+      expect(result, `${command} (${kind})`).toMatchObject({ block: true });
+      expect(reasonOf(result)).toMatch(SCRIPT_BLOCK);
     }
-    // A shared deny rule names itself; a variant it does not match is left to the numbered rules.
+    for (const command of ["git status", "ls -la .pi", "echo hello", "pi --version"]) {
+      expect(await verdict(env, dir, bash(command)), command).toBeUndefined();
+    }
+  });
+
+  // Covers: R2, R18
+  it("a shared deny rule names itself; a variant it does not match is left to the numbered rules", async () => {
+    const dir = piProject();
     expect(reasonOf(await verdict(PARENT, dir, bash("sudo rm x")))).toContain("'sudo rm'");
     expect(await verdict(PARENT, dir, bash("sudo ls"))).toBeUndefined();
   });

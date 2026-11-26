@@ -7,6 +7,8 @@ import {
   readFileSync,
   writeFileSync,
   chmodSync,
+  readdirSync,
+  rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -1946,8 +1948,14 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
        * of margin below it and 3.3x above.
        */
       it("scales LINEARLY with the number of lines, not quadratically", () => {
-        const small = runGuardVerbose(keptLines(LINE_MAX / 8));
-        const large = runGuardVerbose(keptLines(LINE_MAX));
+        // Best of 3 per size: the guard's own cost is the fastest run, and a load spike in a
+        // single run no longer skews the ratio (#1830). The threshold does not change.
+        const fastest = (command: string): ReturnType<typeof runGuardVerbose> =>
+          [runGuardVerbose(command), runGuardVerbose(command), runGuardVerbose(command)].reduce(
+            (best, run) => (run.ms < best.ms ? run : best),
+          );
+        const small = fastest(keptLines(LINE_MAX / 8));
+        const large = fastest(keptLines(LINE_MAX));
         expect(small.status).toBe(0);
         expect(large.status).toBe(0);
         expect(large.ms / Math.max(small.ms, 1)).toBeLessThan(8);
@@ -2304,6 +2312,67 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
       expect(verdict("git clean -fd", dirtyRepo())).toBe(0);
     });
 
+    /**
+     * #1776: PATH variants where git cannot inspect the repo. `base` holds every /usr/bin and
+     * /bin tool but git; the variants prepend a non-executable or a failing git to it.
+     */
+    const unusableGitPaths = (root: string): Record<string, string> => {
+      const base = join(root, "base");
+      mkdirSync(base);
+      for (const d of ["/usr/bin", "/bin"]) {
+        for (const name of readdirSync(d)) {
+          if (name === "git" || name.startsWith("git-")) continue;
+          try {
+            symlinkSync(join(d, name), join(base, name));
+          } catch {
+            // Already linked from the other directory.
+          }
+        }
+      }
+      const variant = (dirName: string, body: string, mode: number): string => {
+        const dir = join(root, dirName);
+        mkdirSync(dir);
+        writeFileSync(join(dir, "git"), body);
+        chmodSync(join(dir, "git"), mode);
+        return `${dir}:${base}`;
+      };
+      return {
+        "no git": base,
+        "non-executable git": variant("noexec", '#!/bin/sh\nexec /usr/bin/git "$@"\n', 0o644),
+        "git exiting 128": variant("fails", "#!/bin/sh\nexit 128\n", 0o755),
+      };
+    };
+
+    // Covers: A1
+    it("blocks a discard when git cannot inspect the repo, and still allows a non-repo with a working git (#1776)", () => {
+      const dirty = dirtyRepo();
+      const plain = mkdtempSync(join(tmpdir(), "navori-guard-plain-"));
+      const root = mkdtempSync(join(tmpdir(), "navori-guard-nogit-"));
+      try {
+        for (const [label, path] of Object.entries(unusableGitPaths(root))) {
+          const payload = JSON.stringify({
+            cwd: dirty,
+            tool_input: { command: "git reset --hard" },
+          });
+          const outcome = acrossShells((shell) => {
+            const r = spawnSync(resolveBin(shell), [guardPath], {
+              input: payload,
+              cwd: dirty,
+              encoding: "utf-8",
+              env: { ...process.env, PATH: path },
+            });
+            const pinned = r.stderr.includes("cannot be inspected (the repository tool is missing");
+            return `${r.status ?? -1}:${pinned}`;
+          });
+          expect(outcome, label).toBe("2:true");
+        }
+        expect(verdict("git reset --hard", plain)).toBe(0);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(plain, { recursive: true, force: true });
+      }
+    });
+
     // Covers: A1
     it.each([
       "git restore --staged a.txt",
@@ -2371,6 +2440,99 @@ run $'python3 - <<\'EOF\'\nprint("it\'s a cp of x")\nEOF\ncp a .claude/agents/x.
     ])("fails closed when the target cannot be resolved: %s", (_name, command) => {
       // Clean cwd on purpose: the block must come from the unresolved target.
       expect(verdict(command, makeRepo())).toBe(2);
+    });
+
+    // Covers: A1
+    it("reads git written as a path, behind env, and GIT_DIR/GIT_WORK_TREE set in the command (#1801)", () => {
+      const repo = dirtyRepo();
+      writeFileSync(join(repo, "new.txt"), "x\n");
+      const nonrepo = mkdtempSync(join(tmpdir(), "navori-guard-nonrepo-"));
+      const loc = `GIT_DIR=${repo}/.git GIT_WORK_TREE=${repo}`;
+      const blocked = [
+        `${loc} git -C ${nonrepo} reset --hard`,
+        `GIT_WORK_TREE=${repo} GIT_DIR=${repo}/.git git -C ${nonrepo} checkout -- .`,
+        `export GIT_DIR=${repo}/.git; git -C ${nonrepo} reset --hard`,
+        `GIT_DIR=${repo}/.git; git -C ${nonrepo} reset --hard`,
+        `env ${loc} git -C ${nonrepo} reset --hard`,
+        `/usr/bin/git reset --hard`,
+        `./git reset --hard`,
+        `/usr/bin/git -C ${repo} clean -fd`,
+        `env git reset --hard`,
+        `env FOO=1 git reset --hard`,
+        `\\git reset --hard`,
+        `FOO=1 git reset --hard`,
+        `command git reset --hard`,
+        `git -C ${nonrepo} --git-dir=${repo}/.git reset --hard`,
+      ];
+      for (const command of blocked) {
+        // A dirty cwd for the path forms, a clean one for the GIT_DIR forms: the block must come
+        // from the form, not from the directory the command names.
+        const cwd = command.includes(nonrepo) ? nonrepo : repo;
+        expect(verdict(command, cwd), command).toBe(2);
+      }
+      const allowed = [
+        "/usr/bin/git status",
+        "env git status",
+        `GIT_DIR=${repo}/.git git status`,
+        `export GIT_DIR=${repo}/.git; git status`,
+        "sudo git reset --hard",
+        "sh -c 'git reset --hard'",
+        "eval git reset --hard",
+      ];
+      for (const command of allowed) {
+        expect(verdict(command, repo), command).toBe(0);
+      }
+      expect(verdict("/usr/bin/git reset --hard", nonrepo)).toBe(0);
+    });
+
+    // Covers: A1
+    it("follows `cd` behind assignment prefixes and anchors `export` to a token start (#1801)", () => {
+      const dirty = dirtyRepo();
+      const clean = makeRepo();
+      const denied = [
+        `FOO=1 cd ${dirty} && git reset --hard`,
+        `FOO=1 BAR=2 cd ${dirty} && git reset --hard`,
+        `GIT_DIR=x FOO=1 cd ${dirty} && git reset --hard`,
+        // Documented exception: quotes are dropped before the peel.
+        `"FOO"=1 cd ${dirty} && git reset --hard`,
+        `F"O"O=1 cd ${dirty} && git reset --hard`,
+        "export A=1 GIT_DIR=x; git reset --hard",
+      ];
+      for (const command of denied) expect(verdict(command, clean), command).toBe(2);
+      // `env` is not peeled (base behaviour), and a clean target stays clean.
+      expect(verdict(`env FOO=1 cd ${dirty} && git reset --hard`, clean)).toBe(0);
+      expect(verdict(`FOO=1 cd ${clean} && git reset --hard`, dirty)).toBe(0);
+      for (const command of [
+        "export MY_GIT_DIR=x; git reset --hard",
+        "export FOO=GIT_DIR=x; git reset --hard",
+        "FOO=GIT_DIR=x git reset --hard",
+      ]) {
+        expect(verdict(command, clean), command).toBe(0);
+      }
+    });
+
+    // Covers: A1
+    it("reads U+2000 as a blank only where the locale does, and stays fast on a long export", () => {
+      const clean = makeRepo();
+      const run = (command: string, locale: string): number => {
+        const payload = JSON.stringify({ cwd: clean, tool_input: { command } });
+        return acrossShells((shell) => {
+          const r = spawnSync(resolveBin(shell), [guardPath], {
+            input: payload,
+            cwd: clean,
+            encoding: "utf-8",
+            env: { ...process.env, LC_ALL: locale },
+          });
+          return r.status ?? -1;
+        });
+      };
+      const utf8 = process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
+      const command = "GIT_DIR=x\u2000git reset --hard";
+      expect(run(command, "C")).toBe(0);
+      expect(run(command, utf8)).toBe(2);
+      const started = Date.now();
+      expect(run(`export ${"A=1 ".repeat(3000)} ; git reset --hard`, utf8)).toBe(0);
+      expect(Date.now() - started).toBeLessThan(15_000);
     });
 
     // Covers: A1

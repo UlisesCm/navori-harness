@@ -57,7 +57,7 @@ versionable project knowledge. This separation introduces no hidden persistent c
 
 Explicitly **out of scope** unless a strong new reason changes it:
 
-- **Product promotion, branding, marketing, monetization, product localization, or a Rust control plane.**
+- **Product promotion, branding, marketing, monetization, product localization.**
   Public documentation and website localization are an approved exception; CLI localization
   remains out of scope. Navori is a tool for its own team, not a market product (Spec 0003).
 - **Formalized public plugin ecosystem.** Plugins are internal bundles, not a
@@ -85,6 +85,28 @@ Today both are opt-in plugins again, with routing
 - **Doctrine floor per machine in `~/.claude`** (global layer, Spec 0010). It was not adopted: it cost
   ~5.5-6k LOC and retired with Spec 0046; sessions outside a repo with Navori are left without
   harness on purpose.
+
+## Rust migration (after the 0.13 cutover)
+
+From the 0.13 cutover on, `dev` builds the CLI as the Rust binary (`crates/navori-cli`), and 0.13.0
+is the first release that ships it
+([spec 0057](../specs/0057-migracion-rust/requirements.md),
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). The earlier non-goal "Rust control
+plane" no longer applies. These rules hold after the cutover:
+
+- **The TS in `packages/cli/src` is frozen.** It is the source of `navori-legacy`, the TypeScript
+  CLI the package runs for the permanent and the transitional delegation
+  (`scripts/js/rust-areas.mjs`) and on platforms without a binary, and it supports the artifact
+  suites. It changes only to fix the legacy, reviewed by hand. Deleting it, and the differential
+  oracle, is deferred to a later PR (spec 0062 T10, option C).
+- **npm ships only what `scripts/js/dist-assemble.mjs` assembles:** `navori`, the four
+  `navori-<os>-<cpu>` platform packages and `navori-legacy`, pinned in `packaging/legacy.json`.
+  `packages/cli` is private: it is the source of the version (`STAMP_VERSION`, the release tag),
+  not a package.
+- **`crates/ported.json` decides what runs natively,** and `crates/ported-history.jsonl` records
+  every port and activation. The history is append-only (`scripts/js/rust-manifest-check.mjs`).
+- **A change to `crates/ported.json` after the legacy pin forces a new release** (0.13.1 or later),
+  because the legacy must carry the manifest of the release it ships with (spec 0062 D53, D54).
 
 ## Design principles and invariants (do not revisit without a new reason)
 
@@ -127,6 +149,7 @@ Today both are opt-in plugins again, with routing
    repository has its own Navori config and never degrades what that repository already has.
    *Why*: a workspace-level foundation must not disrupt existing repositories.
 9. **Navori generates; it does not execute** — the harness teaches agents which tools to use.
+   A human decision for each publication remains the rule.
    A project may opt into a narrowly scoped native Codex integration that observes host profiles
    and evaluations and can authorize one fixed PR publication, following an authenticated human
    decision and immutable scope. The engine retains its normal execution model. This exception
@@ -136,7 +159,18 @@ Today both are opt-in plugins again, with routing
    that the controller, publication effect, or profile observation already exists or is accepted.
    Prefer existing supported host ownership when it meets the guarantees. Any new parent client
    must enforce the same immutable scope and human-entry limit
-   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). Navori may run the
+   ([rule](../specs/0050-codex-resultados-equivalentes/design.md)). A project may also opt into
+   `autonomy.mode: "routine"` (Pi only, [Spec 0065](../specs/0065-autonomia/spec.md)): with the
+   user's standing consent, the Pi extension answers the confirmation itself for four operations in
+   the project's own repository (opening a PR into a declared integration branch, commenting,
+   reviewing without approving, creating an issue), only in the interactive session, only with a
+   body file it read, and recording the session before the command runs. Consent lapses when the
+   policy, the installed Pi harness, the host's Pi extensions or the `navori-rust` binary change.
+   Merging and every other publication keep the per-operation decision; with the key present,
+   publishing packages, releases, tags, administrator merges and writes to `main` are blocked.
+   This is a seatbelt against skipping a step by accident, not a boundary: the agent runs as the
+   same user and can forge a marker or publish through a script; rulesets and credentials remain
+   the boundary. Navori may run the
    `qualityGate.fast` of **another** repository only when the user registered it with
    `navori workspace link`, the chain is flat (`isSafeGateChain`), and it runs without a shell
    (`navori gate foreign`); otherwise the commit only warns (#1097). *Why*: keep the CLI simple and

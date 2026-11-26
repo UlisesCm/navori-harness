@@ -1,0 +1,1072 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  symlinkSync,
+  rmSync,
+  truncateSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { exitOnHelp } from "./script-help.mjs";
+import { isMain } from "./is-main.mjs";
+
+/**
+ * Spec 0057 R8-R10 / D5 - differential oracle: `navori` (TS `dist/`) vs `navori-rust`.
+ *
+ *   node scripts/js/rust-oracle.mjs                        every case; exit 1 on any difference
+ *   node scripts/js/rust-oracle.mjs --only <a>[,<b>...]    only the cases whose id contains one
+ *   node scripts/js/rust-oracle.mjs --report <file>        also write the JSON report
+ *   node scripts/js/rust-oracle.mjs --rust-bin <path>      use that binary and skip `cargo build`
+ *   node scripts/js/rust-oracle.mjs --self-check           TS against itself: proves the harness is deterministic
+ *
+ * Prerequisite: `packages/cli/dist/` built (`bun run oracle:rust` runs `ensure-dist` first).
+ *
+ * Each case copies its fixture to ONE path (`<tmp>/w/repo`), runs the TS CLI, snapshots, wipes the
+ * whole work dir, copies the fixture again to the SAME path and runs `navori-rust`. Path-derived
+ * values (`sha256(repo + NUL + feature)`) therefore never differ and need no normalization.
+ * What is compared: exit code, stdout, stderr (byte for byte), and the trees of the repo (with
+ * `.git/` minus `index`, `logs/` and `objects/`), `NAVORI_BACKUP_ROOT`, `NAVORI_AUDITS_ROOT` and
+ * `HOME` (path, type, mode, bytes). The audits root is isolated per case; a case may write it (`audit --arm`),
+ * chmod it in `setup`, and name it in `args` as `@AUDITS@`; the `ts` of an `.armed` is `@ISO@` like any
+ * other `toISOString()`. Normalization is the closed table in {@link RULES}, each rule
+ * matching only the exact format the TS CLI emits.
+ */
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const REPO_ROOT = resolve(HERE, "..", "..");
+export const ORACLE_DIR = join(HERE, "rust-oracle");
+export const FIXTURES_DIR = join(ORACLE_DIR, "fixtures");
+/** One `<area>.json` per command area (D47 of spec 0060), so parallel flows never edit one array. */
+export const CASES_DIR = join(ORACLE_DIR, "cases");
+/** Fixture the CLI surface golden cases run on. */
+export const SURFACE_FIXTURE = "empty";
+/** Recorded answers the PATH stubs serve (spec 0060 D42), one `<tool>.json` per tool. */
+export const RECORDINGS_DIR = join(ORACLE_DIR, "recordings");
+/** The external tools a case may stub (D42); any other name is a case error. */
+export const STUB_TOOLS = ["git", "gh", "acli", "codex", "npm", "tgrep", "codegraph", "pi"];
+const STUB_SCRIPT = join(ORACLE_DIR, "stub-tool.mjs");
+export const SURFACE_GOLDEN = join(
+  REPO_ROOT,
+  "packages",
+  "cli",
+  "src",
+  "__tests__",
+  "fixtures",
+  "cli-surface.golden.json",
+);
+export const MANIFEST_PATH = join(REPO_ROOT, "crates", "ported.json");
+const DEFAULT_DIST = join(REPO_ROOT, "packages", "cli", "dist", "index.js");
+const TS_VERSION_SOURCE = join(REPO_ROOT, "packages", "cli", "package.json");
+const CARGO_TOML = join(REPO_ROOT, "Cargo.toml");
+const RUN_TIMEOUT_MS = 120_000;
+
+/**
+ * @typedef {{ name: string, token: string, apply: (text: string) => string }} Rule
+ * @typedef {{ cmd: string, args: string[], version: string }} Runner  `version` feeds the notice and mask rules
+ * @typedef {{ navori: string[], env?: Record<string, string> } | { write: string, content: string, in?: "home", mode?: number } | { chmod: string, mode: number, in?: "home" | "audits" } | { git: string[] } | string[]} SetupStep  a bare argv runs the TS CLI
+ * @typedef {{ issue: string, kinds: string[], why: string }} KnownDifference  see {@link applyKnown}
+ * @typedef {{ id: string, fixture: string, args: string[], stdin?: string, env?: Record<string, string>, mask?: string[], native?: boolean, files?: Record<string, string>, setup?: SetupStep[], readonly?: string[], tools?: string[], note?: string, known?: KnownDifference }} OracleCase  `files` overlay the fixture copy; `setup` runs once and both sides start from its output; `tools` puts recorded stubs of those tools first on `PATH` (D42)
+ *   `native`: the Rust run gets a decoy TS CLI, so a delegation shows up as a difference.
+ *   `readonly`: repo directories made read-only during the measured run (a write-failure case).
+ *   `note`: free text for humans (e.g. why a case is not native); the runner ignores it.
+ *   `known`: an accepted difference where Rust is the correct side (see {@link applyKnown}).
+ * @typedef {{ kind: string, detail: string }} Difference
+ * @typedef {{ status: number | null, signal: string | null, stdout: Buffer, stderr: Buffer, trees: Record<string, Map<string, TreeEntry>>, calls?: string[] }} Outcome  `calls`: the stub calls, one JSON line each
+ * @typedef {{ type: "file" | "dir" | "symlink", mode: number, bytes: Buffer }} TreeEntry
+ */
+
+/**
+ * The closed normalization table (D5). Every rule recognises ONLY the exact format the TS CLI
+ * emits: a changed format (`+00:00`, other precision, other hash length) stops matching and the
+ * difference stays visible. Order matters: `@PID@` runs after `@BACKUP@`.
+ *
+ * @type {Rule[]}
+ */
+export const RULES = [
+  {
+    name: "ISO",
+    token: "@ISO@",
+    // toISOString()
+    apply: (t) =>
+      t.replace(/(?<![\dA-Za-z])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z(?![\dA-Za-z])/g, "@ISO@"),
+  },
+  {
+    name: "EPOCHMS",
+    token: "@EPOCHMS@",
+    // Date.now(), only as the value of `tsMs` / `observedAt`, and of `at` in the per-machine
+    // version caches (`~/.navori/tool-versions/*.json`)
+    apply: (t) => t.replace(/("(?:tsMs|observedAt|at)"\s*:\s*)\d{13}(?![\d.])/g, "$1@EPOCHMS@"),
+  },
+  {
+    name: "UUID",
+    token: "@UUID@",
+    // randomUUID(): v4, lower case
+    apply: (t) =>
+      t.replace(
+        /(?<![\da-zA-Z])[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\da-zA-Z])/g,
+        "@UUID@",
+      ),
+  },
+  {
+    name: "BACKUP",
+    token: "@BACKUP@",
+    // backup.ts: `<repo>-YYYY-MM-DDTHH-mm-ss-SSS-p<pid>-<seq>`; the stamp is replaced, `p<pid>` is @PID@'s
+    apply: (t) =>
+      t.replace(/(?<=-)\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}(?=-p\d+-\d+(?![\d]))/g, "@BACKUP@"),
+  },
+  {
+    name: "PID",
+    token: "@PID@",
+    // only inside @BACKUP@ and as the value of the JSON key `pid`
+    apply: (t) =>
+      t
+        .replace(/(?<=@BACKUP@-p)\d+(?=-\d+(?![\d]))/g, "@PID@")
+        .replace(/("pid"\s*:\s*)\d+(?![\d.])/g, "$1@PID@"),
+  },
+  {
+    name: "MS",
+    token: "@MS@",
+    // `navori bench` summary rows: `min|p50|p95|max <n>.<d>ms`
+    apply: (t) => t.replace(/\b(min|p50|p95|max)(\s+)\d+(?:\.\d+)?ms\b/g, "$1$2@MS@"),
+  },
+  {
+    name: "FOREIGN_LOG",
+    token: "@RAND@",
+    // `gate foreign` private log: `<tmpdir>/navori-gate-foreign-<mkdtemp suffix>/fast-<timestamp()>.log`.
+    // Only the random suffix and the stamp are replaced; the base directory, the prefix and the
+    // file name around them stay visible.
+    apply: (t) =>
+      t.replace(
+        /(?<=navori-gate-foreign-)[A-Za-z0-9]{6}(?=\/fast-\d{8}T\d{9}Z\.log(?![\dA-Za-z]))/g,
+        "@RAND@",
+      ).replace(/(?<=navori-gate-foreign-@RAND@\/fast-)\d{8}T\d{9}Z(?=\.log)/g, "@STAMP@"),
+  },
+];
+
+/**
+ * Side-specific masks. They exist because `navori-rust` is an internal prerelease whose version
+ * differs from the TS CLI's, which is observable in exactly two places. They are NOT part of
+ * {@link RULES}: they take literal values (never a pattern), they touch ONE side, and `version`
+ * only applies to cases that list it in `mask`.
+ *
+ * - `notice`: the one-line delegation warning (D3) `navori-rust` prints before `exec`.
+ * - `version`: the Rust version in the stdout of a command that runs natively.
+ * - `provenance` (spec 0058 D23, Q11): the TS names the `core-assets` root it read; Rust reads
+ *   embedded assets and prints `(embedded)`. Only the TS side's literal line `core: <root> (build
+ *   copy)` (or its Spanish form) and the `--json` value `"coreRoot": "<root>"` are rewritten,
+ *   with `<root>` the `assets/core` next to `tsCli`; a dev-sources or stale-core line stays visible.
+ *
+ * @param {string} text
+ * @param {"ts" | "rust"} side
+ * @param {{ tsVersion: string, rustVersion: string, tsCli: string }} ctx
+ * @param {{ stream: "stdout" | "stderr" | "file", mask: string[] }} where
+ */
+export function maskSide(text, side, ctx, where) {
+  if (side !== "rust") {
+    let out = text;
+    if (where.mask.includes("provenance") && where.stream === "stdout")
+      out = replaceProvenance(out, ctx.tsCli);
+    return where.mask.includes("version") && where.stream === "stdout"
+      ? replaceVersion(out, ctx.tsVersion)
+      : out;
+  }
+  let out = text;
+  if (where.stream === "stderr") {
+    const notice = `navori-rust: warning: delegating to TS navori ${ctx.tsVersion} at ${ctx.tsCli} (navori-rust is ${ctx.rustVersion})\n`;
+    if (ctx.rustVersion !== ctx.tsVersion) out = out.replace(notice, "");
+  }
+  if (where.mask.includes("version") && where.stream === "stdout")
+    out = replaceVersion(out, ctx.rustVersion);
+  return out;
+}
+
+/** What Rust prints in place of the TS core root. */
+export const EMBEDDED_CORE = "(embedded)";
+
+function replaceProvenance(text, tsCli) {
+  const root = join(dirname(tsCli), "assets", "core");
+  let out = text;
+  for (const label of ["(build copy)", "(copia del build)"])
+    out = out.split(`core: ${root} ${label}\n`).join(`core: ${EMBEDDED_CORE}\n`);
+  return out
+    .split(`"coreRoot": ${JSON.stringify(root)},\n`)
+    .join(`"coreRoot": ${JSON.stringify(EMBEDDED_CORE)},\n`);
+}
+
+function replaceVersion(text, version) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`(?<![\\d.+-])${escaped}(?![\\w.+-])`, "g"), "@VERSION@"); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- version of the repo's own CLI or Cargo manifest, every metachar escaped, fixed lookarounds
+}
+
+/**
+ * Applies the closed table to text.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeText(text) {
+  let out = text;
+  for (const rule of RULES) out = rule.apply(out);
+  return out;
+}
+
+/**
+ * Normalizes a buffer when it is valid UTF-8; binary content is compared as is.
+ *
+ * @param {Buffer} bytes
+ * @param {(text: string) => string} fn
+ * @returns {Buffer}
+ */
+function mapBuffer(bytes, fn) {
+  const text = bytes.toString("utf8");
+  if (Buffer.from(text, "utf8").equals(bytes)) return Buffer.from(fn(text), "utf8");
+  return bytes;
+}
+
+/**
+ * Snapshot of a directory: path, type, mode and bytes of every entry, symlinks not followed.
+ *
+ * @param {string} root
+ * @param {(rel: string, type: "file" | "dir" | "symlink") => boolean} [skip] true to leave an entry (and its subtree) out
+ * @returns {Map<string, TreeEntry>}
+ */
+export function snapshotTree(root, skip = () => false) {
+  /** @type {Map<string, TreeEntry>} */
+  const out = new Map();
+  if (!existsSync(root)) return out;
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const full = join(dir, name);
+      const rel = relative(root, full).split(sep).join("/");
+      const stat = lstatSync(full);
+      const type = stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "dir" : "file";
+      if (skip(rel, type)) continue;
+      const mode = stat.mode & 0o7777;
+      if (type === "symlink") {
+        out.set(rel, { type, mode, bytes: Buffer.from(readlinkSync(full)) });
+      } else if (type === "dir") {
+        out.set(rel, { type, mode, bytes: Buffer.alloc(0) });
+        walk(full);
+      } else {
+        // A fixture's sparse file (D26) is compared by size: reading gigabytes of zeros proves
+        // nothing navori wrote.
+        const bytes =
+          stat.size > LARGE_FILE_BYTES ? Buffer.from(`@LARGE@ ${stat.size}`) : readFileSync(full);
+        out.set(rel, { type, mode, bytes });
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/** Files above this size are compared by size only (they come from fixture `sparse` entries). */
+export const LARGE_FILE_BYTES = 64 * 1024 * 1024;
+
+/** The fixture manifest: read by the oracle, never copied into the repo. */
+export const FIXTURE_MANIFEST = "oracle.json";
+
+/**
+ * `-40d`, `-5d`, `-2h`, `-30m` relative to `now`, in milliseconds since the epoch.
+ *
+ * @param {string} relative
+ * @param {number} now
+ * @returns {number}
+ */
+export function relativeTime(relative, now) {
+  const m = /^-(\d+)([dhm])$/.exec(relative);
+  if (!m) throw new Error(`bad relative mtime: ${relative}`);
+  const unit = { d: 86_400_000, h: 3_600_000, m: 60_000 }[m[2] ?? "d"] ?? 0;
+  return now - Number(m[1]) * unit;
+}
+
+/**
+ * Applies a fixture's `oracle.json` (spec 0058 D26) to a fresh work dir: pre-existing backups in
+ * the backup root, each with its files, its sparse files (`truncate` to the size, no disk use)
+ * and an mtime relative to `now`, set on the directory last so its own writes don't move it.
+ * Called on every copy, so the TS and the Rust run see the same ages. `symlinks` maps a path in
+ * the repo copy to its link target: created here because a committed symlink is not a regular git
+ * entry and the review receipt refuses it.
+ *
+ * @param {string} fixtureDir
+ * @param {string} work
+ * @param {number} now
+ */
+export function applyFixtureManifest(fixtureDir, work, now) {
+  const path = join(fixtureDir, FIXTURE_MANIFEST);
+  if (!existsSync(path)) return;
+  /** @type {{ backups?: Array<{ name: string, mtime: string, files?: Record<string, string>, sparse?: Record<string, number> }>, symlinks?: Record<string, string> }} */
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  for (const [rel, target] of Object.entries(manifest.symlinks ?? {})) {
+    mkdirSync(dirname(join(work, "repo", rel)), { recursive: true });
+    symlinkSync(target, join(work, "repo", rel));
+  }
+  for (const backup of manifest.backups ?? []) {
+    const dir = join(work, "backups", backup.name);
+    mkdirSync(dir, { recursive: true });
+    for (const [rel, text] of Object.entries(backup.files ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), text);
+    }
+    for (const [rel, size] of Object.entries(backup.sparse ?? {})) {
+      mkdirSync(dirname(join(dir, rel)), { recursive: true });
+      writeFileSync(join(dir, rel), "");
+      truncateSync(join(dir, rel), size);
+    }
+    const at = new Date(relativeTime(backup.mtime, now));
+    utimesSync(dir, at, at);
+  }
+}
+
+/** `.git/` minus `index`, `logs/` and `objects/` (D5). */
+function skipGitNoise(rel) {
+  return rel === ".git/index" || rel === ".git/logs" || rel === ".git/objects";
+}
+
+/**
+ * First differing byte offset of two buffers, or -1 when equal.
+ *
+ * @param {Buffer} a
+ * @param {Buffer} b
+ */
+function firstDiff(a, b) {
+  if (a.equals(b)) return -1;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) if (a[i] !== b[i]) return i;
+  return n;
+}
+
+function preview(bytes, at) {
+  return JSON.stringify(bytes.subarray(Math.max(0, at - 20), at + 40).toString("utf8"));
+}
+
+/**
+ * Compares two byte streams.
+ *
+ * @param {string} kind
+ * @param {Buffer} a
+ * @param {Buffer} b
+ * @returns {Difference[]}
+ */
+export function compareBytes(kind, a, b) {
+  const at = firstDiff(a, b);
+  if (at === -1) return [];
+  return [
+    {
+      kind,
+      detail: `first difference at byte ${at} (ts ${a.length} bytes, rust ${b.length} bytes): ts ${preview(a, at)} vs rust ${preview(b, at)}`,
+    },
+  ];
+}
+
+/**
+ * Compares two snapshots after normalizing paths and text contents with `norm`.
+ *
+ * @param {string} root name of the tree (`repo`, `backups`, `audits`)
+ * @param {Map<string, TreeEntry>} ts
+ * @param {Map<string, TreeEntry>} rust
+ * @param {(text: string) => string} norm
+ * @returns {Difference[]}
+ */
+export function compareTrees(root, ts, rust, norm = (t) => t) {
+  const rekey = (tree) => new Map([...tree].map(([path, entry]) => [norm(path), entry]));
+  const a = rekey(ts);
+  const b = rekey(rust);
+  /** @type {Difference[]} */
+  const diffs = [];
+  for (const path of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+    const left = a.get(path);
+    const right = b.get(path);
+    if (!left || !right) {
+      diffs.push({
+        kind: `tree:${root}`,
+        detail: `${path}: only in ${left ? "ts" : "rust"}`,
+      });
+      continue;
+    }
+    if (left.type !== right.type) {
+      diffs.push({ kind: `tree:${root}`, detail: `${path}: type ${left.type} vs ${right.type}` });
+      continue;
+    }
+    if (left.mode !== right.mode) {
+      diffs.push({
+        kind: `tree:${root}`,
+        detail: `${path}: mode ${left.mode.toString(8)} vs ${right.mode.toString(8)}`,
+      });
+    }
+    const lb = left.type === "file" ? mapBuffer(left.bytes, norm) : left.bytes;
+    const rb = right.type === "file" ? mapBuffer(right.bytes, norm) : right.bytes;
+    for (const d of compareBytes(`tree:${root}`, lb, rb)) {
+      diffs.push({ kind: d.kind, detail: `${path}: ${d.detail}` });
+    }
+  }
+  return diffs;
+}
+
+/**
+ * Compares the two outcomes of one case.
+ *
+ * @param {Outcome} ts
+ * @param {Outcome} rust
+ * @param {{ tsVersion: string, rustVersion: string, tsCli: string }} ctx
+ * @param {string[]} mask
+ * @returns {Difference[]}
+ */
+export function compareOutcomes(ts, rust, ctx, mask = []) {
+  /** @type {Difference[]} */
+  const diffs = [];
+  if (ts.status !== rust.status || ts.signal !== rust.signal) {
+    diffs.push({
+      kind: "exit",
+      detail: `ts ${ts.status ?? ts.signal} vs rust ${rust.status ?? rust.signal}`,
+    });
+  }
+  // `stderr` in the mask: the TS ends in an uncaught exception whose stack trace names its own
+  // `dist/` files; exit code, stdout and every tree are still compared.
+  const streams = mask.includes("stderr") ? ["stdout"] : ["stdout", "stderr"];
+  for (const stream of /** @type {Array<"stdout" | "stderr">} */ (streams)) {
+    const side = (outcome, which) =>
+      mapBuffer(outcome[stream], (t) => normalizeText(maskSide(t, which, ctx, { stream, mask })));
+    diffs.push(...compareBytes(stream, side(ts, "ts"), side(rust, "rust")));
+  }
+  for (const root of Object.keys(ts.trees)) {
+    diffs.push(...compareTrees(root, ts.trees[root], rust.trees[root] ?? new Map(), normalizeText));
+  }
+  const tsCalls = (ts.calls ?? []).join("\n");
+  const rustCalls = (rust.calls ?? []).join("\n");
+  if (tsCalls !== rustCalls) diffs.push({ kind: "calls", detail: `ts:\n${tsCalls}\nrust:\n${rustCalls}` });
+  return diffs;
+}
+
+/**
+ * Lays out the PATH stubs of `tools` under `<work>/stubs` and returns the environment that puts
+ * them first, serves `recordings` and logs every call to `<work>/calls.jsonl` (spec 0060 D42).
+ *
+ * @param {string} work
+ * @param {string[]} tools
+ * @param {string} pathValue the case's `PATH`
+ * @param {string} [recordings]
+ * @returns {Record<string, string>}
+ */
+export function stubEnv(work, tools, pathValue, recordings = RECORDINGS_DIR) {
+  const dir = join(work, "stubs");
+  mkdirSync(dir, { recursive: true });
+  const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+  for (const tool of tools) {
+    if (!STUB_TOOLS.includes(tool)) throw new Error(`rust-oracle: ${tool} is not a stubbed tool`);
+    const wrapper = join(dir, tool);
+    writeFileSync(wrapper, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(STUB_SCRIPT)} ${tool} "$@"\n`);
+    chmodSync(wrapper, 0o755);
+  }
+  return {
+    PATH: `${dir}:${pathValue}`,
+    NAVORI_ORACLE_RECORDINGS: recordings,
+    NAVORI_ORACLE_CALLS: join(work, "calls.jsonl"),
+  };
+}
+
+/**
+ * Hermetic environment of a case (D5): nothing inherited but `PATH`, every state root in the work
+ * dir, no `GIT_*` from the caller, no TTY (stdin is a pipe).
+ *
+ * @param {string} work
+ * @param {string} tsCli
+ * @returns {Record<string, string>}
+ */
+export function hermeticEnv(work, tsCli) {
+  return {
+    PATH: process.env.PATH ?? "",
+    HOME: join(work, "home"),
+    USERPROFILE: join(work, "home"),
+    TMPDIR: join(work, "tmp"),
+    TMP: join(work, "tmp"),
+    TEMP: join(work, "tmp"),
+    NAVORI_BACKUP_ROOT: join(work, "backups"),
+    NAVORI_AUDITS_ROOT: join(work, "audits"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: join(work, "gitconfig"),
+    GIT_TEMPLATE_DIR: join(work, "git-template"),
+    XDG_CONFIG_HOME: join(work, "xdg"),
+    // Node prints `(node:<pid>) ExperimentalWarning` to stderr; that pid is not navori output.
+    NODE_NO_WARNINGS: "1",
+    NAVORI_NO_UPDATE_NOTIFIER: "1",
+    NO_COLOR: "1",
+    NAVORI_TS_CLI: tsCli,
+    TZ: "UTC",
+    LC_ALL: "C",
+  };
+}
+
+/** Runs git in `repo` with a fixed identity and dates; throws on failure. */
+function git(repo, env, args) {
+  const identity = {
+    ...env,
+    GIT_AUTHOR_NAME: "oracle",
+    GIT_AUTHOR_EMAIL: "oracle@example.invalid",
+    GIT_AUTHOR_DATE: "2020-01-01T00:00:00Z",
+    GIT_COMMITTER_NAME: "oracle",
+    GIT_COMMITTER_EMAIL: "oracle@example.invalid",
+    GIT_COMMITTER_DATE: "2020-01-01T00:00:00Z",
+  };
+  const run = spawnSync("git", args, { cwd: repo, env: identity, encoding: "utf8" });
+  if (run.status !== 0) throw new Error(`git ${args[0]} failed in ${repo}: ${run.stderr}`);
+}
+
+/** Deterministic `git init` + one commit of the fixture (D5). */
+function gitInit(repo, env) {
+  for (const args of [
+    ["init", "-q", "-b", "main"],
+    ["add", "-A"],
+    ["commit", "-q", "--no-gpg-sign", "-m", "fixture"],
+  ]) {
+    git(repo, env, args);
+  }
+}
+
+/**
+ * Applies a case's `setup` in its repo: `navori` steps run the TS CLI (state both sides start
+ * from), `write` lays a file (under the repo, or `HOME` with `in: "home"`), `git` runs git. Any
+ * failure aborts the case. `chmod` sets `mode` on a path under the repo, `HOME` (`in: "home"`) or the
+ * case's isolated audits root (`in: "audits"`, path `"."` for the root itself). In `write` content, `@NOW_ISO@` becomes the current `toISOString()`,
+ * `@NOW_MS@` the current `Date.now()` and `@REPO@` the repo's path; `mode` chmods the file: the setup runs once and both sides copy its output, so a
+ * time-bound file (a dispatch marker) is identical and fresh for both.
+ *
+ * @param {string} repo
+ * @param {Record<string, string>} env
+ * @param {Runner} ts
+ * @param {SetupStep[]} steps
+ */
+function applySetup(repo, env, ts, steps) {
+  for (const step of steps) {
+    if (Array.isArray(step)) {
+      const prep = spawnSync(ts.cmd, [...ts.args, ...step], { cwd: repo, env, input: "", timeout: RUN_TIMEOUT_MS });
+      if (prep.status !== 0) throw new Error(`setup ${step.join(" ")} failed: ${prep.stderr}`);
+    } else if ("navori" in step) {
+      // `env` on the step (e.g. a native Codex thread) applies to that setup run only.
+      const stepEnv = { ...env, ...(step.env ?? {}) };
+      const run = spawnSync(ts.cmd, [...ts.args, ...step.navori], { cwd: repo, env: stepEnv, input: "" });
+      if (run.status !== 0)
+        throw new Error(`setup navori ${step.navori.join(" ")} failed: ${run.stdout}${run.stderr}`);
+    } else if ("chmod" in step) {
+      const base = step.in === "home" ? env.HOME : step.in === "audits" ? env.NAVORI_AUDITS_ROOT : repo;
+      chmodSync(join(base, step.chmod), step.mode);
+    } else if ("write" in step) {
+      const base = step.in === "home" ? env.HOME : repo;
+      const path = join(base, step.write);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        step.content
+          .replaceAll("@NOW_ISO@", new Date().toISOString())
+          .replaceAll("@NOW_MS@", String(Date.now()))
+          .replaceAll("@REPO@", repo),
+      );
+      if (step.mode !== undefined) chmodSync(path, step.mode);
+    } else {
+      git(repo, env, step.git);
+    }
+  }
+}
+
+/**
+ * Copies a fixture tree. A file stored as `<name>.fixture` lands as `<name>`: fixtures that are
+ * Markdown (`CLAUDE.md`, `AGENTS.md`) are kept under that suffix so the repo's Markdown tooling and
+ * ownership rules do not treat them as docs.
+ *
+ * @param {string} from
+ * @param {string} to
+ */
+export function copyFixture(from, to) {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    if (entry.name === FIXTURE_MANIFEST) continue;
+    const name = entry.name.endsWith(".fixture") ? entry.name.slice(0, -".fixture".length) : entry.name;
+    const target = join(to, name);
+    if (entry.isDirectory()) copyFixture(join(from, entry.name), target);
+    else cpSync(join(from, entry.name), target, { verbatimSymlinks: true });
+  }
+}
+
+/** Fixture name of the checkout's own `specs/` and `navori.config.json` (spec 0060 T5). */
+export const REPO_SPECS_FIXTURE = "@repo-specs";
+
+/** @param {string} to */
+function copyRepoSpecs(to) {
+  mkdirSync(to, { recursive: true });
+  cpSync(join(REPO_ROOT, "specs"), join(to, "specs"), { recursive: true, verbatimSymlinks: true });
+  cpSync(join(REPO_ROOT, "navori.config.json"), join(to, "navori.config.json"));
+}
+
+/**
+ * `spec check --json` over every spec of the checkout: the real specs, not only the fixtures. The
+ * JSON carries the parse, the classification and every finding.
+ *
+ * @returns {OracleCase[]}
+ */
+export function repoSpecCases() {
+  return readdirSync(join(REPO_ROOT, "specs"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
+    .map((entry) => ({
+      id: `repo-specs:${entry.name}`,
+      fixture: REPO_SPECS_FIXTURE,
+      args: ["spec", "check", entry.name, "--json"],
+      native: true,
+    }));
+}
+
+/**
+ * Wipes `work` and lays out a fresh copy of the fixture, the state roots and the case's setup.
+ *
+ * @param {string} work
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string }} opts
+ */
+function layout(work, testCase, opts) {
+  rmSync(work, { recursive: true, force: true });
+  const repo = join(work, "repo");
+  mkdirSync(work, { recursive: true });
+  if (testCase.fixture === REPO_SPECS_FIXTURE) copyRepoSpecs(repo);
+  else copyFixture(join(opts.fixturesDir, testCase.fixture), repo);
+  for (const [rel, text] of Object.entries(testCase.files ?? {})) {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  }
+  for (const dir of ["home", "tmp", "backups", "audits", "git-template/hooks", "git-template/info", "xdg"]) {
+    mkdirSync(join(work, dir), { recursive: true });
+  }
+  applyFixtureManifest(join(opts.fixturesDir, testCase.fixture), work, Date.now());
+  // No detached auto-maintenance after the fixture commit: it would keep writing under `.git/`
+  // while the next run wipes the work dir, and its packs are not output of either CLI.
+  writeFileSync(join(work, "gitconfig"), "[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n");
+  const env = hermeticEnv(work, opts.tsCli);
+  gitInit(repo, env);
+  applySetup(repo, env, opts.ts, testCase.setup ?? []);
+}
+
+/**
+ * Lays out `work` (from `template` when given: a setup's output is laid out once, so files it
+ * names after the clock are the same for both runners) and runs `runner`.
+ *
+ * @param {string} work
+ * @param {Runner} runner
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, tsCli: string, fixturesDir: string, template?: string }} opts
+ * @returns {Outcome}
+ */
+function runOnce(work, runner, testCase, opts) {
+  if (opts.template) {
+    rmSync(work, { recursive: true, force: true });
+    cpSync(opts.template, work, { recursive: true, verbatimSymlinks: true });
+  } else {
+    layout(work, testCase, opts);
+  }
+  const repo = join(work, "repo");
+  // A case's `env` (e.g. `NAVORI_HOOK_ENGINE`) applies to the measured run only.
+  // `@REPO@` in a value is the repo's path (a `PATH` entry for the case's own tools) and
+  // `@NODE_DIR@` the directory of this `node`, which a delegating `navori-rust` needs on `PATH`.
+  const caseEnv = Object.fromEntries(
+    Object.entries(testCase.env ?? {}).map(([key, value]) => [
+      key,
+      value.replaceAll("@REPO@", repo).replaceAll("@NODE_DIR@", dirname(process.execPath)),
+    ]),
+  );
+  const base = { ...hermeticEnv(work, opts.tsCli), ...caseEnv };
+  const env = testCase.tools ? { ...base, ...stubEnv(work, testCase.tools, base.PATH) } : base;
+  // A write-failure case: these directories are read-only during the run, then restored so the
+  // snapshot and the cleanup can walk them.
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o555);
+  // `@AUDITS@` in an argument is the case's isolated audits root (`NAVORI_AUDITS_ROOT`).
+  const args = testCase.args.map((arg) => arg.replaceAll("@AUDITS@", env.NAVORI_AUDITS_ROOT));
+  const run = spawnSync(runner.cmd, [...runner.args, ...args], {
+    cwd: repo,
+    env,
+    input: testCase.stdin ?? "",
+    maxBuffer: 256 * 1024 * 1024,
+    timeout: RUN_TIMEOUT_MS,
+  });
+  for (const rel of testCase.readonly ?? []) chmodSync(join(repo, rel), 0o755);
+  if (run.error) throw new Error(`cannot run ${runner.cmd}: ${run.error.message}`);
+  const callLog = join(work, "calls.jsonl");
+  const calls = existsSync(callLog) ? readFileSync(callLog, "utf8").split("\n").filter(Boolean) : [];
+  return {
+    calls,
+    status: run.status,
+    signal: run.signal,
+    stdout: run.stdout,
+    stderr: run.stderr,
+    trees: {
+      repo: snapshotTree(repo, skipGitNoise),
+      backups: snapshotTree(join(work, "backups")),
+      audits: snapshotTree(join(work, "audits")),
+      // `doctor` runs the `codex` CLI, which leaves randomly named scratch under `~/.codex/tmp/`.
+      home: snapshotTree(join(work, "home"), (rel) => rel === ".codex/tmp"),
+    },
+  };
+}
+
+/**
+ * Runs one case with both runners, sequentially on the same path, and compares.
+ *
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string }} opts
+ * @returns {{ id: string, exit: number | null, differences: Difference[] }}
+ */
+export function runCase(testCase, opts) {
+  const layoutOpts = { ts: opts.ts, tsCli: opts.tsCli, fixturesDir: opts.fixturesDir ?? FIXTURES_DIR };
+  const work = join(opts.base, "w");
+  if (testCase.setup) {
+    layoutOpts.template = join(opts.base, "template");
+    layout(work, testCase, layoutOpts);
+    rmSync(layoutOpts.template, { recursive: true, force: true });
+    cpSync(work, layoutOpts.template, { recursive: true, verbatimSymlinks: true });
+  }
+  const ts = runOnce(work, opts.ts, testCase, layoutOpts);
+  const rustOpts = {
+    ...layoutOpts,
+    ...(testCase.native ? { tsCli: decoyCli(opts.base) } : {}),
+  };
+  const rust = runOnce(work, opts.rust, testCase, rustOpts);
+  if (layoutOpts.template) rmSync(layoutOpts.template, { recursive: true, force: true });
+  const ctx = { tsVersion: opts.ts.version, rustVersion: opts.rust.version, tsCli: opts.tsCli };
+  rmSync(work, { recursive: true, force: true });
+  return {
+    id: testCase.id,
+    exit: ts.status,
+    ...applyKnown(testCase, compareOutcomes(ts, rust, ctx, testCase.mask ?? [])),
+  };
+}
+
+/**
+ * Splits a case's differences by its `known` entry: a difference the project accepts because the
+ * TS is wrong and Rust right, while the TS stays frozen (each entry names its issue and why Rust
+ * is right). Only the difference kinds the entry lists are tolerated; any other kind still counts.
+ * A listed kind that no longer differs is itself a difference, so the entry (or that kind) goes
+ * away as soon as the TS is fixed, even partly, or the case disappears with the cut. Kinds, not
+ * details: what Rust itself must print is pinned by its own test, not here.
+ *
+ * @param {OracleCase} testCase
+ * @param {Difference[]} differences
+ * @returns {{ differences: Difference[], known: Difference[] }}
+ */
+export function applyKnown(testCase, differences) {
+  const entry = testCase.known;
+  if (!entry) return { differences, known: [] };
+  if (typeof entry.issue !== "string" || typeof entry.why !== "string" || !Array.isArray(entry.kinds))
+    throw new Error(`rust-oracle: case ${testCase.id}: \`known\` needs issue, kinds and why`);
+  const known = differences.filter((d) => entry.kinds.includes(d.kind));
+  const rest = differences.filter((d) => !entry.kinds.includes(d.kind));
+  for (const kind of entry.kinds) {
+    if (known.some((d) => d.kind === kind)) continue;
+    rest.push({
+      kind: "known",
+      detail: `${entry.issue} no longer differs in ${kind}: remove it from the case's \`known\` entry`,
+    });
+  }
+  return { differences: rest, known };
+}
+
+/**
+ * {@link runCase}, but a case whose setup throws (a fixture step the TS CLI now rejects) is one
+ * `setup` difference of that case, and the run goes on with the next one instead of aborting.
+ *
+ * @param {OracleCase} testCase
+ * @param {{ ts: Runner, rust: Runner, tsCli: string, base: string, fixturesDir?: string }} opts
+ * @returns {{ id: string, exit: number | null, differences: Difference[] }}
+ */
+export function runCaseOrSetupFailure(testCase, opts) {
+  try {
+    return runCase(testCase, opts);
+  } catch (error) {
+    for (const dir of ["w", "template"]) rmSync(join(opts.base, dir), { recursive: true, force: true });
+    const message = error instanceof Error ? error.message : String(error);
+    return { id: testCase.id, exit: null, differences: [{ kind: "setup", detail: message.split("\n")[0] }] };
+  }
+}
+
+/** `computeManagedHash(body)` (`marker.ts`): sha1 of the body with CRLF/CR folded and the end trimmed. */
+function managedHash(body) {
+  const normalized = body.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  return createHash("sha1").update(normalized, "utf-8").digest("hex").slice(0, 8);
+}
+
+/** A managed block whose hash matches its body (so it reads as navori's, never hand-edited). */
+function managedBlock(style, id, body, version) {
+  const attrs = `id="${id}" hash="${managedHash(body)}"${version ? ` version="${version}"` : ""} source="@navori/core"`;
+  return style === "shell"
+    ? `# navori:managed start ${attrs}\n${body}\n# navori:managed end id="${id}"\n`
+    : `<!-- navori:managed ${attrs} -->\n${body}\n<!-- /navori:managed id="${id}" -->\n`;
+}
+
+/** The anti-rollback levels of D26: absent, lower, equal to the checkout's CLI, higher. */
+export const ANTI_ROLLBACK_LEVELS = ["absent", "lower", "equal", "higher"];
+
+/** The operations of the matrix (D26; `codex-config` and `agents-md` from spec 0059 T21, R63). */
+export const ANTI_ROLLBACK_OPS = ["inject", "hook", "settings", "remove", "codex-config", "agents-md"];
+
+/** The fixture each operation overlays: Claude's own, or the engine that owns the marker. */
+const ANTI_ROLLBACK_FIXTURE = { "codex-config": "codex", "agents-md": "prose-engines" };
+
+/**
+ * The anti-rollback matrix (spec 0058 D26, T27): config floor (`harnessVersion`) × the stamp
+ * on navori's own content × operation, each cell over `fresh-init` with one file overlaid whose
+ * content differs from what this CLI renders:
+ *
+ * - `inject`: a `CLAUDE.md` block with an older body (`render --apply`);
+ * - `hook`: a hook script's base block with an older body (`render --apply`);
+ * - `settings`: a managed `settings.json` with an older body under `$navori.version`
+ *   (`render --apply`);
+ * - `remove`: the stamped `CLAUDE.md` block of an enabled plugin (`remove tgrep --yes`), where
+ *   the guarded removal ignores the floor (D21);
+ * - `codex-config`: the `#` base block of `.codex/config.toml` with an older body, over `codex`
+ *   (`sync --apply`, native in every engine since spec 0059 T21);
+ * - `agents-md`: the `AGENTS.md` block of the `agents-md` engine with an older body, over
+ *   `prose-engines` (`render --apply`).
+ *
+ * @param {string} cliVersion the checkout's TS CLI version (the stamp Rust also writes, D20)
+ * @returns {OracleCase[]}
+ */
+export function antiRollbackCases(cliVersion) {
+  const level = (name) =>
+    ({ absent: null, lower: "0.1.0", equal: cliVersion, higher: "999.0.0" })[name];
+  /** @type {OracleCase[]} */
+  const cases = [];
+  for (const op of ANTI_ROLLBACK_OPS) {
+    const fixture = ANTI_ROLLBACK_FIXTURE[op] ?? "fresh-init";
+    const base = JSON.parse(readFileSync(join(FIXTURES_DIR, fixture, "navori.config.json"), "utf8"));
+    for (const floor of ANTI_ROLLBACK_LEVELS) {
+      for (const marker of ANTI_ROLLBACK_LEVELS) {
+        const config = { ...base };
+        if (op === "remove") config.plugins = { ...base.plugins, tgrep: { enabled: true } };
+        if (level(floor) === null) delete config.harnessVersion;
+        else config.harnessVersion = level(floor);
+        const stamp = level(marker);
+        /** @type {Record<string, string>} */
+        const files = { "navori.config.json": `${JSON.stringify(config, null, 2)}\n` };
+        if (op === "inject") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "idioma-rol", "Older body.", stamp)}`;
+        } else if (op === "hook") {
+          files[".claude/hooks/implementer-no-markdown.sh"] =
+            `${managedBlock("shell", "implementer-no-markdown-base", "#!/usr/bin/env bash\nexit 0", stamp)}`;
+        } else if (op === "remove") {
+          files["CLAUDE.md"] = `# Notes\n\n${managedBlock("html", "tgrep-search-v2", "Older body.", stamp)}`;
+        } else if (op === "codex-config") {
+          files[".codex/config.toml"] = managedBlock("shell", "codex-config-base", 'model = "older"', stamp);
+        } else if (op === "agents-md") {
+          files["AGENTS.md"] = `# Notes\n\n${managedBlock("html", "navori-agents", "Older body.", stamp)}`;
+        } else {
+          const navori = stamp === null ? { managed: true } : { managed: true, version: stamp };
+          files[".claude/settings.json"] = `${JSON.stringify({ $navori: navori, hooks: {} }, null, 2)}\n`;
+        }
+        cases.push({
+          id: `anti-rollback:${op}:floor-${floor}:marker-${marker}`,
+          fixture,
+          ...(op === "remove"
+            ? { args: ["remove", "tgrep", "--yes"] }
+            : op === "codex-config"
+              ? { args: ["sync", "--apply"], native: true }
+              : { args: ["render", "--apply"], mask: ["provenance"] }),
+          ...(op === "agents-md" ? { native: true } : {}),
+          files,
+        });
+      }
+    }
+  }
+  return cases;
+}
+
+/**
+ * A TS CLI that only reports it was reached: a `native` case that delegates prints this instead of
+ * the TS output (and a delegation notice naming this path), so the difference is never silent.
+ *
+ * @param {string} base
+ * @returns {string}
+ */
+function decoyCli(base) {
+  const path = join(base, "decoy", "dist", "index.js");
+  if (!existsSync(path)) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'process.stderr.write("rust-oracle: delegated to the TS\\n");\nprocess.exitCode = 97;\n');
+  }
+  return path;
+}
+
+/**
+ * Whether the manifest selects `args` for native execution, as `parser.rs` and
+ * `Manifest::select` read them: the leading positionals as the path and the option names, without
+ * dashes, value or `no-` prefix, as the flags.
+ *
+ * @param {{ commands: Array<{ path: string[], flags?: string[], requires?: string[][] }> }} manifest
+ * @param {string[]} args
+ */
+export function selectsNative(manifest, args) {
+  if (args.length === 1 && ["--version", "--help", "-h"].includes(args[0])) {
+    return manifest.commands.some((c) => c.path.join(" ") === (args[0] === "-h" ? "--help" : args[0]));
+  }
+  const first = args.findIndex((a) => a.startsWith("-"));
+  const path = first === -1 ? args : args.slice(0, first);
+  const flags = args
+    .filter((a) => a.startsWith("-") && a !== "--")
+    .flatMap((a) =>
+      a.startsWith("--") ? [a.slice(2).split("=")[0].replace(/^no-/, "")] : [...a.slice(1)],
+    );
+  // `Manifest::select` (manifest.rs:145): with `requires`, the invocation also carries every flag
+  // of at least one alternative; entries of one path are tried in turn.
+  return manifest.commands.some(
+    (c) =>
+      c.path.every((token, i) => path[i] === token) &&
+      flags.every((f) => (c.flags ?? []).includes(f)) &&
+      (c.requires === undefined || c.requires.some((needed) => needed.every((f) => flags.includes(f)))),
+  );
+}
+
+/**
+ * The hand-written cases of every `<area>.json` in `dir`, in file-name order. A repeated id across
+ * files would make `--only` and the report ambiguous, so it fails here.
+ *
+ * @param {string} dir
+ * @returns {OracleCase[]}
+ */
+export function readAreaCases(dir) {
+  const seen = new Map();
+  const cases = [];
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".json")).sort()) {
+    const file = JSON.parse(readFileSync(join(dir, name), "utf8"));
+    if (file.schema !== 1 || !Array.isArray(file.cases))
+      throw new Error(`rust-oracle: ${name}: expected { "schema": 1, "cases": [...] }`);
+    for (const c of file.cases) {
+      if (seen.has(c.id)) throw new Error(`rust-oracle: case ${c.id} in ${seen.get(c.id)} and ${name}`);
+      seen.set(c.id, name);
+      cases.push(c);
+    }
+  }
+  return cases;
+}
+
+/**
+ * Cases to run: the hand-written ones plus one per entry of the CLI surface golden. A surface case
+ * the manifest selects natively masks the Rust version (see {@link maskSide}).
+ *
+ * @param {{ casesDir?: string, goldenPath?: string, manifestPath?: string }} [paths]
+ * @returns {OracleCase[]}
+ */
+export function loadCases(paths = {}) {
+  const handWritten = readAreaCases(paths.casesDir ?? CASES_DIR);
+  const golden = JSON.parse(readFileSync(paths.goldenPath ?? SURFACE_GOLDEN, "utf8"));
+  const manifest = JSON.parse(readFileSync(paths.manifestPath ?? MANIFEST_PATH, "utf8"));
+  const surface = golden.cases.map((c) => ({
+    id: `surface:${c.args.join("_")}`,
+    fixture: SURFACE_FIXTURE,
+    args: c.args,
+    ...(selectsNative(manifest, c.args) ? { mask: ["version"] } : {}),
+  }));
+  const cliVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
+  return [
+    ...handWritten,
+    ...surface,
+    ...repoSpecCases(),
+    ...antiRollbackCases(cliVersion),
+  ];
+}
+
+/** `version` of the workspace package in the root `Cargo.toml`. */
+function rustVersion() {
+  const m = /^\[workspace\.package\][^[]*?^version\s*=\s*"([^"]+)"/ms.exec(readFileSync(CARGO_TOML, "utf8"));
+  if (!m) throw new Error("cannot read [workspace.package].version from Cargo.toml");
+  return m[1];
+}
+
+function flagValue(argv, name) {
+  const at = argv.indexOf(name);
+  return at === -1 ? undefined : argv[at + 1];
+}
+
+/**
+ * CLI entry point.
+ *
+ * @param {string[]} argv
+ * @returns {number} exit code: 0 no differences, 1 differences, 2 cannot run
+ */
+export function main(argv) {
+  const dist = process.env.NAVORI_TS_CLI || DEFAULT_DIST;
+  if (!existsSync(dist)) {
+    process.stderr.write(`rust-oracle: ${dist} not found; build it first (bun run ensure-dist)\n`);
+    return 2;
+  }
+  const tsVersion = JSON.parse(readFileSync(TS_VERSION_SOURCE, "utf8")).version;
+  const selfCheck = argv.includes("--self-check");
+  const ts = { cmd: process.execPath, args: [dist], version: tsVersion };
+  let rust = ts;
+  if (!selfCheck) {
+    let bin = flagValue(argv, "--rust-bin");
+    if (!bin) {
+      const build = spawnSync("cargo", ["build", "-p", "navori-cli", "--locked", "--quiet"], {
+        cwd: REPO_ROOT,
+        stdio: "inherit",
+      });
+      if (build.status !== 0) {
+        process.stderr.write("rust-oracle: cargo build failed\n");
+        return 2;
+      }
+      bin = join(process.env.CARGO_TARGET_DIR ?? join(REPO_ROOT, "target"), "debug", "navori-rust");
+    }
+    rust = { cmd: resolve(bin), args: [], version: rustVersion() };
+  }
+  const only = flagValue(argv, "--only")?.split(",").filter(Boolean);
+  const cases = loadCases().filter((c) => !only || only.some((part) => c.id.includes(part)));
+  if (cases.length === 0) {
+    process.stderr.write("rust-oracle: no case matches\n");
+    return 2;
+  }
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "navori-rust-oracle-")));
+  /** @type {Array<{ id: string, exit: number | null, differences: Difference[], known?: Difference[] }>} */
+  const results = [];
+  try {
+    for (const testCase of cases) {
+      const result = runCaseOrSetupFailure(testCase, { ts, rust, tsCli: dist, base });
+      results.push(result);
+      for (const d of result.differences) {
+        process.stdout.write(`DIFF ${result.id} [${d.kind}] ${d.detail}\n`);
+      }
+      for (const d of result.known ?? []) {
+        process.stdout.write(`KNOWN ${result.id} (${testCase.known?.issue}) [${d.kind}] ${d.detail}\n`);
+      }
+    }
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+  const total = results.reduce((n, r) => n + r.differences.length, 0);
+  const known = results.reduce((n, r) => n + (r.known?.length ?? 0), 0);
+  const report = { cases: results.length, differences: total, known, results };
+  const reportPath = flagValue(argv, "--report");
+  if (reportPath) writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  process.stdout.write(
+    `rust-oracle: ${results.length} cases, ${total} differences${known ? `, ${known} known` : ""}\n`,
+  );
+  return total === 0 ? 0 : 1;
+}
+
+const USAGE = `usage: node scripts/js/rust-oracle.mjs [--only <a>[,<b>...]] [--report <file>] [--rust-bin <path> | --self-check]
+  Differential oracle: navori (TS dist/) vs navori-rust; builds navori-cli unless --rust-bin/--self-check.
+  --only <ids>       only the cases whose id contains one of them
+  --report <file>    also write the JSON report
+  --rust-bin <path>  use that binary and skip cargo build
+  --self-check       TS against itself
+  -h, --help         print this text and exit`;
+
+if (isMain(import.meta.url)) {
+  exitOnHelp(process.argv.slice(2), USAGE);
+  process.exitCode = main(process.argv.slice(2));
+}

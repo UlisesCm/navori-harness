@@ -388,6 +388,15 @@ completo (preview salvo `--apply`).
 
 `progress/current.md` se carga en cada sesión, así que tiene un tope. El hook pre-commit bloquea los commits de agente que lo dejan sobre el tope duro o lo hacen crecer estando ya sobre él (los commits humanos no se bloquean). `navori doctor` lo mide en bytes con los mismos topes y avisa; el hook de inicio de sesión advierte, sin bloquear, al pasar el tope suave.
 
+## Migrando a 0.13
+
+- No hay nada que cambiar en tu repo. Después de `npm i -g navori@0.13`, `navori --version` debe responder `0.13.0`. Node mínimo: sigue siendo >= 22.12.
+- El CLI ahora es un binario nativo para macOS (arm64, x64) y Linux (arm64, x64). npm lo instala con un paquete opcional por plataforma (`navori-<os>-<cpu>`) y el postinstall lo pone en lugar de los bins de JS. Si el postinstall no corre (pnpm, `--ignore-scripts`), el lanzador de JS arranca el mismo binario. En otras plataformas, o si se omiten las dependencias opcionales, el paquete corre el CLI de TypeScript congelado que viaja dentro de él.
+- Algunos comandos siguen en ese CLI de TypeScript congelado; no necesitas instalar nada aparte: `master`, `codex`, `workspace`, `ticket`, `registry`, la mayor parte de `audit` y, hasta que se porten en 0.13.x, `init`, `add`, `configure`, `update`, `refresh`, `receipt` y la mayor parte de `gate` y `tools`.
+- Los hooks portados deciden de forma nativa en Claude Code y Pi cuando está instalado el binario de la plataforma; si no, corre su cuerpo shell renderizado, con los mismos veredictos. Los hooks renderizados llevan una línea de firma `navori:native-hook` antes del bloque gestionado.
+- `render`, `sync` y `remove` se niegan a escribir si un archivo gestionado tiene marcadores de conflicto de git y nombran los archivos; `--force` no lo evita. Resuelve el conflicto y vuelve a correr el comando.
+- `claudePlugins` en `navori.config.json` declara los plugins de Claude Code y `render` escribe `enabledPlugins` en `.claude/settings.json`.
+
 ## Migrando a 0.12
 
 - Se retiró el comando `global` y el colector launchd (`audit --collect` sigue). `doctor --json` ya no emite `globalScope`.

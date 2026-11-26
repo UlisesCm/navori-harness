@@ -16,11 +16,10 @@ function steps(command: string | undefined): string[] {
     .map((s) => /^bun (?:run )?(\S+)/.exec(s)?.[1] ?? s);
 }
 
+// After the cutover (spec 0062 T10) the frozen TS has no lint, typecheck or bundle-size step.
 const CHEAP = [
   "check:deps",
   "format:check",
-  "lint",
-  "typecheck",
   "check:dup",
   "check:ast",
   "check:links",
@@ -28,20 +27,20 @@ const CHEAP = [
   "check:assets",
   "check:doc-budgets",
   "check:blame-ignore",
-  "check:size",
 ];
 
 describe("this repo's quality gate (R23, R25)", () => {
   // Covers: R23
   it("orden y conjunto", () => {
-    // Same set as before the reorder, cheap to expensive, coverage last.
-    // `check:tests-preserved` runs from the repo root, so it sits before `cd packages/cli`.
-    const at = CHEAP.indexOf("check:blame-ignore") + 1;
+    // The Rust gate first (`check:post-cutover`, R18), then the cheap checks, the test-preservation
+    // check, the typecheck of the TS that stays and the asset and docs suites last (spec 0062 T10,
+    // option C: no TS suite).
     expect(steps(gate?.full)).toEqual([
-      ...CHEAP.slice(0, at),
+      "check:post-cutover",
+      ...CHEAP,
       "check:tests-preserved",
-      ...CHEAP.slice(at),
-      "test:coverage",
+      "typecheck",
+      "test:assets",
     ]);
     // The package.json `check` script mirrors `full`.
     const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8")) as {
@@ -56,7 +55,7 @@ describe("this repo's quality gate (R23, R25)", () => {
     expect(steps(pkg.scripts["check:scoped"])).toEqual(CHEAP);
     expect(
       steps(gate?.full)
-        .filter((step) => step !== "check:tests-preserved")
+        .filter((step) => step !== "check:tests-preserved" && step !== "check:post-cutover")
         .slice(0, CHEAP.length),
     ).toEqual(steps(pkg.scripts["check:scoped"]));
     expect(pkg.scripts["check:scoped"]).not.toMatch(/test|vitest/);

@@ -2,7 +2,7 @@
   "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
   "name": "navori-harness",
   "version": "1.0.0",
-  "harnessVersion": "0.12.5",
+  "harnessVersion": "0.13.0",
   "engines": [
     "claude",
     "pi"
@@ -17,13 +17,12 @@
   "qualityGate": {
     "fast": "bun run check:fast",
     "scoped": "bun run check:scoped",
-    "affected": "bun run test:affected",
     "docs": "bun run check:links && bun run check:doc-budgets && cd packages/cli && bun run test src/lib/__tests__/direction-doc.test.ts src/__tests__/direction-claude-first.test.ts src/__tests__/command-docs-inventory.test.ts",
     "nativeHooks": true,
-    "full": "bun run check:deps && bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage",
+    "full": "bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run typecheck && bun run test:assets",
     "ci": {
       "workflow": ".github/workflows/ci.yml",
-      "jobs": ["checks", "test (1)", "test (2)", "test (3)", "test (4)", "test-merge"],
+      "jobs": ["checks", "node-floor", "asset-suites"],
       "label": "full",
       "untrustedPaths": [
         ".github/**",
@@ -33,13 +32,15 @@
         "packages/cli/vitest.*.ts",
         "packages/cli/package.json",
         "packages/cli/src/__tests__/repo-config-gate.test.ts",
-        "package.json"
+        "package.json",
+        "scripts/js/asset-suites.mjs",
+        "scripts/js/post-cutover-check.mjs"
       ],
       "hookPaths": [
         "packages/core/core-assets/hooks/**",
         "packages/plugins/*/scripts/**"
       ],
-      "hooksCommand": "cd packages/cli && bun run test:hooks"
+      "hooksCommand": "bun run hooks:replay"
     }
   },
   "audit": {
@@ -86,6 +87,11 @@
     },
     "codegraph": {
       "enabled": true
+    }
+  },
+  "sdd": {
+    "deliveries": {
+      "maxPrsPerSpec": 6
     }
   },
   "project": {

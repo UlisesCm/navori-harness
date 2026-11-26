@@ -1,0 +1,90 @@
+{
+  "$schema": "https://ulisescm.github.io/navori-harness/schema/navori.config.v1.json",
+  "name": "navori-harness",
+  "version": "1.0.0",
+  "harnessVersion": "0.12.2",
+  "engines": [
+    "claude",
+    "codex",
+    "pi"
+  ],
+  "preset": "custom",
+  "language": "es",
+  "branchBase": "dev",
+  "prTarget": "dev",
+  "gitignoreHarness": "off",
+  "commits": "conventional-es",
+  "packageManager": "bun",
+  "qualityGate": {
+    "fast": "bun run check:fast",
+    "scoped": "bun run check:scoped",
+    "affected": "bun run test:affected",
+    "docs": "bun run check:links && bun run check:doc-budgets && cd packages/cli && bun run test src/lib/__tests__/direction-doc.test.ts src/__tests__/direction-claude-first.test.ts src/__tests__/command-docs-inventory.test.ts",
+    "nativeHooks": true,
+    "full": "bun run format:check && bun run lint && bun run typecheck && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && cd packages/cli && bun run check:size && bun run test:coverage"
+  },
+  "audit": {
+    "mode": "always"
+  },
+  "harness": {
+    "scribeOwnsMarkdown": true,
+    "planTiers": true
+  },
+  "models": {
+    "codexMap": {
+      "sonnet": "gpt-6.1-sol"
+    },
+    "orchestrator": "opus",
+    "implementer": "sonnet",
+    "reviewer": "sonnet",
+    "scout": "haiku",
+    "auditor": "sonnet",
+    "publisher": "haiku",
+    "scribe": "haiku"
+  },
+  "effort": {
+    "orchestrator": "medium",
+    "implementer": "medium",
+    "reviewer": "low",
+    "scout": "high",
+    "auditor": "medium",
+    "publisher": "low",
+    "scribe": "low"
+  },
+  "plugins": {
+    "engram": {
+      "enabled": true
+    },
+    "gh": {
+      "enabled": true
+    },
+    "tgrep": {
+      "enabled": true
+    },
+    "codegraph": {
+      "enabled": true
+    }
+  },
+  "project": {
+    "legacyPaths": [],
+    "criticalAreas": [
+      "render/sync/backup writes and deletes in the user's repo",
+      "settings.json permissions, deny/ask rules and hooks",
+      "managed-block markers and the anti-rollback guard"
+    ],
+    "testsExclude": [],
+    "localSkills": [
+      "playwright-cli",
+      "author-agent",
+      "rebase-rerender",
+      "worktree-hygiene"
+    ],
+    "libraries": [
+      "zod-validation",
+      "vitest",
+      "citty",
+      "clack"
+    ],
+    "libraryMigrations": []
+  }
+}

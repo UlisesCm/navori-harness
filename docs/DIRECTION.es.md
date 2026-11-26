@@ -59,8 +59,8 @@ oculta: `navori.config.json` sigue siendo la fuente de verdad del harness.
 
 Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo cambie:
 
-- **Popularizar / branding / marketing / monetización / i18n del producto / control plane
-  en Rust.** navori es tool-for-self, no un producto de mercado (Spec 0003).
+- **Popularizar / branding / marketing / monetización / i18n del producto.**
+  navori es tool-for-self, no un producto de mercado (Spec 0003).
 - **Ecosistema público formalizado de plugins.** Los plugins son bundles internos, no un
   marketplace.
 - **Arquitectura de instalación selectiva** estilo otras herramientas.
@@ -84,6 +84,29 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
 - **Piso de doctrina por máquina en `~/.claude`** (capa global, Spec 0010). No se adoptó: costaba
   ~5.5-6k LOC y se retiró con la Spec 0046; las sesiones fuera de un repo con navori quedan sin
   harness a propósito.
+
+## Migración a Rust (después del corte de 0.13)
+
+Desde el corte de 0.13, `dev` construye el CLI como el binario de Rust (`crates/navori-cli`), y
+0.13.0 es el primer release que lo publica
+([spec 0057](../specs/0057-migracion-rust/requirements.md),
+[spec 0062](../specs/0062-rust-activacion-corte/requirements.md)). El antiguo no-objetivo "plano de
+control en Rust" ya no aplica. Después del corte rigen estas reglas:
+
+- **El TS de `packages/cli/src` está congelado.** Es la fuente de `navori-legacy`, el CLI de
+  TypeScript que el paquete corre para la delegación permanente y la transitoria
+  (`scripts/js/rust-areas.mjs`) y en las plataformas sin binario, y sostiene las suites de
+  artefacto. Solo cambia para arreglar el legacy, con revisión a mano. Su borrado, y el del oráculo
+  diferencial, quedan para un PR posterior (spec 0062 T10, opción C).
+- **npm publica solo lo que arma `scripts/js/dist-assemble.mjs`:** `navori`, los cuatro paquetes de
+  plataforma `navori-<os>-<cpu>` y `navori-legacy`, fijado en `packaging/legacy.json`.
+  `packages/cli` es privado: es la fuente de la versión (`STAMP_VERSION`, el tag del release), no
+  un paquete.
+- **`crates/ported.json` decide qué corre nativo,** y `crates/ported-history.jsonl` registra cada
+  puerto y cada activación. El historial es de solo agregar (`scripts/js/rust-manifest-check.mjs`).
+- **Un cambio en `crates/ported.json` después del pin del legacy obliga a un release nuevo**
+  (0.13.1 o posterior), porque el legacy tiene que llevar el manifiesto del release con el que se
+  publica (spec 0062 D53, D54).
 
 ## Principios de diseño / invariantes (NO se re-litigan sin razón nueva)
 
@@ -125,7 +148,8 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    trae su propia config navori y nunca degrada lo que el repo ya trae. *Por qué*: instalar base
    por-workspace no debe romper repos existentes.
 9. **navori genera, no ejecuta** — el harness enseña al agente qué herramienta usar; navori no
-   corre esas herramientas. Excepción opt-in por proyecto: una integración nativa de Codex
+   corre esas herramientas. La regla sigue siendo una decisión humana por cada publicación.
+   Excepción opt-in por proyecto: una integración nativa de Codex
    puede observar perfiles y evaluación del host y autorizar una sola publicación fija de PR,
    con decisión humana autenticada y alcance inmutable. El engine conserva la ejecución normal;
    la excepción no admite API genérica de ejecución, runner, broker de modelos, dependencia nueva,
@@ -135,6 +159,18 @@ Explícitamente **fuera de alcance** salvo que una razón nueva y fuerte lo camb
    ya estén implementados o aceptados. Se prefiere ownership soportado existente del host cuando
    satisface las garantías; cualquier cliente parent nuevo debe imponer el mismo alcance inmutable
    y límite de entrada humana ([regla](../specs/0050-codex-resultados-equivalentes/design.md)).
+   Un proyecto también puede activar `autonomy.mode: "routine"` (solo Pi,
+   [Spec 0065](../specs/0065-autonomia/spec.md)): con el consentimiento vigente del usuario, la
+   extensión de Pi responde ella misma la confirmación de cuatro operaciones en el repo propio
+   (abrir un PR hacia una rama de integración declarada, comentar, revisar sin aprobar, crear un
+   issue), solo en la sesión interactiva, solo con un archivo de cuerpo que leyó, y registrando la
+   sesión antes de ejecutar. El consentimiento caduca si cambian la política, el harness de Pi
+   instalado, las extensiones de Pi del host o el binario `navori-rust`. El merge y toda otra
+   publicación conservan la decisión por operación; con la clave presente, publicar paquetes,
+   releases, tags, merges de administrador y escrituras a `main` se bloquean. Es un cinturón contra
+   saltarse un paso por descuido, no un límite: el agente corre como el mismo usuario y puede
+   falsificar una marca o publicar con un script; los rulesets y las credenciales siguen siendo el
+   límite.
    *Por qué*: mantiene el CLI simple y el harness portable.
 10. **Auto-hospedaje** — el harness (`.claude/` + `CLAUDE.md` + `navori.config.json`) SÍ se
     commitea en este repo y en todo repo no-Bonum: navori se come su propia comida. (En repos

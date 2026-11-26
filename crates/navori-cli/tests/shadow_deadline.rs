@@ -1,0 +1,468 @@
+//! Shadow wall-clock deadline: process-group kill, non-blocking stdin and the deadline table.
+
+use std::error::Error;
+use std::ffi::OsString;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+use navori_cli::delegate::Locations;
+use navori_cli::journal::{CliJournal, ShadowJournal};
+use navori_cli::shadow::{Comparison, SHADOW_DEADLINES, ShellInvocation, deadline_for, run_until};
+use navori_core::js_json;
+use navori_core::render::claude_settings::build_claude_settings;
+use navori_core::render::codex_hooks::resolve_codex_hooks;
+use navori_core::render::harness_plan::{AssetRef, HarnessPlan, PlannedUnit};
+use navori_core::render::pi_projection::active_pi_hook_bindings;
+use navori_core::render::presets::AssetRoot;
+use navori_hooks::runner::{Context, Engine, Evaluation, Verdict};
+
+type TestResult = Result<(), Box<dyn Error>>;
+
+fn scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let dir = std::env::temp_dir().join(format!(
+        "navori-shadow-deadline-{}-{name}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn alive(pid: &str) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", pid])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// A body that starts a grandchild, publishes its pid in one rename (a reader never sees a
+/// half-written file, whose empty pid would make `kill -0` fail and the check pass vacuously) and
+/// then outlives any deadline.
+fn grandchild_script(pidfile: &Path) -> String {
+    format!(
+        "sleep 30 &\necho $! > '{0}.tmp' && mv '{0}.tmp' '{0}'\nsleep 30\n",
+        pidfile.display()
+    )
+}
+
+/// Whether `pid` is gone within 2 s: the group kill is sent at the deadline, but the process
+/// leaves the table when it is reaped, later on a loaded machine.
+fn gone(pid: &str) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if !alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+fn permit(_: &[u8]) -> Result<Evaluation, navori_hooks::runner::Failure> {
+    Ok(Evaluation {
+        verdict: Verdict::Permit,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        audit: None,
+    })
+}
+
+// Covers: A1
+#[test]
+fn deadline_kills_the_process_group_and_returns_despite_unread_stdin() -> TestResult {
+    let dir = scratch("group")?;
+    let script = dir.join("hook.sh");
+    let pidfile = dir.join("grandchild.pid");
+    // The grandchild inherits stdin/stdout/stderr; the script never reads stdin.
+    fs::write(&script, grandchild_script(&pidfile))?;
+    let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+    let payload = vec![b'x'; 256 * 1024];
+    let context = Context {
+        engine: Engine::Claude,
+        hook: "guard-destructive",
+        gating: true,
+    };
+    let started = Instant::now();
+    let result = run_until(
+        context,
+        &payload,
+        ShellInvocation {
+            script: &script,
+            args: &[],
+            cwd: &dir,
+            env: &env,
+        },
+        Some(started + Duration::from_millis(300)),
+        permit,
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "returned after {elapsed:?}"
+    );
+    assert!(result.comparison.shell_failed);
+    let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
+    let reaped = gone(&pid);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(reaped, "grandchild {pid} survived the group kill");
+    // Claude + gating: the safe response is `ask`, never an approval.
+    let output: serde_json::Value = serde_json::from_slice(result.shell.stdout())?;
+    assert_eq!(output["hookSpecificOutput"]["permissionDecision"], "ask");
+    Ok(())
+}
+
+// Covers: A1
+#[test]
+fn an_expired_deadline_never_starts_the_shell() -> TestResult {
+    let native_ran = std::cell::Cell::new(false);
+    let dir = scratch("expired")?;
+    let script = dir.join("hook.sh");
+    let marker = dir.join("ran");
+    fs::write(&script, format!("touch '{}'\n", marker.display()))?;
+    let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+    let context = Context {
+        engine: Engine::Codex,
+        hook: "guard-destructive",
+        gating: true,
+    };
+    let result = run_until(
+        context,
+        b"{}",
+        ShellInvocation {
+            script: &script,
+            args: &[],
+            cwd: &dir,
+            env: &env,
+        },
+        Some(Instant::now()),
+        |bytes| {
+            native_ran.set(true);
+            permit(bytes)
+        },
+    );
+    let ran = marker.exists();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(!ran);
+    // The native lane would only delay the fail-safe: past the deadline it does not run either.
+    assert!(!native_ran.get());
+    assert!(result.comparison.native_unobserved);
+    assert!(result.comparison.shell_failed);
+    assert_eq!(result.shell.code(), 2);
+    Ok(())
+}
+
+/// A plan that registers only `hook`, so the settings render keeps its registration.
+fn plan_with(hook: &str) -> HarnessPlan {
+    HarnessPlan {
+        hooks: vec![PlannedUnit {
+            id: hook.to_owned(),
+            asset: AssetRef {
+                root: AssetRoot::Bundled,
+                rel: format!("hooks/{hook}.sh"),
+            },
+            managed_id: hook.to_owned(),
+            main_thread_only: false,
+        }],
+        ..HarnessPlan::default()
+    }
+}
+
+/// Lowest timeout (seconds) the Claude settings render registers for `hook`.
+fn claude_timeout(hook: &str) -> Result<Option<f64>, Box<dyn Error>> {
+    let config = js_json::parse("{}").ok_or("config")?;
+    let settings = build_claude_settings(&config, &plan_with(hook), &[])
+        .map_err(|_| "claude settings")?
+        .stringify(None)
+        .ok_or("stringify")?;
+    let settings: serde_json::Value = serde_json::from_str(&settings)?;
+    let mut lowest: Option<f64> = None;
+    for groups in settings["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|m| m.values())
+    {
+        for group in groups.as_array().into_iter().flatten() {
+            for entry in group["hooks"].as_array().into_iter().flatten() {
+                let command = entry["command"].as_str().unwrap_or_default();
+                if command.contains(hook)
+                    && let Some(timeout) = entry["timeout"].as_f64()
+                {
+                    lowest = Some(lowest.map_or(timeout, |low| low.min(timeout)));
+                }
+            }
+        }
+    }
+    Ok(lowest)
+}
+
+/// Lowest timeout (seconds) the Codex hooks render registers for `hook`.
+fn codex_timeout(hook: &str) -> Result<Option<u32>, Box<dyn Error>> {
+    let config = js_json::parse("{}").ok_or("config")?;
+    let hooks = resolve_codex_hooks(&config, &[]).ok_or("codex hooks")?;
+    Ok(hooks
+        .iter()
+        .filter(|resolved| resolved.script == hook)
+        .map(|resolved| resolved.timeout)
+        .min())
+}
+
+// Covers: A3
+#[test]
+fn deadline_table_is_below_every_render_timeout() -> TestResult {
+    let ids: Vec<&str> = SHADOW_DEADLINES.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, ["guard-destructive", "pii-egress-guard"]);
+    assert_eq!(SHADOW_DEADLINES[0].1, Duration::from_millis(8500));
+    // pii-egress-guard is Claude-only: its one registered timeout is the bound.
+    let pii = claude_timeout("pii-egress-guard")?.ok_or("claude registers no pii timeout")?;
+    assert!(SHADOW_DEADLINES[1].1.as_secs_f64() < pii);
+    let claude = claude_timeout("guard-destructive")?.ok_or("claude registers no timeout")?;
+    let codex = codex_timeout("guard-destructive")?.ok_or("codex registers no timeout")?;
+    let config = js_json::parse("{}").ok_or("config")?;
+    let pi_ms = active_pi_hook_bindings(&config)
+        .iter()
+        .filter(|binding| binding.script == "guard-destructive")
+        .map(|binding| binding.timeout_ms)
+        .min()
+        .ok_or("pi binds no guard-destructive")?;
+    for (id, budget) in SHADOW_DEADLINES.iter().take(1) {
+        let lowest = claude.min(f64::from(codex)).min(f64::from(pi_ms) / 1000.0);
+        assert!(
+            budget.as_secs_f64() < lowest,
+            "{id}: {budget:?} >= {lowest}s"
+        );
+    }
+    let start = Instant::now();
+    assert_eq!(
+        deadline_for("guard-destructive", start),
+        Some(start + Duration::from_millis(8500))
+    );
+    assert_eq!(deadline_for("plan-gate", start), None);
+    Ok(())
+}
+
+const MATCH: Comparison = Comparison {
+    native_unobserved: false,
+    native_failed: false,
+    shell_failed: false,
+    code_differs: false,
+    stdout_differs: false,
+    stderr_differs: false,
+    shell_code: None,
+    native_code: None,
+};
+
+/// Install `body` at `path` as an executable that this process never held open for writing.
+/// Tests run on parallel threads that fork: a write descriptor open here at that moment lives
+/// on in the forked child until its exec, and running `path` in that window fails with ETXTBSY
+/// ("Text file busy"). `/bin/cp` writes the file in its own process, which never forks.
+fn install_executable(staging: &Path, path: &Path, body: &str) -> TestResult {
+    let staged = staging.join("executable.staged");
+    fs::write(&staged, body)?;
+    let status = Command::new("/bin/cp").arg(&staged).arg(path).status()?;
+    if !status.success() {
+        return Err(format!("cp exited with {status}").into());
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+/// A journal backed by a fake TS CLI whose body is `script`.
+fn fake_journal(dir: &Path, script: &str) -> Result<CliJournal, Box<dyn Error>> {
+    let cli = dir.join("fake-navori");
+    install_executable(dir, &cli, &format!("#!/bin/sh\n{script}\n"))?;
+    CliJournal::from_locations(&Locations {
+        ts_cli: Some(cli.into_os_string()),
+        checkout_dist: dir.join("missing/index.js"),
+        path: None,
+        self_exe: None,
+    })
+    .ok_or_else(|| "fake CLI not resolved".into())
+}
+
+// Covers: A2
+#[test]
+fn a_slow_begin_is_killed_with_its_group_at_the_deadline() -> TestResult {
+    let dir = scratch("begin")?;
+    let pidfile = dir.join("grandchild.pid");
+    let journal = fake_journal(&dir, &grandchild_script(&pidfile))?;
+    let started = Instant::now();
+    let receipt = journal.begin_until(
+        Path::new("/repo"),
+        "guard-destructive",
+        Engine::Claude,
+        "impl",
+        Some(started + Duration::from_millis(300)),
+    );
+    let elapsed = started.elapsed();
+    assert!(receipt.is_none());
+    assert!(elapsed < Duration::from_secs(2), "begin took {elapsed:?}");
+    let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
+    let reaped = gone(&pid);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(reaped, "grandchild {pid} survived");
+    Ok(())
+}
+
+// Covers: A2
+#[test]
+fn a_prompt_begin_still_acknowledges_under_a_deadline() -> TestResult {
+    let dir = scratch("begin-ok")?;
+    let journal = fake_journal(&dir, "printf '{\"kind\":\"begin\",\"id\":\"r1\"}\\n'")?;
+    let receipt = journal.begin_until(
+        Path::new("/repo"),
+        "guard-destructive",
+        Engine::Claude,
+        "impl",
+        Some(Instant::now() + Duration::from_secs(5)),
+    );
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(
+        receipt.as_deref(),
+        Some("{\"kind\":\"begin\",\"id\":\"r1\"}")
+    );
+    Ok(())
+}
+
+// Covers: A2
+#[test]
+fn a_slow_complete_is_abandoned_at_the_deadline() -> TestResult {
+    let dir = scratch("complete")?;
+    let pidfile = dir.join("grandchild.pid");
+    // Never reads stdin and never exits on its own.
+    let journal = fake_journal(&dir, &grandchild_script(&pidfile))?;
+    let started = Instant::now();
+    journal.complete_until(
+        Path::new("/repo"),
+        "{\"kind\":\"begin\",\"id\":\"r1\"}",
+        MATCH,
+        Some(started + Duration::from_millis(300)),
+    );
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "complete took {elapsed:?}"
+    );
+    let pid = fs::read_to_string(&pidfile)?.trim().to_owned();
+    let reaped = gone(&pid);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(reaped, "grandchild {pid} survived");
+    Ok(())
+}
+
+/// A repository whose project-directory read never returns until `release` is dropped.
+struct HungGit {
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+impl navori_hooks::shell::repo::Repo for HungGit {
+    fn is_dir(&self, _: &str) -> bool {
+        true
+    }
+    fn holds(
+        &self,
+        _: &str,
+        _: navori_hooks::shell::repo::Loss,
+    ) -> navori_hooks::shell::repo::Holding {
+        navori_hooks::shell::repo::Holding::Clear
+    }
+    fn toplevel(&self, _: &str) -> Option<String> {
+        let _ = self.release.recv();
+        None
+    }
+    fn superproject(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn repo_id(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn physical(&self, _: &str) -> Option<String> {
+        None
+    }
+    fn ignored(&self, _: &str, _: &str) -> bool {
+        false
+    }
+    fn file_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn blob_size(&self, _: &str, _: &str) -> u64 {
+        0
+    }
+    fn is_file(&self, _: &str) -> bool {
+        false
+    }
+    fn tgrep_status(&self, _: Option<&str>) -> Option<String> {
+        None
+    }
+}
+
+/// Shadow, native lane hung inside a rule: it spends only its own 3 s budget, reports not
+/// observed, and the shell answers with at least 5 s left of the 8.5 s shadow deadline.
+#[test]
+fn a_hung_native_guard_leaves_the_shell_time_to_answer() -> TestResult {
+    use navori_cli::hook_facts::{evaluate_native, native_deadline};
+    use navori_hooks::hooks::guard_destructive::Rendered;
+    use navori_hooks::hooks::guard_destructive::entry::{Context as Guard, Pii};
+    use navori_hooks::shell::Locale;
+    use navori_hooks::shell::capture::{CaptureContext, ShellDialect};
+    use navori_hooks::shell::hook_input::Host;
+    use navori_hooks::shell::payload::{Extractor, Profile};
+
+    let dir = scratch("hung-native")?;
+    let script = dir.join("hook.sh");
+    fs::write(&script, "exit 0\n")?;
+    let env: Vec<(OsString, OsString)> = vec![("PATH".into(), "/usr/bin:/bin".into())];
+    let guard = Guard {
+        engine: Engine::Codex,
+        profile: Profile {
+            extractor: Extractor::JqAndNode,
+            locale: Locale::Utf8,
+        },
+        capture: CaptureContext {
+            shell: ShellDialect::Bash3,
+            script: Path::new("guard-destructive.sh"),
+            input_line: 1,
+            fallback_line: 1,
+        },
+        rendered: Rendered::from_script(
+            "base=x\nnv_pi_rules=-\nnv_owned_paths=-\nnavori_pg_lane=0\n",
+        )
+        .ok_or("rendered assignments")?,
+        host: Host::default(),
+        pii: Pii::default(),
+    };
+    let payload = br#"{"tool_name":"Bash","cwd":"/tmp/x","tool_input":{"command":"echo hi"}}"#;
+    let started = Instant::now();
+    let expiry = deadline_for("guard-destructive", started).ok_or("shadow deadline")?;
+    let (hold, release) = std::sync::mpsc::channel::<()>();
+    let result = run_until(
+        Context {
+            engine: Engine::Codex,
+            hook: "guard-destructive",
+            gating: true,
+        },
+        payload,
+        ShellInvocation {
+            script: &script,
+            args: &[],
+            cwd: &dir,
+            env: &env,
+        },
+        Some(expiry),
+        |bytes| {
+            let deadline = native_deadline(None, started, true);
+            evaluate_native(bytes, &guard, HungGit { release }, deadline, true)
+        },
+    );
+    let margin = expiry.saturating_duration_since(Instant::now());
+    drop(hold);
+    let _ = fs::remove_dir_all(&dir);
+    assert!(result.comparison.native_unobserved);
+    assert!(!result.comparison.shell_failed);
+    assert_eq!(result.shell.code(), 0);
+    assert!(margin >= Duration::from_secs(5), "margin {margin:?}");
+    Ok(())
+}
