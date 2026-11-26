@@ -836,15 +836,17 @@ it("una divergencia declarada solo en la salida queda aparte y no pinta la fila"
     divergences: 1,
   });
 
-  // A changed verdict (exit codes) or a failed lane is never exempt, even with a reason.
-  for (const comparison of [verdict, { ...stderrOnly, nativeFailed: true }]) {
+  // A changed verdict (exit codes), a stdout difference (Claude's `ask` travels there with exit 0)
+  // or a failed lane is never exempt, even with a reason.
+  const askInStdout = { ...same, stdoutDiffers: true, shellCode: 0, nativeCode: 0 };
+  for (const comparison of [verdict, askInStdout, { ...stderrOnly, nativeFailed: true }]) {
     const changed = [
       { ageDays: 8, comparison: same },
       { ageDays: 3, comparison },
     ];
     const row = report(comparedJournal(changed), { [key(3)]: reason }).rows[0];
     expect(row).toMatchObject({ status: "red", divergences: 1, declared: 0 });
-    expect(row?.problems.join()).toContain("changes the verdict");
+    expect(row?.problems.join()).toContain("may change the verdict");
   }
 
   // --declared rejects anything but "<hook>|<engine>|<ISO begin>" to a non-empty reason.
@@ -855,6 +857,12 @@ it("una divergencia declarada solo en la salida queda aparte y no pinta la fila"
     '{"example|claude": "x"}',
     `{"${key(3)}": ""}`,
     `{"${key(3)}": 1}`,
+    '{"a|b|not-a-date": "x"}',
+    '{"||": "x"}',
+    `{"|claude|${new Date(NOW).toISOString()}": "x"}`,
+    `{"example|other|${new Date(NOW).toISOString()}": "x"}`,
+    '{"example|claude|2026-11-10": "x"}',
+    `{"${key(3)}|extra": "x"}`,
   ])
     expect(() => shadow.parseDeclared(bad)).toThrow("--declared needs a JSON object");
 });

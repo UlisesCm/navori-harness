@@ -1,5 +1,5 @@
 ---
-# navori:managed-file id="pi-agent-reviewer" hash="fbb2e5673a9698abfca08d1223192121814d5180e085571939207da89415e5bd"
+# navori:managed-file id="pi-agent-reviewer" hash="0781cd98f8b7bb56d877bbf44f7e840019ca5053d2efccf79b0cd76a62a7e58f"
 name: "reviewer"
 description: "Strict reviewer — approves or rejects a diff against CLAUDE.md and the spec (APPROVED / CHANGES_REQUESTED). Does not edit code. Use after every implementer run, and before any commit, push or PR that carries code changes."
 tools: ["read","grep","find","ls","bash","write","navori_codegraph_explore","navori_mem_search","navori_mem_get_observation"]
@@ -85,7 +85,7 @@ navori gate full
 The full gate runs only on the round about to sign `APPROVED`; it may answer from cache: a `PASS (cached <date> … sha256 <hash>)` line is reported as cached, with date and log hash, in the Pass 2 table: a time shortcut, never review evidence.
 `navori plan classify <feature> --diff` publishes `reviewDepth`: `light` → Pre-pass plus the sections the diff touches; `full` or absent → every section.
 
-If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run test:assets` instead. Read only the verdict.
+If `navori gate <kind>` prints no first line `navori gate <kind>: exit <N> — log <path>`, it did not run (an old navori prints help and exits 0): run the literal `bun run check:fast` or `bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run typecheck && bun run test:assets` instead. Read only the verdict.
 
 
 Read the verdict (exit code and failure count); report `exit 0` plus summary, or the failing tail. You are the single owner of this gate run, correlated to the diff you're reviewing this turn: never share it, never poll `pgrep`/`ps`. Run `navori gate full` in the foreground with Bash's maximum timeout. If it may exceed that, follow `.claude/skills/verify-before-done/SKILL.md`'s subagent row: run the `&&`-chained steps separately in the foreground, never in the background (no shell `&`, no `run_in_background`, no `Monitor`); if no step fits, report `BLOCKED` instead of improvising a background wait. A yield is neither timeout nor success. Without the actual exit, exit code and failure count — or on timeout, cancellation, rejection or a lost handle — it is `BLOCKED` with no receipt. Nonzero exit or gate failures mean `QUALITY_MISS`.
