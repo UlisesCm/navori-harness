@@ -382,6 +382,15 @@ that limit (human commits are not blocked). `navori doctor` measures its size in
 same limits and warns. The session-start hook warns, but does not block, when it exceeds the
 soft limit.
 
+## Migrating to 0.13
+
+- Nothing to change in your repository. After `npm i -g navori@0.13`, `navori --version` must print `0.13.0`. Node.js >= 22.12 is still the minimum.
+- The CLI is now a native binary for macOS (arm64, x64) and Linux (arm64, x64). npm installs it through an optional platform package (`navori-<os>-<cpu>`), and the postinstall puts it in place of the JS bins. When the postinstall does not run (pnpm, `--ignore-scripts`), the JS launcher starts the same binary. On other platforms, or when optional dependencies are skipped, the package runs the frozen TypeScript CLI that ships inside it.
+- Some commands still run on that frozen TypeScript CLI; you do not need to install anything else: `master`, `codex`, `workspace`, `ticket`, `registry`, most of `audit` and, until they are ported in 0.13.x, `init`, `add`, `configure`, `update`, `refresh`, `receipt` and most of `gate` and `tools`.
+- The ported hooks decide natively in Claude Code and Pi when the platform binary is installed; otherwise their rendered shell body runs, with the same verdicts. Rendered hooks carry a `navori:native-hook` signature line before the managed block.
+- `render`, `sync` and `remove` refuse to write when a managed file has git conflict markers and name the files; `--force` does not bypass it. Resolve the conflict and run the command again.
+- `claudePlugins` in `navori.config.json` declares Claude Code plugins, and `render` writes `enabledPlugins` into `.claude/settings.json`.
+
 ## Migrating to 0.12
 
 - The `global` command and launchd collector were removed (`audit --collect` remains). `doctor --json` no longer outputs `globalScope`.

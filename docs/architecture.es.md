@@ -1,8 +1,8 @@
 > [English](architecture.md) | [Español](architecture.es.md) | [简体中文](architecture.zh-CN.md)
 
-# Arquitectura de navori — cómo funciona (v0.12.0)
+# Arquitectura de navori — cómo funciona (v0.13.0)
 
-> Diagramas navegables: en GitHub, **hacé click en los nodos** para saltar al
+> Diagramas navegables: en GitHub, **haz clic en los nodos** para saltar al
 > archivo fuente. navori reconstruye los recursos del engine seleccionado de forma
 > idempotente desde una única fuente de verdad (`navori.config.json`), sin
 > pisar tu trabajo manual.

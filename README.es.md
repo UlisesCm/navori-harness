@@ -133,6 +133,8 @@ clasificador contra el diff real y avisa cuando el trabajo se salió del nivel d
   - de forma permanente: `master`, `codex`, `workspace`, `ticket` y `registry`, más algunas formas interactivas (`sync` sin una bandera no interactiva, `remove` y los comandos `restore` sin `--yes`, `doctor --json`);
   - por ahora, hasta portarlos: `init`, `add`, `configure`, `update`, `refresh`, `receipt`, casi todo `gate` y `tools`, `audit` salvo `--arm`/`--disarm`, y algunas banderas de `render` y `sync` (`TRANSITIONAL_DELEGATION` en `scripts/js/rust-areas.mjs`).
 - Los hooks que `crates/ported.json` marca `active` deciden de forma nativa en Claude Code y Pi cuando está instalado el binario de la plataforma; si no, corre su cuerpo shell renderizado, con los mismos veredictos. Los demás hooks siguen corriendo su cuerpo shell.
+- `render`, `sync` y `remove` se niegan a escribir si un archivo gestionado tiene marcadores de conflicto de git y nombran los archivos; `--force` no lo evita (#1660).
+- `claudePlugins` en `navori.config.json` declara los plugins de Claude Code y `render` escribe `enabledPlugins` en `.claude/settings.json` (#1747).
 
 ## Migrando a 0.12
 
@@ -273,16 +275,37 @@ donde verlo antes — o sea, CI no valida el árbol del release hasta que ya ate
    Si hace falta a mano: `git tag -a vX.Y.Z <HEAD de main tras el paso 6> && git push origin vX.Y.Z`.
    Los tags de releases anteriores al flujo `dev` → `main` apuntan al commit `chore(release)` directo,
    como `v0.8.2` → `285fa51` y `v0.8.3` → `6f32a00`.
-8. En `main`, tras el merge, publica los paquetes que arma `scripts/js/dist-assemble.mjs` con los
-   artefactos de `rust-release.yml` (`npm-packages/*.tgz`), no `packages/cli`: primero los cuatro de
-   plataforma (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`,
-   `navori-linux-x64`) y después `navori` (antes `npm login`). Compruébalo con
-   `npm view navori version`.
+8. En `main`, tras el merge, publica desde los artefactos del run de `rust-release.yml` del commit
+   del release (`navori-<platform>`, `navori-legacy`, `npm-packages`), no desde `packages/cli`
+   (antes `npm login`). Cada paquete sale con `--tag next`, así que `npm i -g navori` no recibe nada
+   a medias; `latest` se mueve solo al final, en este orden:
+   1. `node scripts/js/dist-assemble.mjs check-pin` imprime `packaging/legacy.json is complete`.
+   2. `navori-legacy`: reconstrúyelo con
+      `node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir>` (falla si la integrity no es
+      la del pin) y publícalo. `npm view navori-legacy@X.Y.Z dist.integrity` debe ser igual a la
+      `integrity` del pin.
+   3. Los cuatro paquetes de plataforma (`navori-darwin-arm64`, `navori-darwin-x64`,
+      `navori-linux-arm64`, `navori-linux-x64`) desde `npm-packages/`.
+   4. `npm view <paquete>@X.Y.Z version` para esos cinco. Si falta alguno, no se publica `navori`.
+   5. `navori`: `dist-assemble.mjs --out <dir> --pack` con un `--binary <platform>=<path>` por
+      plataforma baja `navori-legacy` de npm y lo verifica contra el pin; publica el tarball.
+   6. Prueba de humo en un directorio temporal: `npm i navori@next`; `npx navori --version` imprime
+      `X.Y.Z`, `npx navori workspace ls` responde con el CLI de TypeScript embebido y
+      `scripts/js/dist-legacy-smoke.mjs` pasa con el binario instalado y el tarball del legacy
+      bajado del registro.
+   7. `npm dist-tag add <paquete>@X.Y.Z latest` en el mismo orden (legacy, paquetes de plataforma,
+      `navori` al final) y después `npm view navori version`.
+
+   Nunca `npm unpublish`. Si algo falla antes del paso 7, se corrige y se publica el siguiente patch.
+   Después del paso 7, `npm dist-tag add navori@<anterior> latest` devuelve a los usuarios a la
+   versión anterior y `npm deprecate` marca la rota. npm no permite republicar una versión: `navori`
+   fija la versión exacta de sus paquetes de plataforma y del legacy, así que uno roto obliga a
+   publicar la siguiente versión de todo el conjunto.
 
    `packaging/legacy.json` fija el CLI de TypeScript congelado (`navori-legacy`) que el paquete corre
    para la delegación permanente y en plataformas sin binario. Se construye con
-   `dist-assemble.mjs legacy ... --write-pin` y se publica antes del release; el ensamblado verifica
-   su `integrity`. Se cambia solo con una decisión explícita.
+   `dist-assemble.mjs legacy ... --write-pin` antes del corte y se publica primero en el paso 8; el
+   ensamblado verifica su `integrity`. Se cambia solo con una decisión explícita.
 
 El footer del website imprime la versión importando el `package.json` del CLI
 (`apps/website/src/components/Footer.astro`), y `deploy-website.yml` vigila ese archivo en

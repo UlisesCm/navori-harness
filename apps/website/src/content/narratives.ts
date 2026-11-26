@@ -293,14 +293,15 @@ export const narratives = {
     "zh-CN": "判定变更完成前必须通过的命令，如 lint 与测试。",
   },
   "deep-dive.56": {
-    en: "SDD",
-    es: "SDD",
-    "zh-CN": "SDD",
+    en: "Slice & Prove",
+    es: "Slice & Prove",
+    "zh-CN": "Slice & Prove",
   },
   "deep-dive.57": {
-    en: "Spec-Driven Development: instead of rules living in someone's head, they're written and versioned next to the code, updated with one command.",
-    es: "Spec-Driven Development: en vez de que las reglas vivan en la cabeza de alguien, se escriben y se versionan junto al código, y se actualizan con un comando.",
-    "zh-CN": "规格驱动开发：规则写在代码旁并随版本管理，可用一条命令更新，而非仅存于个人脑中。",
+    en: "navori's method, the evolution of Spec-Driven Development: process sized to the risk, one page per vertical slice, and a change is done only when a person accepts it on the real product.",
+    es: "El método de navori, la evolución de Spec-Driven Development: proceso a la medida del riesgo, una página por porción vertical, y un cambio termina solo cuando una persona lo acepta sobre el producto real.",
+    "zh-CN":
+      "navori 的方法，是规格驱动开发的演进：流程与风险相匹配，每个垂直切片一页规格，只有当人在真实产品上验收通过后变更才算完成。",
   },
   "deep-dive.58": {
     en: "Preset",
@@ -657,14 +658,14 @@ export const narratives = {
     "zh-CN": "在隔离上下文中运行 orchestrator 与执行者的模式。",
   },
   "deep-dive.127": {
-    en: "Spec-Driven Development",
-    es: "Spec-Driven Development",
-    "zh-CN": "规格驱动开发",
+    en: "GitHub Spec Kit",
+    es: "GitHub Spec Kit",
+    "zh-CN": "GitHub Spec Kit",
   },
   "deep-dive.128": {
-    en: "Versioning skills, rules, and conventions as part of the repo.",
-    es: "Versionar skills, reglas y convenciones como parte del repo.",
-    "zh-CN": "将技能、规则与约定作为仓库一部分进行版本管理。",
+    en: "The spec → plan → tasks flow that Slice & Prove started from.",
+    es: "El flujo spec → plan → tareas del que partió Slice & Prove.",
+    "zh-CN": "Slice & Prove 所借鉴的“规格 → 计划 → 任务”流程。",
   },
   "deep-dive.129": {
     en: "gentle-ai",
@@ -962,9 +963,9 @@ export const narratives = {
     "zh-CN": "或",
   },
   "deep-dive.187": {
-    en: "SDD",
-    es: "SDD",
-    "zh-CN": "SDD",
+    en: "Slice & Prove",
+    es: "Slice & Prove",
+    "zh-CN": "Slice & Prove",
   },
   "deep-dive.188": {
     en: "Start with the quick glossary ↓",

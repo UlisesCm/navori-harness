@@ -119,6 +119,8 @@ With `harness.planTiers: true`, a `PreToolUse` hook (`navori plan gate`) denies 
   - for good: `master`, `codex`, `workspace`, `ticket` and `registry`, plus a few interactive forms (`sync` without a non-interactive flag, `remove` and the `restore` commands without `--yes`, `doctor --json`);
   - for now, until they are ported: `init`, `add`, `configure`, `update`, `refresh`, `receipt`, most of `gate` and `tools`, `audit` except `--arm`/`--disarm`, and some flags of `render` and `sync` (`TRANSITIONAL_DELEGATION` in `scripts/js/rust-areas.mjs`).
 - The hooks that `crates/ported.json` marks `active` decide natively in Claude Code and Pi when the platform binary is installed; otherwise their rendered shell body runs, with the same verdicts. The other hooks keep running their shell body.
+- `render`, `sync` and `remove` refuse to write when a managed file has git conflict markers and name the files; `--force` does not bypass it (#1660).
+- `claudePlugins` in `navori.config.json` declares Claude Code plugins, and `render` writes `enabledPlugins` into `.claude/settings.json` (#1747).
 
 ## Migrating to 0.12
 
@@ -223,9 +225,18 @@ Releases are manual and must follow **this order**. The flow is `dev` → `main`
    This was automated because the step was skipped in **0.8.4 and 0.8.5**, and the second omission happened *after* the exact command had been written here. The damage is delayed and silent: `check-asset-commands.mjs` compares against the latest tag, so a release without a tag is checked against the previous one. It keeps saying "exists in v0.8.3" for a repository already on 0.8.4, and nothing fails.
 
    If you need to do it manually: `git tag -a vX.Y.Z <HEAD of main after step 6> && git push origin vX.Y.Z`. Tags for releases before the `dev` → `main` flow point directly to the `chore(release)` commit, as `v0.8.2` → `285fa51` and `v0.8.3` → `6f32a00`.
-8. On `main` after the merge, publish the packages that `scripts/js/dist-assemble.mjs` assembles from the `rust-release.yml` artifacts (`npm-packages/*.tgz`), not `packages/cli`: first the four platform packages (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`, `navori-linux-x64`), then `navori` (`npm login` first). Check it with `npm view navori version`.
+8. On `main` after the merge, publish from the artifacts of the `rust-release.yml` run on the release commit (`navori-<platform>`, `navori-legacy`, `npm-packages`), not from `packages/cli` (`npm login` first). Every package goes out with `--tag next`, so `npm i -g navori` gets nothing half-published; `latest` moves only at the end, in this order:
+   1. `node scripts/js/dist-assemble.mjs check-pin` prints `packaging/legacy.json is complete`.
+   2. `navori-legacy`: rebuild it with `node scripts/js/dist-assemble.mjs legacy --from-pin --out <dir>` (it fails if the integrity differs from the pin) and publish it. `npm view navori-legacy@X.Y.Z dist.integrity` must equal the pin's `integrity`.
+   3. The four platform packages (`navori-darwin-arm64`, `navori-darwin-x64`, `navori-linux-arm64`, `navori-linux-x64`) from `npm-packages/`.
+   4. `npm view <package>@X.Y.Z version` for those five. If one is missing, do not publish `navori`.
+   5. `navori`: `dist-assemble.mjs --out <dir> --pack` with one `--binary <platform>=<path>` per platform downloads `navori-legacy` from npm and verifies it against the pin; publish the tarball.
+   6. Smoke test in a temporary directory: `npm i navori@next`; `npx navori --version` prints `X.Y.Z`, `npx navori workspace ls` answers through the embedded TypeScript CLI, and `scripts/js/dist-legacy-smoke.mjs` passes with the installed binary and the legacy tarball from the registry.
+   7. `npm dist-tag add <package>@X.Y.Z latest` in the same order (legacy, platform packages, `navori` last), then `npm view navori version`.
 
-   `packaging/legacy.json` pins the frozen TypeScript CLI (`navori-legacy`) that the package runs for the permanent delegation and on platforms without a binary. It is built with `dist-assemble.mjs legacy ... --write-pin` and published before the release; the assembly verifies its `integrity`. Change it only with an explicit decision.
+   Never `npm unpublish`. If something fails before step 7, fix it and publish the next patch. After step 7, `npm dist-tag add navori@<previous> latest` sends users back and `npm deprecate` marks the broken version. npm does not allow republishing a version: `navori` pins the exact version of its platform packages and of the legacy, so a broken one means publishing the next version of the whole set.
+
+   `packaging/legacy.json` pins the frozen TypeScript CLI (`navori-legacy`) that the package runs for the permanent delegation and on platforms without a binary. It is built with `dist-assemble.mjs legacy ... --write-pin` before the cutover and published first in step 8; the assembly verifies its `integrity`. Change it only with an explicit decision.
 
 The website footer prints the version by importing the CLI's `package.json` (`apps/website/src/components/Footer.astro`), and `deploy-website.yml` watches that file in its `paths` filter, so the version bump in step 2 redeploys the site. **If the site displays an old version, check that filter first**: until 0.8.4 it did not include the CLI manifest, and the site fell two releases behind, showing `v0.8.2` while 0.8.4 was already on npm.
 
