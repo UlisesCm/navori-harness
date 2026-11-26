@@ -12,7 +12,7 @@ export const ui = {
   en: {
     "site.tagline": "The multi-agent harness for any repo",
     "site.description":
-      "navori drops a reproducible multi-agent + SDD harness into any repo: agents, skills, hooks, permissions and memory, versioned in one config and rendered to Claude Code, Codex, Cursor, Copilot and AGENTS.md.",
+      "navori drops a reproducible multi-agent + Slice & Prove harness into any repo: agents, skills, hooks, permissions and memory, versioned in one config and rendered to Claude Code, Codex, Cursor, Copilot and AGENTS.md.",
     "nav.docs": "Docs",
     "nav.quickstart": "Quickstart",
     "nav.deepdive": "Deep dive",
@@ -104,9 +104,9 @@ export const ui = {
     "problem.card2.title": "Every engine, its own config",
     "problem.card2.body":
       "Claude has .claude/, Cursor has .cursor/, Copilot has .github/copilot-instructions.md. Same intent, three files.",
-    "problem.card3.title": "SDD erodes over time",
+    "problem.card3.title": "Process erodes over time",
     "problem.card3.body":
-      "Skills, hooks, and Spec-Driven Development conventions decay when there's no way to version and roll them forward.",
+      "Skills, hooks and the way your team plans and verifies work decay when there's no way to version and roll them forward.",
     "scopes.eyebrow": "Scopes",
     "scopes.title": "The harness no longer lives only in the repo",
     "scopes.subtitle":
@@ -309,11 +309,15 @@ export const ui = {
     "inventory.agents": "agents",
     "inventory.skills": "skills",
     "inventory.dependencies": "0 runtime deps",
+    "inventory.rust": "Native Rust binary",
+    "faq.q7": "What changed with Rust in 0.13?",
+    "faq.a7":
+      "The CLI and the ported hooks are now a native Rust binary for macOS and Linux (arm64 and x64), with the same commands and the same output. npm installs the binary for your platform; elsewhere the package runs the TypeScript CLI it ships with. Nothing changes in your repo: update with npm i -g navori and navori --version prints the new version.",
   },
   es: {
     "site.tagline": "El harness multi-agente para cualquier repo",
     "site.description":
-      "navori instala en cualquier repo un harness multi-agente + SDD reproducible: agentes, skills, hooks, permisos y memoria, versionados en un solo config y renderizados a Claude Code, Codex, Cursor, Copilot y AGENTS.md.",
+      "navori instala en cualquier repo un harness multi-agente + Slice & Prove reproducible: agentes, skills, hooks, permisos y memoria, versionados en un solo config y renderizados a Claude Code, Codex, Cursor, Copilot y AGENTS.md.",
     "nav.docs": "Docs",
     "nav.quickstart": "Quickstart",
     "nav.deepdive": "A fondo",
@@ -405,9 +409,9 @@ export const ui = {
     "problem.card2.title": "Cada engine, su propia config",
     "problem.card2.body":
       "Claude tiene .claude/, Cursor tiene .cursor/, Copilot tiene .github/copilot-instructions.md. La misma intención, tres archivos.",
-    "problem.card3.title": "El SDD se erosiona",
+    "problem.card3.title": "El proceso se erosiona",
     "problem.card3.body":
-      "Las skills, los hooks y las convenciones de Spec-Driven Development se pierden con el tiempo si no hay una forma de versionarlas y actualizarlas.",
+      "Las skills, los hooks y la forma en que tu equipo planea y verifica el trabajo se pierden con el tiempo si no hay una forma de versionarlos y actualizarlos.",
     "scopes.eyebrow": "Alcances",
     "scopes.title": "El harness ya no vive solo en el repo",
     "scopes.subtitle":
@@ -615,11 +619,15 @@ export const ui = {
     "inventory.agents": "agentes",
     "inventory.skills": "skills",
     "inventory.dependencies": "0 deps runtime",
+    "inventory.rust": "Binario nativo en Rust",
+    "faq.q7": "¿Qué cambió con Rust en 0.13?",
+    "faq.a7":
+      "El CLI y los hooks portados ahora son un binario nativo en Rust para macOS y Linux (arm64 y x64), con los mismos comandos y la misma salida. npm instala el binario de tu plataforma; en las demás, el paquete corre el CLI de TypeScript que viaja dentro de él. En tu repo no cambia nada: actualiza con npm i -g navori y navori --version muestra la versión nueva.",
   },
   "zh-CN": {
     "site.tagline": "适用于任何代码仓库的多智能体 harness",
     "site.description":
-      "navori 为任何仓库安装可复现的多智能体与 SDD 工作环境：智能体、技能、钩子、权限和记忆统一版本管理，并渲染到 Claude Code、Codex、Cursor、Copilot 和 AGENTS.md。",
+      "navori 为任何仓库安装可复现的多智能体与 Slice & Prove 工作环境：智能体、技能、钩子、权限和记忆统一版本管理，并渲染到 Claude Code、Codex、Cursor、Copilot 和 AGENTS.md。",
     "nav.docs": "文档",
     "nav.quickstart": "快速开始",
     "nav.deepdive": "深入了解",
@@ -709,8 +717,9 @@ export const ui = {
     "problem.card2.title": "每种引擎各自维护配置",
     "problem.card2.body":
       "Claude 使用 .claude/，Cursor 使用 .cursor/，Copilot 使用 .github/copilot-instructions.md。同样的意图分散在三个文件。",
-    "problem.card3.title": "SDD 逐渐失效",
-    "problem.card3.body": "如果无法版本管理和持续更新，技能、钩子与规格驱动开发约定就会逐渐偏离。",
+    "problem.card3.title": "流程逐渐失效",
+    "problem.card3.body":
+      "如果无法版本管理和持续更新，技能、钩子以及团队规划与验证工作的方式就会逐渐偏离。",
     "scopes.eyebrow": "作用域",
     "scopes.title": "harness 不再局限于单个仓库",
     "scopes.subtitle":
@@ -899,6 +908,10 @@ export const ui = {
     "inventory.agents": "智能体",
     "inventory.skills": "技能",
     "inventory.dependencies": "零运行时依赖",
+    "inventory.rust": "原生 Rust 二进制",
+    "faq.q7": "0.13 引入 Rust 后有哪些变化？",
+    "faq.a7":
+      "CLI 和已移植的钩子现在是适用于 macOS 和 Linux（arm64 与 x64）的原生 Rust 二进制程序，命令和输出保持不变。npm 会安装适合你平台的二进制；在其他平台上，该包会运行随包发布的 TypeScript CLI。仓库无需改动：用 npm i -g navori 更新后，navori --version 会显示新版本。",
   },
 } as const satisfies Record<Lang, Record<string, string>>;
 

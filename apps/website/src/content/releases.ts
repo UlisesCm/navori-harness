@@ -66,6 +66,12 @@ export const RELEASES: readonly ReleaseEntry[] = [
         "zh-CN":
           "navori.config.json 中的 claudePlugins 用于声明 Claude Code 插件，render 会将 enabledPlugins 写入 .claude/settings.json（#1747）。",
       },
+      {
+        es: "render, sync y remove se niegan a escribir si un archivo gestionado tiene marcadores de conflicto de git y nombran los archivos; --force no lo evita (#1660).",
+        en: "render, sync and remove refuse to write when a managed file has git conflict markers and name the files; --force does not bypass it (#1660).",
+        "zh-CN":
+          "当受管理的文件含有 git 冲突标记时，render、sync 和 remove 会拒绝写入并列出这些文件；--force 也无法绕过（#1660）。",
+      },
     ],
   },
   {
