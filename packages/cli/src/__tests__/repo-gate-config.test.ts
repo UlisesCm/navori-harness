@@ -33,11 +33,13 @@ describe("this repo's quality gate (R23, R25)", () => {
   // Covers: R23
   it("orden y conjunto", () => {
     // The Rust gate first (`check:post-cutover`, R18), then the cheap checks, the test-preservation
-    // check and the asset and docs suites last (spec 0062 T10, option C: no TS suite).
+    // check, the typecheck of the TS that stays and the asset and docs suites last (spec 0062 T10,
+    // option C: no TS suite).
     expect(steps(gate?.full)).toEqual([
       "check:post-cutover",
       ...CHEAP,
       "check:tests-preserved",
+      "typecheck",
       "test:assets",
     ]);
     // The package.json `check` script mirrors `full`.

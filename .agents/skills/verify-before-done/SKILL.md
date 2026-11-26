@@ -6,7 +6,7 @@ metadata:
   maxWords: 663
 ---
 
-<!-- navori:managed id="verify-before-done-base" hash="c733817c" version="0.13.0" source="@navori/core" fmkeys="name,description,metadata" -->
+<!-- navori:managed id="verify-before-done-base" hash="ff2cfa76" version="0.13.0" source="@navori/core" fmkeys="name,description,metadata" -->
 # Verify Before Done
 
 ## The Iron Law
@@ -25,7 +25,7 @@ BEFORE claiming "done / ready / approved" (`implementer`: `done -> impl_<feature
 
 | Claim | Required output | Not sufficient |
 |---|---|---|
-| `bun run check:fast` / `bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run test:assets` green | Full command run this turn, exit 0; at session close, `navori receipt check --feature <feature> --include-consumed --json` with `"status":"ok"` and `"fresh":true` | "ran it before" |
+| `bun run check:fast` / `bun run check:post-cutover && bun run check:deps && bun run format:check && bun run check:dup && bun run check:ast && bun run check:links && bun run check:render && bun run check:assets && bun run check:doc-budgets && bun run check:blame-ignore && bun run check:tests-preserved && bun run typecheck && bun run test:assets` green | Full command run this turn, exit 0; at session close, `navori receipt check --feature <feature> --include-consumed --json` with `"status":"ok"` and `"fresh":true` | "ran it before" |
 | Gate answered `PASS (cached <date> … sha256 <hash>)` | Report it as cached, with date and log hash: a time shortcut, never review evidence | Claiming it as a fresh run |
 | Bug fixed | Reproduce the original symptom and see it NOT happen | "code changed, assumed fixed" |
 | PR creatable | Pre-flight THIS TURN: not on the protected base branch, `gh auth status`, receipt `"status":"ok"` (`navori receipt check …`; if the installed CLI lacks it, use the repository-built CLI); direct change, your own run. No clean working tree required | "the branch has commits" |
